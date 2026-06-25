@@ -567,13 +567,6 @@
   }
 
   function renderLogin() {
-    const users = seed.users.map((user) => `
-      <button class="demo-user" data-action="quick-login" data-email="${user.email}" data-password="${user.password}">
-        <strong>${roleLabel(user.role)}</strong><br>
-        ${user.email} / ${user.password}
-      </button>
-    `).join("");
-
     return `
       <div class="login-shell">
         <section class="login-panel">
@@ -583,15 +576,14 @@
           <form class="login-form" data-form="login">
             <div class="field">
               <label for="email">Courriel</label>
-              <input id="email" name="email" type="email" value="admin@climaparc.ca" autocomplete="username">
+              <input id="email" name="email" type="email" autocomplete="username">
             </div>
             <div class="field">
               <label for="password">Mot de passe</label>
-              <input id="password" name="password" type="password" value="admin123" autocomplete="current-password">
+              <input id="password" name="password" type="password" autocomplete="current-password">
             </div>
             <button class="primary-button" type="submit">Connexion</button>
           </form>
-          <div class="demo-users">${users}</div>
         </section>
         <section class="login-visual">
           <div class="visual-copy">
@@ -1827,9 +1819,6 @@
       if (!target) return;
       const action = target.dataset.action;
       if (action === "close-modal" && modalCard && target.classList.contains("modal-backdrop")) return;
-      if (action === "quick-login") {
-        login({ email: target.dataset.email, password: target.dataset.password });
-      }
       if (action === "logout") logout();
       if (action === "view") setState({ activeView: target.dataset.view, modal: null });
       if (action === "select-building") setState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });

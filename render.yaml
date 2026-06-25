@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: climaparc-hvac
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: CLIMAPARC_HOST
+        value: 0.0.0.0
+      - key: CLIMAPARC_SESSION_TTL
+        value: "28800"
+      - key: DATABASE_URL
+        sync: false

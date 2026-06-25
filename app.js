@@ -19,6 +19,7 @@
       status: "all",
       search: ""
     },
+    passwordResetRequests: [],
     users: [
       {
         id: "u-admin",
@@ -341,6 +342,7 @@
     next.filters = { ...seed.filters, ...(data.filters || {}) };
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
+    next.passwordResetRequests = data.passwordResetRequests || [];
     next.selectedBuildingId = data.selectedBuildingId || next.buildings[0]?.id || null;
     next.buildings = (data.buildings || seed.buildings).map((building) => ({
       onsiteContactName: "",
@@ -584,6 +586,10 @@
             </div>
             <button class="primary-button" type="submit">Connexion</button>
           </form>
+          <div class="login-links">
+            <button class="ghost-button" data-action="open-modal" data-modal="signup">Créer un compte</button>
+            <button class="link-button" data-action="open-modal" data-modal="forgotPassword">Mot de passe oublié?</button>
+          </div>
         </section>
         <section class="login-visual">
           <div class="visual-copy">
@@ -592,6 +598,7 @@
           </div>
         </section>
       </div>
+      ${state.modal ? renderModal() : ""}
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     `;
   }
@@ -1141,6 +1148,8 @@
     if (modal.type === "serviceType") return serviceTypeModal(modal);
     if (modal.type === "interventionType") return interventionTypeModal(modal);
     if (modal.type === "role") return roleModal(modal);
+    if (modal.type === "signup") return signupModal();
+    if (modal.type === "forgotPassword") return forgotPasswordModal();
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     return "";
   }
@@ -1157,6 +1166,34 @@
         </section>
       </div>
     `;
+  }
+
+  function signupModal() {
+    return modalShell("Créer un compte", `
+      <form class="form-grid" data-form="signup">
+        <div class="field"><label>Entreprise / gestionnaire</label><input name="companyName" required autocomplete="organization"></div>
+        <div class="split">
+          <div class="field"><label>Nom complet</label><input name="name" required autocomplete="name"></div>
+          <div class="field"><label>Téléphone</label><input name="phone" autocomplete="tel"></div>
+        </div>
+        <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
+        <div class="split">
+          <div class="field"><label>Mot de passe</label><input name="password" type="password" required autocomplete="new-password" minlength="8"></div>
+          <div class="field"><label>Confirmer le mot de passe</label><input name="confirmPassword" type="password" required autocomplete="new-password" minlength="8"></div>
+        </div>
+        <button class="primary-button" type="submit">Créer mon compte</button>
+      </form>
+    `);
+  }
+
+  function forgotPasswordModal() {
+    return modalShell("Mot de passe oublié", `
+      <form class="form-grid" data-form="forgotPassword">
+        <p class="meta">Entrez votre courriel. Si un compte existe, une demande de réinitialisation sera enregistrée.</p>
+        <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
+        <button class="primary-button" type="submit">Envoyer la demande</button>
+      </form>
+    `);
   }
 
   function buildingModal(modal) {
@@ -1393,6 +1430,8 @@
     const values = Object.fromEntries(new FormData(form).entries());
     const formType = form.dataset.form;
     if (formType === "login") login(values);
+    if (formType === "signup") signup(values);
+    if (formType === "forgotPassword") requestPasswordReset(values);
     if (formType === "building") saveBuilding(values);
     if (formType === "apartment") saveApartment(values);
     if (formType === "ticket") createTicket(values);
@@ -1422,6 +1461,84 @@
     } finally {
       restoringSession = false;
     }
+  }
+
+  async function signup(values) {
+    if (values.password !== values.confirmPassword) {
+      showToast("Les mots de passe ne correspondent pas.");
+      return;
+    }
+    if (values.password.length < 8) {
+      showToast("Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
+    if (state.users.some((user) => user.email.toLowerCase() === values.email.toLowerCase())) {
+      showToast("Un compte existe déjà avec ce courriel.");
+      return;
+    }
+    if (SERVER_ENABLED) {
+      try {
+        const response = await fetch("/api/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ ...values, seed })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          showToast(payload.error || "Création du compte impossible.");
+          return;
+        }
+        state = normalizeState(payload.state);
+        state.sessionUserId = payload.user.id;
+        state.activeView = "lieux";
+        state.modal = null;
+        state.toast = "Compte créé.";
+        saveState();
+        render();
+      } catch (error) {
+        showToast("Serveur indisponible.");
+      }
+      return;
+    }
+    const client = {
+      id: uid("client"),
+      name: values.companyName,
+      contact: values.name,
+      email: values.email,
+      phone: values.phone || ""
+    };
+    const user = {
+      id: uid("u"),
+      name: values.name,
+      email: values.email,
+      password: values.password,
+      role: "client",
+      clientId: client.id
+    };
+    state.clients.push(client);
+    state.users.push(user);
+    setState({ sessionUserId: user.id, activeView: "lieux", modal: null, toast: "Compte créé." });
+  }
+
+  async function requestPasswordReset(values) {
+    if (SERVER_ENABLED) {
+      try {
+        await fetch("/api/password-reset-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email: values.email, seed })
+        });
+      } catch (error) {
+        showToast("Serveur indisponible.");
+        return;
+      }
+    } else {
+      state.passwordResetRequests.unshift({ id: uid("reset"), email: values.email, createdAt: today(), status: "nouvelle" });
+      saveState();
+    }
+    setState({ modal: null, toast: "Si le compte existe, la demande a été enregistrée." });
   }
 
   async function login(values) {

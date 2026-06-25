@@ -208,6 +208,10 @@ def ensure_bootstrap_state(seed: dict | None) -> dict:
         return state
 
 
+def new_id(prefix: str) -> str:
+    return f"{prefix}-{secrets.token_hex(8)}"
+
+
 def create_session(user_id: str) -> str:
     token = secrets.token_urlsafe(32)
     with db() as connection:
@@ -258,6 +262,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/login":
             self.handle_login()
             return
+        if parsed.path == "/api/signup":
+            self.handle_signup()
+            return
+        if parsed.path == "/api/password-reset-request":
+            self.handle_password_reset_request()
+            return
         if parsed.path == "/api/logout":
             self.handle_logout()
             return
@@ -291,6 +301,74 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Set-Cookie", f"climaparc_session={token}; HttpOnly; Path=/; SameSite=Lax")
         self.end_headers()
         self.wfile.write(json.dumps({"user": public_user(user), "state": state}, ensure_ascii=False).encode("utf-8"))
+
+    def handle_signup(self) -> None:
+        payload = self.read_json()
+        state = ensure_bootstrap_state(payload.get("seed"))
+        email = str(payload.get("email", "")).strip().lower()
+        password = str(payload.get("password", ""))
+        confirm_password = str(payload.get("confirmPassword", ""))
+        company_name = str(payload.get("companyName", "")).strip()
+        name = str(payload.get("name", "")).strip()
+        phone = str(payload.get("phone", "")).strip()
+
+        if not email or not password or not company_name or not name:
+            self.json_response({"error": "Tous les champs obligatoires doivent être remplis."}, HTTPStatus.BAD_REQUEST)
+            return
+        if password != confirm_password:
+            self.json_response({"error": "Les mots de passe ne correspondent pas."}, HTTPStatus.BAD_REQUEST)
+            return
+        if len(password) < 8:
+            self.json_response({"error": "Le mot de passe doit contenir au moins 8 caractères."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        with db() as connection:
+            existing = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
+            if existing:
+                self.json_response({"error": "Un compte existe déjà avec ce courriel."}, HTTPStatus.CONFLICT)
+                return
+
+            client = {
+                "id": new_id("client"),
+                "name": company_name,
+                "contact": name,
+                "email": email,
+                "phone": phone,
+            }
+            user = {
+                "id": new_id("u"),
+                "name": name,
+                "email": email,
+                "password": password,
+                "role": "client",
+                "clientId": client["id"],
+            }
+            state.setdefault("clients", []).append(client)
+            state.setdefault("users", []).append(user)
+            save_state(connection, state)
+            sync_users(connection, state)
+
+        token = create_session(user["id"])
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", f"climaparc_session={token}; HttpOnly; Path=/; SameSite=Lax")
+        self.end_headers()
+        self.wfile.write(json.dumps({"user": {k: v for k, v in user.items() if k != "password"}, "state": state}, ensure_ascii=False).encode("utf-8"))
+
+    def handle_password_reset_request(self) -> None:
+        payload = self.read_json()
+        state = ensure_bootstrap_state(payload.get("seed"))
+        email = str(payload.get("email", "")).strip().lower()
+        if email:
+            state.setdefault("passwordResetRequests", []).insert(0, {
+                "id": new_id("reset"),
+                "email": email,
+                "createdAt": datetime.now(timezone.utc).date().isoformat(),
+                "status": "nouvelle",
+            })
+            with db() as connection:
+                save_state(connection, state)
+        self.json_response({"ok": True})
 
     def handle_logout(self) -> None:
         cookie_header = self.headers.get("Cookie")

@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   const STORAGE_KEY = "climaparc_hvac_v2";
   const SERVER_ENABLED = typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:");
   let saveTimer = null;
@@ -11,6 +11,7 @@
     selectedEquipmentId: "eq-101",
     selectedTicketId: null,
     selectedWorkOrderId: null,
+    selectedExecutionApartmentId: null,
     modal: null,
     toast: "",
     filters: {
@@ -62,22 +63,22 @@
       {
         id: "b-verdun",
         clientId: "client-azur",
-        name: "Résidence Verdun",
-        address: "1140 rue Wellington, Montréal",
-        onsiteContactName: "André Roy",
+        name: "RÃ©sidence Verdun",
+        address: "1140 rue Wellington, MontrÃ©al",
+        onsiteContactName: "AndrÃ© Roy",
         onsiteContactPhone: "514-555-0188",
         onsiteContactEmail: "concierge@verdun.ca",
         billingContactName: "Sophie Martin",
         billingContactPhone: "514-555-0112",
         billingContactEmail: "facturation@gestionazur.ca",
-        notes: "Accès par l'entrée de service."
+        notes: "AccÃ¨s par l'entrÃ©e de service."
       },
       {
         id: "b-laval",
         clientId: "client-azur",
         name: "Tours Laval",
         address: "75 boulevard Cartier, Laval",
-        onsiteContactName: "Mélanie Fortin",
+        onsiteContactName: "MÃ©lanie Fortin",
         onsiteContactPhone: "450-555-0140",
         onsiteContactEmail: "surplace@tourslaval.ca",
         billingContactName: "Sophie Martin",
@@ -88,8 +89,8 @@
       {
         id: "b-nord",
         clientId: "client-nord",
-        name: "Condo Rivière Nord",
-        address: "425 rue Principale, Saint-Jérôme",
+        name: "Condo RiviÃ¨re Nord",
+        address: "425 rue Principale, Saint-JÃ©rÃ´me",
         onsiteContactName: "Daniel Leduc",
         onsiteContactPhone: "450-555-0199",
         onsiteContactEmail: "maintenance@rivieredunord.ca",
@@ -119,7 +120,7 @@
         lastService: "2026-05-18",
         nextService: "2026-11-18",
         status: "actif",
-        notes: "Accès avec préavis de 24 h."
+        notes: "AccÃ¨s avec prÃ©avis de 24 h."
       },
       {
         id: "eq-202",
@@ -133,21 +134,21 @@
         lastService: "2026-03-08",
         nextService: "2026-09-08",
         status: "surveillance",
-        notes: "Vibration légère à vitesse élevée."
+        notes: "Vibration lÃ©gÃ¨re Ã  vitesse Ã©levÃ©e."
       },
       {
         id: "eq-504",
         apartmentId: "apt-504",
-        type: "Unité PTAC",
+        type: "UnitÃ© PTAC",
         brand: "Friedrich",
         model: "PZE12K",
         serial: "FR-504-4421",
-        location: "Pièce principale",
+        location: "PiÃ¨ce principale",
         installDate: "2018-02-20",
         lastService: "2025-12-15",
         nextService: "2026-06-30",
         status: "a_planifier",
-        notes: "Nettoyage annuel à compléter."
+        notes: "Nettoyage annuel Ã  complÃ©ter."
       },
       {
         id: "eq-709",
@@ -156,7 +157,7 @@
         brand: "Daikin",
         model: "DZ14SA",
         serial: "DK-709-7711",
-        location: "Salle mécanique",
+        location: "Salle mÃ©canique",
         installDate: "2020-07-27",
         lastService: "2026-04-11",
         nextService: "2026-10-11",
@@ -166,7 +167,7 @@
       {
         id: "eq-12",
         apartmentId: "apt-12",
-        type: "Échangeur d'air",
+        type: "Ã‰changeur d'air",
         brand: "Venmar",
         model: "AVS N Series",
         serial: "VN-012-3388",
@@ -175,38 +176,51 @@
         lastService: "2026-02-22",
         nextService: "2026-08-22",
         status: "hors_service",
-        notes: "Moteur à remplacer."
+        notes: "Moteur Ã  remplacer."
       }
     ],
     serviceTypes: [
       { id: "plainte_bruit", name: "Plainte bruit / vibration", defaultPriority: "normale", linkedInterventionTypeId: "inspection" },
-      { id: "panne", name: "Panne ou arrêt complet", defaultPriority: "urgente", linkedInterventionTypeId: "reparation" },
+      { id: "panne", name: "Panne ou arrÃªt complet", defaultPriority: "urgente", linkedInterventionTypeId: "reparation" },
       { id: "entretien", name: "Demande d'entretien", defaultPriority: "normale", linkedInterventionTypeId: "nettoyage" }
+    ],
+    formTemplates: [
+      {
+        id: "form-nettoyage-bloc",
+        name: "Formulaire nettoyage bloc",
+        fields: [
+          { id: "etat_general", label: "Etat general de l'unite", type: "single", options: ["Bon", "A surveiller", "Reparation requise"] },
+          { id: "acces", label: "Acces a l'appartement confirme", type: "checkbox", options: ["Oui"] },
+          { id: "actions", label: "Actions effectuees", type: "multiple", options: ["Filtres nettoyes", "Drain nettoye", "Serpentin inspecte", "Test de fonctionnement"] },
+          { id: "anomalie", label: "Description de l'anomalie", type: "long", showWhen: { fieldId: "etat_general", value: "Reparation requise" } },
+          { id: "recommandation", label: "Recommandation au client", type: "long" }
+        ]
+      }
     ],
     interventionTypes: [
       {
         id: "nettoyage",
-        name: "Nettoyage préventif",
+        name: "Nettoyage prÃ©ventif",
         defaultDuration: 75,
         checklist: [
-          "Couper l'alimentation et sécuriser la zone",
+          "Couper l'alimentation et sÃ©curiser la zone",
           "Nettoyer ou remplacer les filtres",
-          "Nettoyer l'évaporateur et le drain",
-          "Vérifier les serpentins et ailettes",
-          "Mesurer la température de soufflage",
+          "Nettoyer l'Ã©vaporateur et le drain",
+          "VÃ©rifier les serpentins et ailettes",
+          "Mesurer la tempÃ©rature de soufflage",
           "Remettre en marche et valider le fonctionnement"
         ]
       },
       {
         id: "reparation",
-        name: "Réparation",
+        name: "RÃ©paration",
         defaultDuration: 120,
         checklist: [
-          "Confirmer le symptôme avec le résident ou gestionnaire",
-          "Diagnostiquer composantes électriques et mécaniques",
-          "Identifier les pièces requises",
-          "Effectuer la réparation approuvée",
-          "Tester l'équipement en mode chaud et froid",
+          "Confirmer le symptÃ´me avec le rÃ©sident ou gestionnaire",
+          "Diagnostiquer composantes Ã©lectriques et mÃ©caniques",
+          "Identifier les piÃ¨ces requises",
+          "Effectuer la rÃ©paration approuvÃ©e",
+          "Tester l'Ã©quipement en mode chaud et froid",
           "Documenter les mesures et recommandations"
         ]
       },
@@ -215,11 +229,11 @@
         name: "Inspection technique",
         defaultDuration: 45,
         checklist: [
-          "Inspecter l'état général de l'unité",
-          "Vérifier bruit, vibration et odeurs",
-          "Contrôler pression, débit et température",
+          "Inspecter l'Ã©tat gÃ©nÃ©ral de l'unitÃ©",
+          "VÃ©rifier bruit, vibration et odeurs",
+          "ContrÃ´ler pression, dÃ©bit et tempÃ©rature",
           "Photographier les anomalies",
-          "Déterminer priorité de suivi"
+          "DÃ©terminer prioritÃ© de suivi"
         ]
       }
     ],
@@ -232,7 +246,7 @@
         date: "2026-05-18",
         technicianId: "u-tech",
         status: "terminee",
-        summary: "Nettoyage complet, drain dégagé, fonctionnement normal.",
+        summary: "Nettoyage complet, drain dÃ©gagÃ©, fonctionnement normal.",
         readings: { soufflage: "10.8 C", retour: "23.4 C", pression: "OK" },
         checklistDone: [true, true, true, true, true, true]
       },
@@ -244,8 +258,8 @@
         date: "2026-03-08",
         technicianId: "u-tech",
         status: "terminee",
-        summary: "Vibration perceptible. Recommandation: vérifier support moteur au prochain passage.",
-        readings: { soufflage: "12.2 C", retour: "22.9 C", pression: "À revoir" },
+        summary: "Vibration perceptible. Recommandation: vÃ©rifier support moteur au prochain passage.",
+        readings: { soufflage: "12.2 C", retour: "22.9 C", pression: "Ã€ revoir" },
         checklistDone: [true, true, true, true, true]
       }
     ],
@@ -256,8 +270,8 @@
         buildingId: "b-laval",
         apartmentId: "apt-504",
         equipmentId: "eq-504",
-        title: "Entretien annuel à planifier",
-        description: "Le gestionnaire souhaite regrouper l'entretien avec trois autres unités.",
+        title: "Entretien annuel Ã  planifier",
+        description: "Le gestionnaire souhaite regrouper l'entretien avec trois autres unitÃ©s.",
         priority: "normale",
         status: "ouvert",
         createdAt: "2026-06-20",
@@ -269,8 +283,8 @@
         buildingId: "b-nord",
         apartmentId: "apt-12",
         equipmentId: "eq-12",
-        title: "Échangeur d'air hors service",
-        description: "L'appareil ne démarre plus. Le panneau indique une erreur moteur.",
+        title: "Ã‰changeur d'air hors service",
+        description: "L'appareil ne dÃ©marre plus. Le panneau indique une erreur moteur.",
         priority: "urgente",
         status: "en_cours",
         createdAt: "2026-06-22",
@@ -287,7 +301,7 @@
         technicianId: "u-tech",
         scheduledDate: "2026-05-18",
         status: "termine",
-        notes: "Contrat préventif semestriel."
+        notes: "Contrat prÃ©ventif semestriel."
       },
       {
         id: "wo-2",
@@ -298,7 +312,7 @@
         technicianId: "u-tech",
         scheduledDate: "2026-03-08",
         status: "termine",
-        notes: "Inspection après plainte de bruit."
+        notes: "Inspection aprÃ¨s plainte de bruit."
       },
       {
         id: "wo-3",
@@ -309,12 +323,12 @@
         technicianId: "u-tech",
         scheduledDate: "2026-06-25",
         status: "planifie",
-        notes: "Prévoir moteur compatible Venmar."
+        notes: "PrÃ©voir moteur compatible Venmar."
       }
     ],
     roleDefinitions: [
       { id: "administrateur", name: "Administrateur", rights: ["all"] },
-      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "tickets", "workorders", "reports", "users", "settings"] },
+      { id: "equipe_interne", name: "Ã‰quipe interne", rights: ["lieux", "equipment", "tickets", "workorders", "reports", "users", "settings"] },
       { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "workorders", "interventions"] },
       { id: "client", name: "Client", rights: ["portal", "lieux", "tickets", "reports"] }
     ]
@@ -341,6 +355,17 @@
     const next = { ...JSON.parse(JSON.stringify(seed)), ...data };
     next.filters = { ...seed.filters, ...(data.filters || {}) };
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
+    next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
+      id: template.id,
+      name: template.name,
+      fields: (template.fields || []).map((field) => ({
+        id: field.id,
+        label: field.label,
+        type: field.type || "text",
+        options: field.options || [],
+        showWhen: field.showWhen || null
+      }))
+    }));
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
     next.passwordResetRequests = data.passwordResetRequests || [];
     next.selectedBuildingId = data.selectedBuildingId || next.buildings[0]?.id || null;
@@ -357,6 +382,19 @@
     next.tickets = (data.tickets || seed.tickets).map((ticket) => ({
       serviceTypeId: next.serviceTypes[0]?.id || "",
       ...ticket
+    }));
+    next.workOrders = (data.workOrders || seed.workOrders).map((order) => ({
+      scope: order.buildingId ? "building" : "equipment",
+      buildingId: "",
+      equipmentId: "",
+      formTemplateId: next.formTemplates[0]?.id || "",
+      ...order
+    }));
+    next.interventions = (data.interventions || seed.interventions).map((intervention) => ({
+      apartmentId: "",
+      formTemplateId: "",
+      formResponses: {},
+      ...intervention
     }));
     return next;
   }
@@ -405,7 +443,7 @@
   function roleLabel(role) {
     return state.roleDefinitions?.find((item) => item.id === role)?.name || {
       administrateur: "Administrateur",
-      equipe_interne: "Équipe interne",
+      equipe_interne: "Ã‰quipe interne",
       technicien: "Technicien",
       client: "Client"
     }[role] || role;
@@ -459,10 +497,11 @@
 
   function scopedWorkOrders() {
     const equipmentIds = scopedEquipment().map((item) => item.id);
+    const buildingIds = scopedBuildings().map((building) => building.id);
     if (currentUser()?.role === "technicien") {
       return state.workOrders.filter((order) => order.technicianId === currentUser().id);
     }
-    return state.workOrders.filter((order) => equipmentIds.includes(order.equipmentId));
+    return state.workOrders.filter((order) => equipmentIds.includes(order.equipmentId) || buildingIds.includes(order.buildingId));
   }
 
   function buildingForApartment(apartmentId) {
@@ -483,19 +522,57 @@
     return { equipment, apartment, building, client };
   }
 
+  function workOrderContext(order) {
+    if (!order) return {};
+    if (order.buildingId) {
+      const building = state.buildings.find((item) => item.id === order.buildingId);
+      const client = state.clients.find((item) => item.id === building?.clientId);
+      return { building, client, apartment: null, equipment: null };
+    }
+    return equipmentContext(order.equipmentId);
+  }
+
+  function workOrderApartments(order) {
+    if (!order) return [];
+    if (order.buildingId) return apartmentsForBuilding(order.buildingId);
+    const { apartment } = equipmentContext(order.equipmentId);
+    return apartment ? [apartment] : [];
+  }
+
+  function interventionsForOrder(orderId) {
+    return state.interventions.filter((item) => item.workOrderId === orderId);
+  }
+
+  function workOrderProgress(order) {
+    const apartments = workOrderApartments(order);
+    const interventions = interventionsForOrder(order.id);
+    const completedApartmentIds = new Set(interventions.map((item) => item.apartmentId || state.equipment.find((eq) => eq.id === item.equipmentId)?.apartmentId).filter(Boolean));
+    const done = apartments.filter((apartment) => completedApartmentIds.has(apartment.id)).length;
+    return {
+      totalApartments: apartments.length,
+      doneApartments: done,
+      machines: interventions.length,
+      percent: apartments.length ? Math.round((done / apartments.length) * 100) : 0
+    };
+  }
+
+  function formTemplateForOrder(order) {
+    return state.formTemplates.find((item) => item.id === order?.formTemplateId) || state.formTemplates[0];
+  }
+
   function statusBadge(status) {
     const map = {
       actif: ["Actif", "ok"],
       surveillance: ["Surveillance", "warn"],
-      a_planifier: ["À planifier", "info"],
+      a_planifier: ["Ã€ planifier", "info"],
       hors_service: ["Hors service", "danger"],
       ouvert: ["Ouvert", "info"],
       en_cours: ["En cours", "warn"],
-      ferme: ["Fermé", "neutral"],
-      planifie: ["Planifié", "info"],
-      termine: ["Terminé", "ok"],
-      annule: ["Annulé", "neutral"],
-      terminee: ["Terminée", "ok"],
+      ferme: ["FermÃ©", "neutral"],
+      planifie: ["PlanifiÃ©", "info"],
+      termine: ["TerminÃ©", "ok"],
+      annule: ["AnnulÃ©", "neutral"],
+      terminee: ["TerminÃ©e", "ok"],
       urgente: ["Urgente", "danger"],
       normale: ["Normale", "info"],
       basse: ["Basse", "neutral"]
@@ -531,12 +608,12 @@
     const nav = [
       ["tableau", "TB", "Tableau de bord", true],
       ["lieux", "LI", "Lieux", can("lieux") || can("portal")],
-      ["equipements", "EQ", "Équipements", can("equipment") || can("portal")],
+      ["equipements", "EQ", "Ã‰quipements", can("equipment") || can("portal")],
       ["appels", "CH", "Appels de service", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
-      ["parametres", "PR", "Paramètres", can("settings") || can("users")]
+      ["parametres", "PR", "ParamÃ¨tres", can("settings") || can("users")]
     ].filter((item) => item[3]);
 
     return `
@@ -558,7 +635,7 @@
               <strong>${escapeHtml(user.name)}</strong>
               <span>${roleLabel(user.role)}</span>
             </div>
-            <button class="ghost-button" data-action="logout">Déconnexion</button>
+            <button class="ghost-button" data-action="logout">DÃ©connexion</button>
           </div>
         </aside>
         <main class="main">${content}</main>
@@ -574,7 +651,7 @@
         <section class="login-panel">
           <div class="brand-mark"><span class="logo">CP</span><span>ClimaParc</span></div>
           <h1>Gestion HVAC multi-immeubles</h1>
-          <p>Inventaire des équipements, interventions, appels de service, bons de travail, checklists techniques et accès client.</p>
+          <p>Inventaire des Ã©quipements, interventions, appels de service, bons de travail, checklists techniques et accÃ¨s client.</p>
           <form class="login-form" data-form="login">
             <div class="field">
               <label for="email">Courriel</label>
@@ -587,14 +664,14 @@
             <button class="primary-button" type="submit">Connexion</button>
           </form>
           <div class="login-links">
-            <button class="ghost-button" data-action="open-modal" data-modal="signup">Créer un compte</button>
-            <button class="link-button" data-action="open-modal" data-modal="forgotPassword">Mot de passe oublié?</button>
+            <button class="ghost-button" data-action="open-modal" data-modal="signup">CrÃ©er un compte</button>
+            <button class="link-button" data-action="open-modal" data-modal="forgotPassword">Mot de passe oubliÃ©?</button>
           </div>
         </section>
         <section class="login-visual">
           <div class="visual-copy">
-            <h2>Parc HVAC, appartements et travaux au même endroit.</h2>
-            <p>Une vue claire pour l'équipe interne, les techniciens et les administrateurs de copropriétés.</p>
+            <h2>Parc HVAC, appartements et travaux au mÃªme endroit.</h2>
+            <p>Une vue claire pour l'Ã©quipe interne, les techniciens et les administrateurs de copropriÃ©tÃ©s.</p>
           </div>
         </section>
       </div>
@@ -621,9 +698,9 @@
       ? `<button class="primary-button" data-action="open-modal" data-modal="building">Nouveau lieu</button>`
       : "";
     return appShell(`
-      ${renderTopbar("Lieux", "Organisation par nom de bâtiment et adresse, puis appartements et machines.", actions)}
+      ${renderTopbar("Lieux", "Organisation par nom de bÃ¢timent et adresse, puis appartements et machines.", actions)}
       <section class="cards-grid">
-        ${buildings.map((building) => buildingCard(building)).join("") || `<div class="empty">Aucun lieu enregistré.</div>`}
+        ${buildings.map((building) => buildingCard(building)).join("") || `<div class="empty">Aucun lieu enregistrÃ©.</div>`}
       </section>
     `);
   }
@@ -674,16 +751,16 @@
             <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
             <div><span>Adresse</span><strong>${escapeHtml(building.address)}</strong></div>
             <div><span>Ressource sur place</span><strong>${escapeHtml(building.onsiteContactName || "-")}</strong></div>
-            <div><span>Téléphone sur place</span><strong>${escapeHtml(building.onsiteContactPhone || "-")}</strong></div>
+            <div><span>TÃ©lÃ©phone sur place</span><strong>${escapeHtml(building.onsiteContactPhone || "-")}</strong></div>
             <div><span>Email sur place</span><strong>${escapeHtml(building.onsiteContactEmail || "-")}</strong></div>
             <div><span>Ressource facturation</span><strong>${escapeHtml(building.billingContactName || "-")}</strong></div>
-            <div><span>Téléphone facturation</span><strong>${escapeHtml(building.billingContactPhone || "-")}</strong></div>
+            <div><span>TÃ©lÃ©phone facturation</span><strong>${escapeHtml(building.billingContactPhone || "-")}</strong></div>
             <div><span>Email facturation</span><strong>${escapeHtml(building.billingContactEmail || "-")}</strong></div>
             <div><span>Notes</span><strong>${escapeHtml(building.notes || "-")}</strong></div>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><h2>Appartements cadastrés</h2></div>
+          <div class="panel-header"><h2>Appartements cadastrÃ©s</h2></div>
           <div class="panel-body cards-list">
             ${apartments.map((apartment) => apartmentBlock(apartment)).join("") || `<div class="empty">Aucun appartement dans ce lieu.</div>`}
           </div>
@@ -707,7 +784,7 @@
               <strong>${escapeHtml(item.type)}</strong>
               <span>${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${statusText(item.status)}</span>
             </button>
-          `).join("") || `<div class="meta">Aucune machine enregistrée.</div>`}
+          `).join("") || `<div class="meta">Aucune machine enregistrÃ©e.</div>`}
         </div>
         ${currentUser().role !== "client" ? `
           <div class="actions">
@@ -728,9 +805,9 @@
     const planned = orders.filter((order) => order.status === "planifie").length;
     const out = equipment.filter((item) => item.status === "hors_service").length;
     const stats = [
-      ["Équipements", equipment.length],
-      ["À traiter", ongoing],
-      ["BT planifiés", planned],
+      ["Ã‰quipements", equipment.length],
+      ["Ã€ traiter", ongoing],
+      ["BT planifiÃ©s", planned],
       ["Hors service", out + overdue]
     ];
 
@@ -753,18 +830,18 @@
     `;
 
     return appShell(`
-      ${renderTopbar("Tableau de bord", "Vue opérationnelle du parc HVAC et des travaux en cours.", actions)}
+      ${renderTopbar("Tableau de bord", "Vue opÃ©rationnelle du parc HVAC et des travaux en cours.", actions)}
       <section class="stats-grid">
         ${stats.map(([label, value]) => `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`).join("")}
       </section>
       <section class="grid">
         <div class="panel">
-          <div class="panel-header"><h2>Équipements à surveiller</h2><button class="ghost-button" data-action="view" data-view="equipements">Voir tout</button></div>
+          <div class="panel-header"><h2>Ã‰quipements Ã  surveiller</h2><button class="ghost-button" data-action="view" data-view="equipements">Voir tout</button></div>
           <div class="panel-body">${equipmentTable(equipment.filter((item) => item.status !== "actif" || item.nextService <= today()).slice(0, 6), false)}</div>
         </div>
         <div class="stack">
-          <button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>
-          ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
+          <button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi prÃ©ventif.</span></button>
+          ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">CrÃ©er un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
           <div class="panel">
             <div class="panel-header"><h2>Appels actifs</h2></div>
             <div class="panel-body cards-list">${urgentTickets || `<div class="empty">Aucun appel actif.</div>`}</div>
@@ -794,9 +871,9 @@
 
   function equipmentView() {
     const equipment = filteredEquipment();
-    const actions = `${can("equipment") && currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="equipment">Nouvel équipement</button>` : ""}`;
+    const actions = `${can("equipment") && currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="equipment">Nouvel Ã©quipement</button>` : ""}`;
     return appShell(`
-      ${renderTopbar("Équipements", "Inventaire par immeuble, appartement et appareil.", actions)}
+      ${renderTopbar("Ã‰quipements", "Inventaire par immeuble, appartement et appareil.", actions)}
       <section class="panel">
         <div class="panel-body">
           ${filtersBlock()}
@@ -831,26 +908,26 @@
             <option value="all">Tous</option>
             <option value="actif" ${state.filters.status === "actif" ? "selected" : ""}>Actif</option>
             <option value="surveillance" ${state.filters.status === "surveillance" ? "selected" : ""}>Surveillance</option>
-            <option value="a_planifier" ${state.filters.status === "a_planifier" ? "selected" : ""}>À planifier</option>
+            <option value="a_planifier" ${state.filters.status === "a_planifier" ? "selected" : ""}>Ã€ planifier</option>
             <option value="hors_service" ${state.filters.status === "hors_service" ? "selected" : ""}>Hors service</option>
           </select>
         </div>
         <div class="field">
           <label>Recherche</label>
-          <input data-action="filter" data-filter="search" value="${escapeHtml(state.filters.search)}" placeholder="Modèle, série, lieu">
+          <input data-action="filter" data-filter="search" value="${escapeHtml(state.filters.search)}" placeholder="ModÃ¨le, sÃ©rie, lieu">
         </div>
       </div>
     `;
   }
 
   function equipmentTable(equipment, allowDetail) {
-    if (!equipment.length) return `<div class="empty">Aucun équipement trouvé.</div>`;
+    if (!equipment.length) return `<div class="empty">Aucun Ã©quipement trouvÃ©.</div>`;
     return `
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Équipement</th>
+              <th>Ã‰quipement</th>
               <th>Immeuble</th>
               <th>Appartement</th>
               <th>Dernier service</th>
@@ -898,7 +975,7 @@
       ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
     `;
     return appShell(`
-      ${renderTopbar("Dossier équipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
+      ${renderTopbar("Dossier Ã©quipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
       <section class="detail-layout">
         <div class="panel">
           <div class="panel-header"><h2>${escapeHtml(equipment.type)}</h2>${statusBadge(equipment.status)}</div>
@@ -906,8 +983,8 @@
             <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
             <div><span>Immeuble</span><strong>${escapeHtml(building?.name || "-")}</strong></div>
             <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")} - ${escapeHtml(apartment?.occupant || "")}</strong></div>
-            <div><span>Marque / modèle</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div>
-            <div><span>Numéro de série</span><strong>${escapeHtml(equipment.serial)}</strong></div>
+            <div><span>Marque / modÃ¨le</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div>
+            <div><span>NumÃ©ro de sÃ©rie</span><strong>${escapeHtml(equipment.serial)}</strong></div>
             <div><span>Localisation</span><strong>${escapeHtml(equipment.location)}</strong></div>
             <div><span>Installation</span><strong>${formatDate(equipment.installDate)}</strong></div>
             <div><span>Note</span><strong>${escapeHtml(equipment.notes)}</strong></div>
@@ -917,16 +994,16 @@
           <div class="panel">
             <div class="panel-header"><h2>Historique des interventions</h2></div>
             <div class="panel-body timeline">
-              ${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrée.</div>`}
+              ${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrÃ©e.</div>`}
             </div>
           </div>
           <div class="split">
             <div class="panel">
-              <div class="panel-header"><h2>Appels liés</h2></div>
+              <div class="panel-header"><h2>Appels liÃ©s</h2></div>
               <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket)).join("") || `<div class="empty">Aucun appel.</div>`}</div>
             </div>
             <div class="panel">
-              <div class="panel-header"><h2>Bons liés</h2></div>
+              <div class="panel-header"><h2>Bons liÃ©s</h2></div>
               <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order)).join("") || `<div class="empty">Aucun bon.</div>`}</div>
             </div>
           </div>
@@ -952,7 +1029,7 @@
   function ticketsView() {
     const tickets = scopedTickets();
     return appShell(`
-      ${renderTopbar("Appels de service", "Demandes clients, priorités et suivi opérationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>`)}
+      ${renderTopbar("Appels de service", "Demandes clients, prioritÃ©s et suivi opÃ©rationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>`)}
       <section class="panel">
         <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket, true)).join("") || `<div class="empty">Aucun appel de service.</div>`}</div>
       </section>
@@ -963,7 +1040,7 @@
     const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
     const actions = expanded && can("workorders")
-      ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
+      ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">CrÃ©er BT</button>`
       : "";
     return `
       <article class="list-item">
@@ -990,7 +1067,7 @@
   function workOrdersView() {
     const orders = scopedWorkOrders();
     return appShell(`
-      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exécution des checklists.", can("workorders") ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
+      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exÃ©cution des checklists.", can("workorders") ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
       <section class="panel">
         <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order, true)).join("") || `<div class="empty">Aucun bon de travail.</div>`}</div>
       </section>
@@ -998,40 +1075,142 @@
   }
 
   function workOrderItem(order, expanded = false) {
-    const { equipment, apartment, building } = equipmentContext(order.equipmentId);
+    const { equipment, apartment, building } = workOrderContext(order);
     const type = state.interventionTypes.find((item) => item.id === order.typeId);
     const tech = state.users.find((item) => item.id === order.technicianId);
+    const progress = workOrderProgress(order);
+    const scopeLabel = order.buildingId ? "Bloc complet" : `Apt ${apartment?.number || "-"} - ${equipment?.type || "-"}`;
     return `
       <article class="list-item">
         <div class="actions" style="justify-content:space-between">
           <h3>${escapeHtml(order.number)} - ${escapeHtml(type?.name || "")}</h3>
           ${statusBadge(order.status)}
         </div>
-        <div class="meta">${formatDate(order.scheduledDate)} - ${escapeHtml(tech?.name || "Non assigné")}</div>
-        <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "-")}</div>
+        <div class="meta">${formatDate(order.scheduledDate)} - ${escapeHtml(tech?.name || "Non assignÃ©")}</div>
+        <div class="meta">${escapeHtml(building?.name || "-")} - ${escapeHtml(scopeLabel)}</div>
+        <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
+        <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisÃ©${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysÃ©e${progress.machines > 1 ? "s" : ""}</div>
         <div class="meta">${escapeHtml(order.notes || "")}</div>
-        ${expanded ? `<div class="actions"><button class="primary-button" data-action="open-checklist" data-id="${order.id}">Checklist</button>${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${order.id}" data-status="termine">Terminer</button>` : ""}</div>` : ""}
+        ${expanded ? `<div class="actions"><button class="primary-button" data-action="execute-workorder" data-id="${order.id}">ExÃ©cuter</button>${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${order.id}">Checklist</button>` : ""}${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${order.id}" data-status="termine">Terminer</button>` : ""}</div>` : ""}
+      </article>
+    `;
+  }
+
+  function workOrderExecutionView() {
+    const order = state.workOrders.find((item) => item.id === state.selectedWorkOrderId);
+    if (!order) return workOrdersView();
+    const { building } = workOrderContext(order);
+    const type = state.interventionTypes.find((item) => item.id === order.typeId);
+    const template = formTemplateForOrder(order);
+    const progress = workOrderProgress(order);
+    const apartments = workOrderApartments(order);
+    const selectedApartment = apartments.find((item) => item.id === state.selectedExecutionApartmentId) || apartments[0];
+    const apartmentInterventions = interventionsForOrder(order.id).filter((item) => {
+      const equipment = state.equipment.find((eq) => eq.id === item.equipmentId);
+      return (item.apartmentId || equipment?.apartmentId) === selectedApartment?.id;
+    });
+    const apartmentMachines = selectedApartment ? equipmentForApartment(selectedApartment.id) : [];
+    return appShell(`
+      ${renderTopbar(`Execution ${order.number}`, `${building?.name || "-"} - ${type?.name || ""}`, `
+        <button class="ghost-button" data-action="view" data-view="bons">Retour</button>
+        <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle machine + formulaire</button>
+      `)}
+      <section class="stats-grid">
+        <div class="stat"><span>Progression</span><strong>${progress.percent}%</strong></div>
+        <div class="stat"><span>Appartements realises</span><strong>${progress.doneApartments}/${progress.totalApartments}</strong></div>
+        <div class="stat"><span>Machines analysees</span><strong>${progress.machines}</strong></div>
+        <div class="stat"><span>Formulaire</span><strong>${escapeHtml(template?.name || "-")}</strong></div>
+      </section>
+      <section class="progress-panel">
+        <div class="progress-line large"><span style="width:${progress.percent}%"></span></div>
+      </section>
+      <section class="execution-layout">
+        <div class="panel">
+          <div class="panel-header"><h2>Appartements du bloc</h2></div>
+          <div class="panel-body cards-list">
+            ${apartments.map((apartment) => executionApartmentButton(order, apartment, selectedApartment?.id)).join("") || `<div class="empty">Aucun appartement dans ce BT.</div>`}
+          </div>
+        </div>
+        <div class="stack">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Appartement ${escapeHtml(selectedApartment?.number || "-")}</h2>
+              <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Demarrer une machine</button>
+            </div>
+            <div class="panel-body cards-list">
+              ${apartmentMachines.map((machine) => {
+                const intervention = apartmentInterventions.find((item) => item.equipmentId === machine.id);
+                return `
+                  <article class="list-item">
+                    <div class="actions" style="justify-content:space-between">
+                      <h3>${escapeHtml(machine.type)}</h3>
+                      ${intervention ? statusBadge("terminee") : statusBadge("planifie")}
+                    </div>
+                    <div class="meta">${escapeHtml(machine.brand)} ${escapeHtml(machine.model)} - ${escapeHtml(machine.location || "-")}</div>
+                    <div class="actions">
+                      <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-equipment="${machine.id}">${intervention ? "Modifier le formulaire" : "Remplir le formulaire"}</button>
+                    </div>
+                  </article>
+                `;
+              }).join("") || `<div class="empty">Aucune machine encore cadastrÃ©e pour cet appartement.</div>`}
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Informations collectÃ©es</h2></div>
+            <div class="panel-body cards-list">
+              ${apartmentInterventions.map((intervention) => fieldResponseCard(intervention)).join("") || `<div class="empty">Aucune information saisie pour cet appartement.</div>`}
+            </div>
+          </div>
+        </div>
+      </section>
+    `);
+  }
+
+  function executionApartmentButton(order, apartment, selectedId) {
+    const interventions = interventionsForOrder(order.id).filter((item) => {
+      const equipment = state.equipment.find((eq) => eq.id === item.equipmentId);
+      return (item.apartmentId || equipment?.apartmentId) === apartment.id;
+    });
+    return `
+      <button class="mini-row ${selectedId === apartment.id ? "active" : ""}" data-action="select-execution-apartment" data-id="${apartment.id}">
+        <strong>Appartement ${escapeHtml(apartment.number)}</strong>
+        <span>${interventions.length ? `${interventions.length} machine(s) analysee(s)` : "A faire"}</span>
+      </button>
+    `;
+  }
+
+  function fieldResponseCard(intervention) {
+    const equipment = state.equipment.find((item) => item.id === intervention.equipmentId);
+    const responses = Object.entries(intervention.formResponses || {}).map(([key, value]) => {
+      const display = Array.isArray(value) ? value.join(", ") : value;
+      return `<div><span>${escapeHtml(key)}</span><strong>${escapeHtml(display || "-")}</strong></div>`;
+    }).join("");
+    return `
+      <article class="list-item">
+        <h3>${escapeHtml(equipment?.type || "Machine")}</h3>
+        <div class="definition compact">${responses || `<div><span>Formulaire</span><strong>Aucune reponse</strong></div>`}</div>
+        <div class="meta">${escapeHtml(intervention.summary || "")}</div>
       </article>
     `;
   }
 
   function reportsView() {
     return appShell(`
-      ${renderTopbar("Rapports", "Exports CSV pour suivi client, opérations et historique technique.")}
+      ${renderTopbar("Rapports", "Exports CSV pour suivi client, opÃ©rations et historique technique.")}
       <section class="report-grid">
         <article class="report-tile">
           <h3>Inventaire HVAC</h3>
-          <p>Liste des équipements avec client, immeuble, appartement, statut et prochaines maintenances.</p>
+          <p>Liste des Ã©quipements avec client, immeuble, appartement, statut et prochaines maintenances.</p>
           <button class="primary-button" data-action="export" data-report="equipment">Exporter CSV</button>
         </article>
         <article class="report-tile">
           <h3>Historique des interventions</h3>
-          <p>Interventions terminées, technicien, type de travail, lectures et résumé.</p>
+          <p>Interventions terminÃ©es, technicien, type de travail, lectures et rÃ©sumÃ©.</p>
           <button class="primary-button" data-action="export" data-report="interventions">Exporter CSV</button>
         </article>
         <article class="report-tile">
           <h3>Appels et bons de travail</h3>
-          <p>Demandes ouvertes, priorités, bons planifiés et statut d'exécution.</p>
+          <p>Demandes ouvertes, prioritÃ©s, bons planifiÃ©s et statut d'exÃ©cution.</p>
           <button class="primary-button" data-action="export" data-report="operations">Exporter CSV</button>
         </article>
       </section>
@@ -1041,11 +1220,11 @@
   function usersView() {
     const roles = state.roleDefinitions.map((role) => role.id);
     return appShell(`
-      ${renderTopbar("Utilisateurs et accès", "Contrôle des rôles pour clients, techniciens, équipe interne et administrateurs.", `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
+      ${renderTopbar("Utilisateurs et accÃ¨s", "ContrÃ´le des rÃ´les pour clients, techniciens, Ã©quipe interne et administrateurs.", `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
       <section class="panel">
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Client lié</th><th></th></tr></thead>
+            <thead><tr><th>Nom</th><th>Courriel</th><th>RÃ´le</th><th>Client liÃ©</th><th></th></tr></thead>
             <tbody>
               ${state.users.map((user) => {
                 const client = state.clients.find((item) => item.id === user.clientId);
@@ -1056,12 +1235,12 @@
         </div>
       </section>
       <section class="panel" style="margin-top:16px">
-        <div class="panel-header"><h2>Matrice d'accès</h2></div>
+        <div class="panel-header"><h2>Matrice d'accÃ¨s</h2></div>
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>Rôle</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
+            <thead><tr><th>RÃ´le</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
             <tbody>
-              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
+              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "AssignÃ©s" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
             </tbody>
           </table>
         </div>
@@ -1071,24 +1250,25 @@
 
   function rightsCatalog() {
     return [
-      ["all", "Accès complet"],
+      ["all", "AccÃ¨s complet"],
       ["lieux", "Lieux et appartements"],
-      ["equipment", "Équipements"],
+      ["equipment", "Ã‰quipements"],
       ["tickets", "Appels de service"],
       ["workorders", "Bons de travail"],
       ["interventions", "Interventions"],
       ["reports", "Rapports"],
       ["users", "Utilisateurs"],
-      ["settings", "Paramètres"],
+      ["settings", "ParamÃ¨tres"],
       ["portal", "Portail client"]
     ];
   }
 
   function settingsView() {
     return appShell(`
-      ${renderTopbar("Paramètres", "Types d'appels, checklists et droits d'accès.", `
+      ${renderTopbar("ParamÃ¨tres", "Types d'appels, checklists et droits d'accÃ¨s.", `
         <button class="primary-button" data-action="open-modal" data-modal="serviceType">Type d'appel</button>
         <button class="ghost-button" data-action="open-modal" data-modal="interventionType">Type de checklist</button>
+        <button class="ghost-button" data-action="open-modal" data-modal="formTemplate">Formulaire terrain</button>
       `)}
       <section class="grid">
         <div class="stack">
@@ -1100,7 +1280,7 @@
                 return `
                   <article class="list-item">
                     <h3>${escapeHtml(type.name)}</h3>
-                    <div class="meta">Priorité par défaut: ${statusText(type.defaultPriority)} | Checklist liée: ${escapeHtml(linked?.name || "-")}</div>
+                    <div class="meta">PrioritÃ© par dÃ©faut: ${statusText(type.defaultPriority)} | Checklist liÃ©e: ${escapeHtml(linked?.name || "-")}</div>
                     <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="serviceType" data-id="${type.id}">Modifier</button></div>
                   </article>
                 `;
@@ -1113,16 +1293,29 @@
               ${state.interventionTypes.map((type) => `
                 <article class="list-item">
                   <h3>${escapeHtml(type.name)}</h3>
-                  <div class="meta">Durée estimée: ${type.defaultDuration} min | ${type.checklist.length} étapes</div>
+                  <div class="meta">DurÃ©e estimÃ©e: ${type.defaultDuration} min | ${type.checklist.length} Ã©tapes</div>
                   <div class="mini-list">${type.checklist.map((item) => `<div class="meta">- ${escapeHtml(item)}</div>`).join("")}</div>
                   <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="interventionType" data-id="${type.id}">Modifier</button></div>
                 </article>
               `).join("")}
             </div>
           </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Formulaires terrain</h2></div>
+            <div class="panel-body cards-list">
+              ${state.formTemplates.map((template) => `
+                <article class="list-item">
+                  <h3>${escapeHtml(template.name)}</h3>
+                  <div class="meta">${template.fields.length} question${template.fields.length > 1 ? "s" : ""}</div>
+                  <div class="mini-list">${template.fields.slice(0, 4).map((field) => `<div class="meta">- ${escapeHtml(field.label)} (${fieldTypeLabel(field.type)})</div>`).join("")}</div>
+                  <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="formTemplate" data-id="${template.id}">Modifier</button></div>
+                </article>
+              `).join("")}
+            </div>
+          </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><h2>Rôles et droits</h2></div>
+          <div class="panel-header"><h2>RÃ´les et droits</h2></div>
           <div class="panel-body cards-list">
             ${state.roleDefinitions.map((role) => `
               <article class="list-item">
@@ -1147,10 +1340,12 @@
     if (modal.type === "user") return userModal(modal);
     if (modal.type === "serviceType") return serviceTypeModal(modal);
     if (modal.type === "interventionType") return interventionTypeModal(modal);
+    if (modal.type === "formTemplate") return formTemplateModal(modal);
     if (modal.type === "role") return roleModal(modal);
     if (modal.type === "signup") return signupModal();
     if (modal.type === "forgotPassword") return forgotPasswordModal();
     if (modal.type === "checklist") return checklistModal(modal.orderId);
+    if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     return "";
   }
 
@@ -1169,27 +1364,27 @@
   }
 
   function signupModal() {
-    return modalShell("Créer un compte", `
+    return modalShell("CrÃ©er un compte", `
       <form class="form-grid" data-form="signup">
         <div class="field"><label>Entreprise / gestionnaire</label><input name="companyName" required autocomplete="organization"></div>
         <div class="split">
           <div class="field"><label>Nom complet</label><input name="name" required autocomplete="name"></div>
-          <div class="field"><label>Téléphone</label><input name="phone" autocomplete="tel"></div>
+          <div class="field"><label>TÃ©lÃ©phone</label><input name="phone" autocomplete="tel"></div>
         </div>
         <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" type="password" required autocomplete="new-password" minlength="8"></div>
           <div class="field"><label>Confirmer le mot de passe</label><input name="confirmPassword" type="password" required autocomplete="new-password" minlength="8"></div>
         </div>
-        <button class="primary-button" type="submit">Créer mon compte</button>
+        <button class="primary-button" type="submit">CrÃ©er mon compte</button>
       </form>
     `);
   }
 
   function forgotPasswordModal() {
-    return modalShell("Mot de passe oublié", `
+    return modalShell("Mot de passe oubliÃ©", `
       <form class="form-grid" data-form="forgotPassword">
-        <p class="meta">Entrez votre courriel. Si un compte existe, une demande de réinitialisation sera enregistrée.</p>
+        <p class="meta">Entrez votre courriel. Si un compte existe, une demande de rÃ©initialisation sera enregistrÃ©e.</p>
         <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
         <button class="primary-button" type="submit">Envoyer la demande</button>
       </form>
@@ -1203,22 +1398,22 @@
       <form class="form-grid" data-form="building">
         <input type="hidden" name="id" value="${escapeHtml(building.id || "")}">
         <div class="split">
-          <div class="field"><label>Nom du bâtiment</label><input name="name" value="${escapeHtml(building.name || "")}" required></div>
+          <div class="field"><label>Nom du bÃ¢timent</label><input name="name" value="${escapeHtml(building.name || "")}" required></div>
           <div class="field"><label>Client / administrateur</label><select name="clientId" required>${clientOptions}</select></div>
         </div>
         <div class="field"><label>Adresse</label><input name="address" value="${escapeHtml(building.address || "")}" required></div>
         <div class="split">
           <div class="field"><label>Personne ressource sur place</label><input name="onsiteContactName" value="${escapeHtml(building.onsiteContactName || "")}"></div>
-          <div class="field"><label>Téléphone sur place</label><input name="onsiteContactPhone" value="${escapeHtml(building.onsiteContactPhone || "")}"></div>
+          <div class="field"><label>TÃ©lÃ©phone sur place</label><input name="onsiteContactPhone" value="${escapeHtml(building.onsiteContactPhone || "")}"></div>
         </div>
         <div class="field"><label>Email sur place</label><input name="onsiteContactEmail" type="email" value="${escapeHtml(building.onsiteContactEmail || "")}"></div>
         <div class="split">
           <div class="field"><label>Personne ressource facturation</label><input name="billingContactName" value="${escapeHtml(building.billingContactName || "")}"></div>
-          <div class="field"><label>Téléphone facturation</label><input name="billingContactPhone" value="${escapeHtml(building.billingContactPhone || "")}"></div>
+          <div class="field"><label>TÃ©lÃ©phone facturation</label><input name="billingContactPhone" value="${escapeHtml(building.billingContactPhone || "")}"></div>
         </div>
         <div class="field"><label>Email facturation</label><input name="billingContactEmail" type="email" value="${escapeHtml(building.billingContactEmail || "")}"></div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(building.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${building.id ? "Enregistrer" : "Créer le lieu"}</button>
+        <button class="primary-button" type="submit">${building.id ? "Enregistrer" : "CrÃ©er le lieu"}</button>
       </form>
     `);
   }
@@ -1231,10 +1426,10 @@
         <input type="hidden" name="id" value="${escapeHtml(apartment.id || "")}">
         <div class="field"><label>Lieu</label><select name="buildingId" required>${buildingOptions}</select></div>
         <div class="split">
-          <div class="field"><label>Numéro d'appartement</label><input name="number" value="${escapeHtml(apartment.number || "")}" required></div>
+          <div class="field"><label>NumÃ©ro d'appartement</label><input name="number" value="${escapeHtml(apartment.number || "")}" required></div>
           <div class="field"><label>Occupant</label><input name="occupant" value="${escapeHtml(apartment.occupant || "")}"></div>
         </div>
-        <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "Créer l'appartement"}</button>
+        <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "CrÃ©er l'appartement"}</button>
       </form>
     `);
   }
@@ -1250,43 +1445,54 @@
     return modalShell(ticket.id ? "Modifier l'appel de service" : "Nouvel appel de service", `
       <form class="form-grid" data-form="ticket">
         <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
-        <div class="field"><label>Équipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
+        <div class="field"><label>Ã‰quipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
         <div class="field"><label>Type d'appel</label><select name="serviceTypeId">${serviceOptions}</select></div>
         <div class="split">
           <div class="field"><label>Titre</label><input name="title" value="${escapeHtml(ticket.title || "")}" required placeholder="Ex.: Bruit anormal"></div>
-          <div class="field"><label>Priorité</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
+          <div class="field"><label>PrioritÃ©</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
         </div>
-        <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>Fermé</option></select></div>
+        <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>FermÃ©</option></select></div>
         <div class="field"><label>Description</label><textarea name="description" required>${escapeHtml(ticket.description || "")}</textarea></div>
-        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer l'appel"}</button>
+        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "CrÃ©er l'appel"}</button>
       </form>
     `);
   }
 
   function workOrderModal(modal) {
     const order = state.workOrders.find((item) => item.id === modal.id) || {};
+    const selectedScope = order.scope || (order.buildingId || !modal.equipmentId ? "building" : "equipment");
+    const selectedBuildingId = order.buildingId || equipmentContext(modal.equipmentId)?.building?.id || scopedBuildings()[0]?.id || "";
+    const buildingOptions = scopedBuildings().map((building) => `<option value="${building.id}" ${selectedBuildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("");
     const equipmentOptions = scopedEquipment().map((item) => {
       const { apartment, building } = equipmentContext(item.id);
       const selectedEquipmentId = order.equipmentId || modal.equipmentId;
       return `<option value="${item.id}" ${selectedEquipmentId === item.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment?.number || "")} - ${escapeHtml(item.type)}</option>`;
     }).join("");
     const typeOptions = state.interventionTypes.map((type) => `<option value="${type.id}" ${order.typeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
+    const formOptions = state.formTemplates.map((template) => `<option value="${template.id}" ${order.formTemplateId === template.id ? "selected" : ""}>${escapeHtml(template.name)}</option>`).join("");
     const techOptions = state.users.filter((user) => user.role === "technicien").map((user) => `<option value="${user.id}" ${order.technicianId === user.id ? "selected" : ""}>${escapeHtml(user.name)}</option>`).join("");
     return modalShell(order.id ? "Modifier le bon de travail" : "Nouveau bon de travail", `
       <form class="form-grid" data-form="workorder">
         <input type="hidden" name="id" value="${escapeHtml(order.id || "")}">
         <input type="hidden" name="ticketId" value="${escapeHtml(modal.ticketId || "")}">
-        <div class="field"><label>Équipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
+        <div class="split">
+          <div class="field"><label>Portee du BT</label><select name="scope"><option value="building" ${selectedScope === "building" ? "selected" : ""}>Bloc complet / immeuble</option><option value="equipment" ${selectedScope === "equipment" ? "selected" : ""}>Machine precise</option></select></div>
+          <div class="field"><label>Formulaire terrain</label><select name="formTemplateId">${formOptions}</select></div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Immeuble</label><select name="buildingId"><option value="">-</option>${buildingOptions}</select></div>
+          <div class="field"><label>Equipement</label><select name="equipmentId"><option value="">-</option>${equipmentOptions}</select></div>
+        </div>
         <div class="split">
           <div class="field"><label>Type d'intervention</label><select name="typeId">${typeOptions}</select></div>
           <div class="field"><label>Technicien</label><select name="technicianId">${techOptions}</select></div>
         </div>
         <div class="split">
-          <div class="field"><label>Date prévue</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
-          <div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>Planifié</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>Terminé</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>Annulé</option></select></div>
+          <div class="field"><label>Date prÃ©vue</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
+          <div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>PlanifiÃ©</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>TerminÃ©</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>AnnulÃ©</option></select></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(order.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${order.id ? "Enregistrer" : "Créer le BT"}</button>
+        <button class="primary-button" type="submit">${order.id ? "Enregistrer" : "CrÃ©er le BT"}</button>
       </form>
     `);
   }
@@ -1297,7 +1503,7 @@
       const building = buildingForApartment(apartment.id);
       return `<option value="${apartment.id}" ${equipment.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment.number)}</option>`;
     }).join("");
-    return modalShell(equipment.id ? "Modifier la machine" : "Nouvel équipement", `
+    return modalShell(equipment.id ? "Modifier la machine" : "Nouvel Ã©quipement", `
       <form class="form-grid" data-form="equipment">
         <input type="hidden" name="id" value="${escapeHtml(equipment.id || "")}">
         <div class="field"><label>Appartement</label><select name="apartmentId">${apartmentOptions}</select></div>
@@ -1307,19 +1513,19 @@
         </div>
         <div class="split">
           <div class="field"><label>Marque</label><input name="brand" value="${escapeHtml(equipment.brand || "")}" required></div>
-          <div class="field"><label>Modèle</label><input name="model" value="${escapeHtml(equipment.model || "")}" required></div>
+          <div class="field"><label>ModÃ¨le</label><input name="model" value="${escapeHtml(equipment.model || "")}" required></div>
         </div>
         <div class="split">
-          <div class="field"><label>Numéro de série</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div>
+          <div class="field"><label>NumÃ©ro de sÃ©rie</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div>
           <div class="field"><label>Date d'installation</label><input name="installDate" type="date" value="${escapeHtml(equipment.installDate || today())}"></div>
         </div>
         <div class="split">
           <div class="field"><label>Dernier service</label><input name="lastService" type="date" value="${escapeHtml(equipment.lastService || "")}"></div>
           <div class="field"><label>Prochain service</label><input name="nextService" type="date" value="${escapeHtml(equipment.nextService || "")}"></div>
         </div>
-        <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>À planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+        <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>Ã€ planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(equipment.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
+        <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'Ã©quipement"}</button>
       </form>
     `);
   }
@@ -1337,10 +1543,10 @@
         </div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" value="${escapeHtml(user.password || "temp123")}" required></div>
-          <div class="field"><label>Rôle</label><select name="role">${roles}</select></div>
+          <div class="field"><label>RÃ´le</label><select name="role">${roles}</select></div>
         </div>
-        <div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>
-        <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
+        <div class="field"><label>Client liÃ©</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>
+        <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "CrÃ©er l'utilisateur"}</button>
       </form>
     `);
   }
@@ -1353,10 +1559,10 @@
         <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
         <div class="field"><label>Nom du type d'appel</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
         <div class="split">
-          <div class="field"><label>Priorité par défaut</label><select name="defaultPriority"><option value="basse" ${type.defaultPriority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${type.defaultPriority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${type.defaultPriority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
-          <div class="field"><label>Checklist liée</label><select name="linkedInterventionTypeId">${checklistOptions}</select></div>
+          <div class="field"><label>PrioritÃ© par dÃ©faut</label><select name="defaultPriority"><option value="basse" ${type.defaultPriority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${type.defaultPriority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${type.defaultPriority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
+          <div class="field"><label>Checklist liÃ©e</label><select name="linkedInterventionTypeId">${checklistOptions}</select></div>
         </div>
-        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "Créer le type"}</button>
+        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "CrÃ©er le type"}</button>
       </form>
     `);
   }
@@ -1368,10 +1574,31 @@
         <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
         <div class="split">
           <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
-          <div class="field"><label>Durée estimée (minutes)</label><input name="defaultDuration" type="number" min="1" value="${escapeHtml(type.defaultDuration || 60)}" required></div>
+          <div class="field"><label>DurÃ©e estimÃ©e (minutes)</label><input name="defaultDuration" type="number" min="1" value="${escapeHtml(type.defaultDuration || 60)}" required></div>
         </div>
-        <div class="field"><label>Étapes de checklist</label><textarea name="checklist" required placeholder="Une étape par ligne">${escapeHtml((type.checklist || []).join("\n"))}</textarea></div>
-        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "Créer la checklist"}</button>
+        <div class="field"><label>Ã‰tapes de checklist</label><textarea name="checklist" required placeholder="Une Ã©tape par ligne">${escapeHtml((type.checklist || []).join("\n"))}</textarea></div>
+        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "CrÃ©er la checklist"}</button>
+      </form>
+    `);
+  }
+
+  function formTemplateModal(modal) {
+    const template = state.formTemplates.find((item) => item.id === modal.id) || {};
+    const lines = (template.fields || []).map((field) => {
+      const options = (field.options || []).join(",");
+      const condition = field.showWhen ? `show:${field.showWhen.fieldId}=${field.showWhen.value}` : "";
+      return [field.label, field.type, options, condition].filter(Boolean).join(" | ");
+    }).join("\n");
+    return modalShell(template.id ? "Modifier le formulaire terrain" : "Nouveau formulaire terrain", `
+      <form class="form-grid" data-form="formTemplate">
+        <input type="hidden" name="id" value="${escapeHtml(template.id || "")}">
+        <div class="field"><label>Nom du formulaire</label><input name="name" value="${escapeHtml(template.name || "")}" required></div>
+        <div class="field">
+          <label>Questions</label>
+          <textarea name="fields" required placeholder="Etat general | single | Bon,A surveiller,Reparation requise&#10;Anomalie | long | | show:etat_general=Reparation requise">${escapeHtml(lines)}</textarea>
+          <p class="meta">Types: text, long, checkbox, single, multiple, select. Pour un branchement, ajoutez show:identifiant_question=valeur.</p>
+        </div>
+        <button class="primary-button" type="submit">${template.id ? "Enregistrer" : "Creer le formulaire"}</button>
       </form>
     `);
   }
@@ -1384,15 +1611,15 @@
         <span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(right)}</span></span>
       </label>
     `).join("");
-    return modalShell(role.id ? "Modifier le rôle" : "Nouveau rôle", `
+    return modalShell(role.id ? "Modifier le rÃ´le" : "Nouveau rÃ´le", `
       <form class="form-grid" data-form="role">
         <input type="hidden" name="id" value="${escapeHtml(role.id || "")}">
         <div class="split">
-          <div class="field"><label>Identifiant du rôle</label><input name="roleId" value="${escapeHtml(role.id || "")}" ${role.id ? "readonly" : ""} required></div>
-          <div class="field"><label>Nom affiché</label><input name="name" value="${escapeHtml(role.name || "")}" required></div>
+          <div class="field"><label>Identifiant du rÃ´le</label><input name="roleId" value="${escapeHtml(role.id || "")}" ${role.id ? "readonly" : ""} required></div>
+          <div class="field"><label>Nom affichÃ©</label><input name="name" value="${escapeHtml(role.name || "")}" required></div>
         </div>
         <div class="checklist">${checks}</div>
-        <button class="primary-button" type="submit">${role.id ? "Enregistrer" : "Créer le rôle"}</button>
+        <button class="primary-button" type="submit">${role.id ? "Enregistrer" : "CrÃ©er le rÃ´le"}</button>
       </form>
     `);
   }
@@ -1408,19 +1635,72 @@
           ${checks.map((item, index) => `
             <label class="check-row">
               <input type="checkbox" name="check-${index}" ${existing?.checklistDone?.[index] ? "checked" : ""}>
-              <span><strong>${escapeHtml(item)}</strong><span>Étape ${index + 1}</span></span>
+              <span><strong>${escapeHtml(item)}</strong><span>Ã‰tape ${index + 1}</span></span>
             </label>
           `).join("")}
         </div>
         <div class="split">
-          <div class="field"><label>Température de soufflage</label><input name="soufflage" value="${escapeHtml(existing?.readings?.soufflage || "")}" placeholder="Ex.: 11.2 C"></div>
-          <div class="field"><label>Température de retour</label><input name="retour" value="${escapeHtml(existing?.readings?.retour || "")}" placeholder="Ex.: 23.0 C"></div>
+          <div class="field"><label>TempÃ©rature de soufflage</label><input name="soufflage" value="${escapeHtml(existing?.readings?.soufflage || "")}" placeholder="Ex.: 11.2 C"></div>
+          <div class="field"><label>TempÃ©rature de retour</label><input name="retour" value="${escapeHtml(existing?.readings?.retour || "")}" placeholder="Ex.: 23.0 C"></div>
         </div>
         <div class="field"><label>Pression / observation</label><input name="pression" value="${escapeHtml(existing?.readings?.pression || "")}"></div>
-        <div class="field"><label>Résumé de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+        <div class="field"><label>RÃ©sumÃ© de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
         <button class="primary-button" type="submit">Enregistrer l'intervention</button>
       </form>
     `);
+  }
+
+  function fieldInterventionModal(modal) {
+    const order = state.workOrders.find((item) => item.id === modal.orderId);
+    const apartment = state.apartments.find((item) => item.id === modal.apartmentId);
+    const equipment = state.equipment.find((item) => item.id === modal.equipmentId) || { apartmentId: modal.apartmentId, status: "actif" };
+    const template = formTemplateForOrder(order);
+    const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
+    return modalShell(`Formulaire terrain - Apt ${escapeHtml(apartment?.number || "")}`, `
+      <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-apartment-id="${escapeHtml(apartment?.id || "")}" data-equipment-id="${escapeHtml(equipment.id || "")}">
+        <div class="split">
+          <div class="field"><label>Type</label><input name="type" value="${escapeHtml(equipment.type || "")}" required></div>
+          <div class="field"><label>Localisation</label><input name="location" value="${escapeHtml(equipment.location || "")}" required></div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Marque</label><input name="brand" value="${escapeHtml(equipment.brand || "")}"></div>
+          <div class="field"><label>Modele</label><input name="model" value="${escapeHtml(equipment.model || "")}"></div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Numero de serie</label><input name="serial" value="${escapeHtml(equipment.serial || "")}"></div>
+          <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>A planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+        </div>
+        <div class="field"><label>Notes machine</label><textarea name="equipmentNotes">${escapeHtml(equipment.notes || "")}</textarea></div>
+        <div class="form-section-title">${escapeHtml(template?.name || "Formulaire")}</div>
+        <div class="form-builder">
+          ${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label])).join("")}
+        </div>
+        <div class="field"><label>Resume de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+        <button class="primary-button" type="submit">Enregistrer appartement</button>
+      </form>
+    `);
+  }
+
+  function renderDynamicField(field, value) {
+    const depends = field.showWhen ? `data-visible-field="${escapeHtml(field.showWhen.fieldId)}" data-visible-value="${escapeHtml(field.showWhen.value)}"` : "";
+    const options = field.options?.length ? field.options : ["Oui"];
+    if (field.type === "long") {
+      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><textarea name="field-${field.id}">${escapeHtml(value || "")}</textarea></div>`;
+    }
+    if (field.type === "checkbox") {
+      const checked = Array.isArray(value) ? value.includes(options[0]) : Boolean(value);
+      return `<label class="check-row dynamic-field" ${depends}><input type="checkbox" name="field-${field.id}" value="${escapeHtml(options[0])}" ${checked ? "checked" : ""}><span><strong>${escapeHtml(field.label)}</strong><span>${escapeHtml(options[0])}</span></span></label>`;
+    }
+    if (field.type === "single") {
+      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><div class="choice-list">${options.map((option) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+    }
+    if (field.type === "multiple") {
+      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+    }
+    if (field.type === "select") {
+      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><select name="field-${field.id}"><option value="">-</option>${options.map((option) => `<option value="${escapeHtml(option)}" ${value === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select></div>`;
+    }
+    return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}"></div>`;
   }
 
   function handleSubmit(event) {
@@ -1440,8 +1720,10 @@
     if (formType === "user") createUser(values);
     if (formType === "serviceType") saveServiceType(values);
     if (formType === "interventionType") saveInterventionType(values);
+    if (formType === "formTemplate") saveFormTemplate(values);
     if (formType === "role") saveRole(form, values);
     if (formType === "checklist") saveChecklist(form, values);
+    if (formType === "fieldIntervention") saveFieldIntervention(form, values);
   }
 
   async function restoreSession() {
@@ -1469,11 +1751,11 @@
       return;
     }
     if (values.password.length < 8) {
-      showToast("Le mot de passe doit contenir au moins 8 caractères.");
+      showToast("Le mot de passe doit contenir au moins 8 caractÃ¨res.");
       return;
     }
     if (state.users.some((user) => user.email.toLowerCase() === values.email.toLowerCase())) {
-      showToast("Un compte existe déjà avec ce courriel.");
+      showToast("Un compte existe dÃ©jÃ  avec ce courriel.");
       return;
     }
     if (SERVER_ENABLED) {
@@ -1486,14 +1768,14 @@
         });
         const payload = await response.json();
         if (!response.ok) {
-          showToast(payload.error || "Création du compte impossible.");
+          showToast(payload.error || "CrÃ©ation du compte impossible.");
           return;
         }
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
         state.activeView = "lieux";
         state.modal = null;
-        state.toast = "Compte créé.";
+        state.toast = "Compte crÃ©Ã©.";
         saveState();
         render();
       } catch (error) {
@@ -1518,7 +1800,7 @@
     };
     state.clients.push(client);
     state.users.push(user);
-    setState({ sessionUserId: user.id, activeView: "lieux", modal: null, toast: "Compte créé." });
+    setState({ sessionUserId: user.id, activeView: "lieux", modal: null, toast: "Compte crÃ©Ã©." });
   }
 
   async function requestPasswordReset(values) {
@@ -1538,7 +1820,7 @@
       state.passwordResetRequests.unshift({ id: uid("reset"), email: values.email, createdAt: today(), status: "nouvelle" });
       saveState();
     }
-    setState({ modal: null, toast: "Si le compte existe, la demande a été enregistrée." });
+    setState({ modal: null, toast: "Si le compte existe, la demande a Ã©tÃ© enregistrÃ©e." });
   }
 
   async function login(values) {
@@ -1599,7 +1881,7 @@
     const index = state.buildings.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.buildings[index] = payload;
     else state.buildings.unshift(payload);
-    setState({ modal: null, selectedBuildingId: payload.id, activeView: "lieu_detail", toast: index >= 0 ? "Lieu modifié." : "Lieu créé." });
+    setState({ modal: null, selectedBuildingId: payload.id, activeView: "lieu_detail", toast: index >= 0 ? "Lieu modifiÃ©." : "Lieu crÃ©Ã©." });
   }
 
   function saveApartment(values) {
@@ -1612,7 +1894,7 @@
     const index = state.apartments.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.apartments[index] = payload;
     else state.apartments.push(payload);
-    setState({ modal: null, selectedBuildingId: payload.buildingId, activeView: "lieu_detail", toast: index >= 0 ? "Appartement modifié." : "Appartement créé." });
+    setState({ modal: null, selectedBuildingId: payload.buildingId, activeView: "lieu_detail", toast: index >= 0 ? "Appartement modifiÃ©." : "Appartement crÃ©Ã©." });
   }
 
   function createTicket(values) {
@@ -1630,7 +1912,7 @@
         priority: values.priority,
         status: values.status
       });
-      setState({ modal: null, activeView: "appels", toast: "Appel de service modifié." });
+      setState({ modal: null, activeView: "appels", toast: "Appel de service modifiÃ©." });
       return;
     }
     const ticket = {
@@ -1648,21 +1930,33 @@
       createdBy: currentUser().id
     };
     state.tickets.unshift(ticket);
-    setState({ modal: null, activeView: "appels", toast: "Appel de service créé." });
+    setState({ modal: null, activeView: "appels", toast: "Appel de service crÃ©Ã©." });
   }
 
   function createWorkOrder(values) {
+    const scope = values.scope || "equipment";
+    if (scope === "building" && !values.buildingId) {
+      showToast("Choisissez un immeuble pour le BT de bloc.");
+      return;
+    }
+    if (scope === "equipment" && !values.equipmentId) {
+      showToast("Choisissez un equipement pour le BT.");
+      return;
+    }
     const existing = state.workOrders.find((item) => item.id === values.id);
     if (existing) {
       Object.assign(existing, {
-        equipmentId: values.equipmentId,
+        scope,
+        buildingId: scope === "building" ? values.buildingId : "",
+        equipmentId: scope === "equipment" ? values.equipmentId : "",
         typeId: values.typeId,
+        formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
         technicianId: values.technicianId,
         scheduledDate: values.scheduledDate,
         status: values.status,
         notes: values.notes
       });
-      setState({ modal: null, activeView: "bons", toast: "Bon de travail modifié." });
+      setState({ modal: null, activeView: "bons", toast: "Bon de travail modifiÃ©." });
       return;
     }
     const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
@@ -1670,8 +1964,11 @@
       id: uid("wo"),
       number,
       ticketId: values.ticketId || null,
-      equipmentId: values.equipmentId,
+      scope,
+      buildingId: scope === "building" ? values.buildingId : "",
+      equipmentId: scope === "equipment" ? values.equipmentId : "",
       typeId: values.typeId,
+      formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
       technicianId: values.technicianId,
       scheduledDate: values.scheduledDate,
       status: values.status,
@@ -1682,7 +1979,7 @@
       const ticket = state.tickets.find((item) => item.id === values.ticketId);
       if (ticket) ticket.status = "en_cours";
     }
-    setState({ modal: null, activeView: "bons", toast: "Bon de travail créé." });
+    setState({ modal: null, activeView: "bons", toast: "Bon de travail crÃ©Ã©." });
   }
 
   function createEquipment(values) {
@@ -1701,7 +1998,7 @@
         status: values.status,
         notes: values.notes
       });
-      setState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Machine modifiée." });
+      setState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Machine modifiÃ©e." });
       return;
     }
     const equipment = {
@@ -1719,7 +2016,7 @@
       notes: values.notes
     };
     state.equipment.unshift(equipment);
-    setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Équipement ajouté." });
+    setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Ã‰quipement ajoutÃ©." });
   }
 
   function createUser(values) {
@@ -1732,7 +2029,7 @@
         role: values.role,
         clientId: values.clientId || null
       });
-      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
+      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifiÃ©." });
       return;
     }
     state.users.push({
@@ -1743,7 +2040,7 @@
       role: values.role,
       clientId: values.clientId || null
     });
-    setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
+    setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur crÃ©Ã©." });
   }
 
   function saveServiceType(values) {
@@ -1756,7 +2053,7 @@
     const index = state.serviceTypes.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.serviceTypes[index] = payload;
     else state.serviceTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type d'appel modifié." : "Type d'appel créé." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type d'appel modifiÃ©." : "Type d'appel crÃ©Ã©." });
   }
 
   function saveInterventionType(values) {
@@ -1769,7 +2066,57 @@
     const index = state.interventionTypes.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.interventionTypes[index] = payload;
     else state.interventionTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Checklist modifiée." : "Checklist créée." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Checklist modifiÃ©e." : "Checklist crÃ©Ã©e." });
+  }
+
+  function saveFormTemplate(values) {
+    const fields = values.fields.split(/\r?\n/).map((line) => parseFormField(line)).filter(Boolean);
+    if (!fields.length) {
+      showToast("Ajoutez au moins une question.");
+      return;
+    }
+    const payload = {
+      id: values.id || uid("form"),
+      name: values.name,
+      fields
+    };
+    const index = state.formTemplates.findIndex((item) => item.id === payload.id);
+    if (index >= 0) state.formTemplates[index] = payload;
+    else state.formTemplates.push(payload);
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Formulaire modifie." : "Formulaire cree." });
+  }
+
+  function parseFormField(line) {
+    const parts = line.split("|").map((part) => part.trim());
+    if (!parts[0]) return null;
+    const label = parts[0];
+    const type = ["text", "long", "checkbox", "single", "multiple", "select"].includes(parts[1]) ? parts[1] : "text";
+    const options = (parts[2] || "").split(",").map((option) => option.trim()).filter(Boolean);
+    const condition = parts.find((part) => part.startsWith("show:"));
+    return {
+      id: slugify(label),
+      label,
+      type,
+      options,
+      showWhen: condition ? parseShowWhen(condition) : null
+    };
+  }
+
+  function parseShowWhen(value) {
+    const expression = value.replace(/^show:/, "");
+    const [fieldId, expected] = expression.split("=");
+    if (!fieldId || !expected) return null;
+    return { fieldId: slugify(fieldId), value: expected.trim() };
+  }
+
+  function slugify(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || uid("q");
   }
 
   function saveRole(form, values) {
@@ -1781,7 +2128,7 @@
     const index = state.roleDefinitions.findIndex((item) => item.id === roleId);
     if (index >= 0) state.roleDefinitions[index] = payload;
     else state.roleDefinitions.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Rôle modifié." : "Rôle créé." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "RÃ´le modifiÃ©." : "RÃ´le crÃ©Ã©." });
   }
 
   function saveChecklist(form, values) {
@@ -1815,7 +2162,89 @@
       next.setMonth(next.getMonth() + 6);
       equipment.nextService = next.toISOString().slice(0, 10);
     }
-    setState({ modal: null, activeView: "bons", toast: "Checklist enregistrée." });
+    setState({ modal: null, activeView: "bons", toast: "Checklist enregistrÃ©e." });
+  }
+
+  function saveFieldIntervention(form, values) {
+    const orderId = form.dataset.orderId;
+    const apartmentId = form.dataset.apartmentId;
+    const order = state.workOrders.find((item) => item.id === orderId);
+    const template = formTemplateForOrder(order);
+    let equipment = state.equipment.find((item) => item.id === form.dataset.equipmentId);
+    if (!equipment) {
+      equipment = {
+        id: uid("eq"),
+        apartmentId,
+        type: values.type,
+        brand: values.brand || "",
+        model: values.model || "",
+        serial: values.serial || "",
+        location: values.location,
+        installDate: today(),
+        lastService: "",
+        nextService: "",
+        status: values.status || "actif",
+        notes: values.equipmentNotes || ""
+      };
+      state.equipment.unshift(equipment);
+    } else {
+      Object.assign(equipment, {
+        type: values.type,
+        brand: values.brand || "",
+        model: values.model || "",
+        serial: values.serial || "",
+        location: values.location,
+        status: values.status || "actif",
+        notes: values.equipmentNotes || ""
+      });
+    }
+    const responses = collectFormResponses(form, template);
+    const existing = state.interventions.find((item) => item.workOrderId === orderId && item.equipmentId === equipment.id);
+    const intervention = existing || {
+      id: uid("int"),
+      equipmentId: equipment.id,
+      apartmentId,
+      workOrderId: order.id,
+      typeId: order.typeId,
+      date: today(),
+      technicianId: currentUser().role === "technicien" ? currentUser().id : order.technicianId,
+      status: "terminee",
+      readings: {},
+      checklistDone: []
+    };
+    intervention.apartmentId = apartmentId;
+    intervention.formTemplateId = template?.id || "";
+    intervention.formResponses = responses;
+    intervention.summary = values.summary;
+    if (!existing) state.interventions.unshift(intervention);
+    equipment.lastService = today();
+    if (!equipment.nextService) {
+      const next = new Date();
+      next.setMonth(next.getMonth() + 6);
+      equipment.nextService = next.toISOString().slice(0, 10);
+    }
+    if (order.status === "planifie") order.status = "en_cours";
+    const progress = workOrderProgress(order);
+    if (progress.totalApartments && progress.doneApartments === progress.totalApartments) order.status = "termine";
+    setState({ modal: null, activeView: "execution", selectedWorkOrderId: order.id, selectedExecutionApartmentId: apartmentId, toast: "Formulaire terrain enregistre." });
+  }
+
+  function collectFormResponses(form, template) {
+    const responses = {};
+    (template?.fields || []).forEach((field) => {
+      const wrapper = form.querySelector(`[name="field-${field.id}"]`)?.closest(".dynamic-field, .check-row");
+      if (wrapper?.classList.contains("hidden")) return;
+      const inputs = Array.from(form.querySelectorAll(`[name="field-${field.id}"]`));
+      if (!inputs.length) return;
+      if (["checkbox", "multiple"].includes(field.type)) {
+        responses[field.label] = inputs.filter((input) => input.checked).map((input) => input.value);
+      } else if (field.type === "single") {
+        responses[field.label] = inputs.find((input) => input.checked)?.value || "";
+      } else {
+        responses[field.label] = inputs[0].value || "";
+      }
+    });
+    return responses;
   }
 
   function exportReport(type) {
@@ -1854,7 +2283,8 @@
           technicien: tech?.name,
           statut: statusText(item.status),
           resume: item.summary,
-          mesures: Object.entries(item.readings || {}).map(([key, value]) => `${key}: ${value}`).join(" | ")
+          mesures: Object.entries(item.readings || {}).map(([key, value]) => `${key}: ${value}`).join(" | "),
+          formulaire: Object.entries(item.formResponses || {}).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`).join(" | ")
         };
       });
     }
@@ -1875,14 +2305,14 @@
           };
         }),
         ...scopedWorkOrders().map((order) => {
-          const { apartment, building, equipment } = equipmentContext(order.equipmentId);
+          const { apartment, building, equipment } = workOrderContext(order);
           return {
             nature: "Bon de travail",
             reference: order.number,
             date: order.scheduledDate,
             immeuble: building?.name,
-            appartement: apartment?.number,
-            equipement: equipment?.type,
+            appartement: apartment?.number || (order.buildingId ? "Bloc complet" : ""),
+            equipement: equipment?.type || "",
             statut: statusText(order.status),
             detail: order.notes
           };
@@ -1890,7 +2320,7 @@
       ];
     }
     downloadCsv(filename, rows);
-    showToast("Rapport CSV téléchargé.");
+    showToast("Rapport CSV tÃ©lÃ©chargÃ©.");
   }
 
   function statusText(status) {
@@ -1898,9 +2328,20 @@
     return html.replace(/<[^>]+>/g, "");
   }
 
+  function fieldTypeLabel(type) {
+    return {
+      text: "champ ouvert",
+      long: "texte long",
+      checkbox: "case a cocher",
+      single: "selection unique",
+      multiple: "selection multiple",
+      select: "liste"
+    }[type] || type;
+  }
+
   function downloadCsv(filename, rows) {
     if (!rows.length) {
-      showToast("Aucune donnée à exporter.");
+      showToast("Aucune donnÃ©e Ã  exporter.");
       return;
     }
     const headers = Object.keys(rows[0]);
@@ -1947,7 +2388,8 @@
           equipmentId: target.dataset.equipment || null,
           ticketId: target.dataset.ticket || null,
           buildingId: target.dataset.building || null,
-          apartmentId: target.dataset.apartment || null
+          apartmentId: target.dataset.apartment || null,
+          orderId: target.dataset.order || null
         } });
       }
       if (action === "close-modal") {
@@ -1955,19 +2397,43 @@
         return;
       }
       if (action === "open-checklist") setState({ modal: { type: "checklist", orderId: target.dataset.id } });
+      if (action === "execute-workorder") {
+        const order = state.workOrders.find((item) => item.id === target.dataset.id);
+        const firstApartment = workOrderApartments(order)[0];
+        setState({ selectedWorkOrderId: target.dataset.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
+      }
+      if (action === "select-execution-apartment") {
+        setState({ selectedExecutionApartmentId: target.dataset.id });
+      }
       if (action === "ticket-status") {
         const ticket = state.tickets.find((item) => item.id === target.dataset.id);
         if (ticket) ticket.status = target.dataset.status;
-        setState({ toast: "Statut de l'appel mis à jour." });
+        setState({ toast: "Statut de l'appel mis Ã  jour." });
       }
       if (action === "order-status") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
         if (order) order.status = target.dataset.status;
-        setState({ toast: "Statut du BT mis à jour." });
+        setState({ toast: "Statut du BT mis Ã  jour." });
       }
       if (action === "export") exportReport(target.dataset.report);
     });
-    app.addEventListener("change", handleFilter);
+    app.addEventListener("change", (event) => {
+      handleFilter(event);
+      updateDynamicVisibility(event.target.closest("form"));
+    });
+    app.addEventListener("input", (event) => updateDynamicVisibility(event.target.closest("form")));
+  }
+
+  function updateDynamicVisibility(form) {
+    if (!form || form.dataset.form !== "fieldIntervention") return;
+    form.querySelectorAll("[data-visible-field]").forEach((field) => {
+      const sourceName = `field-${field.dataset.visibleField}`;
+      const sourceInputs = Array.from(form.querySelectorAll(`[name="${sourceName}"]`));
+      const values = sourceInputs
+        .filter((input) => input.type !== "checkbox" && input.type !== "radio" || input.checked)
+        .map((input) => input.value);
+      field.classList.toggle("hidden", !values.includes(field.dataset.visibleValue));
+    });
   }
 
   function handleFilter(event) {
@@ -1993,10 +2459,12 @@
     else if (state.activeView === "detail") app.innerHTML = equipmentDetailView();
     else if (state.activeView === "appels") app.innerHTML = ticketsView();
     else if (state.activeView === "bons") app.innerHTML = workOrdersView();
+    else if (state.activeView === "execution") app.innerHTML = workOrderExecutionView();
     else if (state.activeView === "rapports") app.innerHTML = reportsView();
     else if (state.activeView === "utilisateurs" && can("users")) app.innerHTML = usersView();
     else if (state.activeView === "parametres" && (can("settings") || can("users"))) app.innerHTML = settingsView();
     else app.innerHTML = dashboard();
+    updateDynamicVisibility(app.querySelector("form[data-form='fieldIntervention']"));
   }
 
   bindEvents();

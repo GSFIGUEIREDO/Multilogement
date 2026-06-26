@@ -652,6 +652,72 @@ td button.link-button {
   font-size: 0.82rem;
 }
 
+.mini-row.active {
+  border-color: var(--brand);
+  background: #e9f5f6;
+}
+
+.progress-panel {
+  margin-bottom: 16px;
+}
+
+.progress-line {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+}
+
+.progress-line.large {
+  height: 14px;
+}
+
+.progress-line span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: var(--brand);
+}
+
+.execution-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.38fr) minmax(0, 0.62fr);
+  gap: 16px;
+}
+
+.form-builder {
+  display: grid;
+  gap: 12px;
+}
+
+.form-section-title {
+  padding-top: 4px;
+  font-weight: 900;
+  color: var(--brand-dark);
+}
+
+.choice-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+}
+
+.choice-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.choice-list input {
+  width: 18px;
+  height: 18px;
+}
+
 .timeline {
   position: relative;
   display: grid;
@@ -779,7 +845,8 @@ td button.link-button {
   .login-shell,
   .app-shell,
   .grid,
-  .detail-layout {
+  .detail-layout,
+  .execution-layout {
     grid-template-columns: 1fr;
   }
 

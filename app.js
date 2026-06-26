@@ -363,6 +363,7 @@
         label: field.label,
         type: field.type || "text",
         options: field.options || [],
+        required: Boolean(field.required),
         showWhen: field.showWhen || null
       }))
     }));
@@ -1113,7 +1114,7 @@
     return appShell(`
       ${renderTopbar(`Execution ${order.number}`, `${building?.name || "-"} - ${type?.name || ""}`, `
         <button class="ghost-button" data-action="view" data-view="bons">Retour</button>
-        <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle machine + formulaire</button>
+        <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
       `)}
       <section class="stats-grid">
         <div class="stat"><span>Progression</span><strong>${progress.percent}%</strong></div>
@@ -1135,7 +1136,7 @@
           <div class="panel">
             <div class="panel-header">
               <h2>Appartement ${escapeHtml(selectedApartment?.number || "-")}</h2>
-              <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Demarrer une machine</button>
+              <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
             </div>
             <div class="panel-body cards-list">
               ${apartmentMachines.map((machine) => {
@@ -1613,6 +1614,10 @@
           <label>Question</label>
           <input name="q-label" value="${escapeHtml(field.label || "")}" placeholder="Ex.: Etat general de l'unite" required>
         </div>
+        <label class="inline-check">
+          <input type="checkbox" name="q-required" ${field.required ? "checked" : ""}>
+          <span>Réponse obligatoire</span>
+        </label>
         <div class="split">
           <div class="field">
             <label>Type de réponse</label>
@@ -1702,12 +1707,22 @@
 
   function fieldInterventionModal(modal) {
     const order = state.workOrders.find((item) => item.id === modal.orderId);
-    const apartment = state.apartments.find((item) => item.id === modal.apartmentId);
+    const availableApartments = workOrderApartments(order);
     const equipment = state.equipment.find((item) => item.id === modal.equipmentId) || { apartmentId: modal.apartmentId, status: "actif" };
+    const selectedApartmentId = equipment.apartmentId || modal.apartmentId || availableApartments[0]?.id || "__new";
+    const apartment = state.apartments.find((item) => item.id === selectedApartmentId);
+    const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}${item.occupant ? ` - ${escapeHtml(item.occupant)}` : ""}</option>`).join("");
     const template = formTemplateForOrder(order);
     const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
-    return modalShell(`Formulaire terrain - Apt ${escapeHtml(apartment?.number || "")}`, `
-      <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-apartment-id="${escapeHtml(apartment?.id || "")}" data-equipment-id="${escapeHtml(equipment.id || "")}">
+    return modalShell(`Nouvelle activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
+      <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(equipment.id || "")}">
+        <div class="form-section-title">Appartement</div>
+        <div class="split">
+          <div class="field"><label>Appartement</label><select name="apartmentId"><option value="__new" ${selectedApartmentId === "__new" ? "selected" : ""}>Nouvel appartement</option>${apartmentOptions}</select></div>
+          <div class="field"><label>Numéro du nouvel appartement</label><input name="newApartmentNumber" placeholder="Ex.: 1204"></div>
+        </div>
+        <div class="field"><label>Occupant du nouvel appartement</label><input name="newApartmentOccupant" placeholder="Nom ou note d'accès"></div>
+        <div class="form-section-title">Machine</div>
         <div class="split">
           <div class="field"><label>Type</label><input name="type" value="${escapeHtml(equipment.type || "")}" required></div>
           <div class="field"><label>Localisation</label><input name="location" value="${escapeHtml(equipment.location || "")}" required></div>
@@ -1734,23 +1749,26 @@
   function renderDynamicField(field, value) {
     const depends = field.showWhen ? `data-visible-field="${escapeHtml(field.showWhen.fieldId)}" data-visible-value="${escapeHtml(field.showWhen.value)}"` : "";
     const options = field.options?.length ? field.options : ["Oui"];
+    const required = field.required ? "required" : "";
+    const label = `${escapeHtml(field.label)}${field.required ? " *" : ""}`;
     if (field.type === "long") {
-      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><textarea name="field-${field.id}">${escapeHtml(value || "")}</textarea></div>`;
+      return `<div class="field dynamic-field" ${depends}><label>${label}</label><textarea name="field-${field.id}" ${required}>${escapeHtml(value || "")}</textarea></div>`;
     }
     if (field.type === "checkbox") {
       const checked = Array.isArray(value) ? value.includes(options[0]) : Boolean(value);
-      return `<label class="check-row dynamic-field" ${depends}><input type="checkbox" name="field-${field.id}" value="${escapeHtml(options[0])}" ${checked ? "checked" : ""}><span><strong>${escapeHtml(field.label)}</strong><span>${escapeHtml(options[0])}</span></span></label>`;
+      return `<label class="check-row dynamic-field" ${depends} data-required="${field.required ? "true" : "false"}"><input type="checkbox" name="field-${field.id}" value="${escapeHtml(options[0])}" ${checked ? "checked" : ""}><span><strong>${label}</strong><span>${escapeHtml(options[0])}</span></span></label>`;
     }
     if (field.type === "single") {
-      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><div class="choice-list">${options.map((option) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option, index) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""} ${field.required && index === 0 ? "required" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "multiple") {
-      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "select") {
-      return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><select name="field-${field.id}"><option value="">-</option>${options.map((option) => `<option value="${escapeHtml(option)}" ${value === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select></div>`;
+      const listId = `list-${field.id}`;
+      return `<div class="field dynamic-field" ${depends}><label>${label}</label><input name="field-${field.id}" list="${escapeHtml(listId)}" value="${escapeHtml(value || "")}" ${required} placeholder="Tapez ou choisissez"><datalist id="${escapeHtml(listId)}">${options.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist></div>`;
     }
-    return `<div class="field dynamic-field" ${depends}><label>${escapeHtml(field.label)}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}"></div>`;
+    return `<div class="field dynamic-field" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
   }
 
   function handleSubmit(event) {
@@ -2131,6 +2149,7 @@
         label,
         type: card.querySelector('[name="q-type"]')?.value || "text",
         options: parseOptions(card.querySelector('[name="q-options"]')?.value || ""),
+        required: Boolean(card.querySelector('[name="q-required"]')?.checked),
         showWhen: showField && showValue ? { fieldId: showField, value: showValue } : null
       };
     }).filter(Boolean);
@@ -2234,9 +2253,11 @@
 
   function saveFieldIntervention(form, values) {
     const orderId = form.dataset.orderId;
-    const apartmentId = form.dataset.apartmentId;
     const order = state.workOrders.find((item) => item.id === orderId);
     const template = formTemplateForOrder(order);
+    if (!validateRequiredResponses(form, template)) return;
+    const apartmentId = resolveActivityApartment(order, values);
+    if (!apartmentId) return;
     let equipment = state.equipment.find((item) => item.id === form.dataset.equipmentId);
     if (!equipment) {
       equipment = {
@@ -2296,6 +2317,30 @@
     setState({ modal: null, activeView: "execution", selectedWorkOrderId: order.id, selectedExecutionApartmentId: apartmentId, toast: "Formulaire terrain enregistre." });
   }
 
+  function resolveActivityApartment(order, values) {
+    if (values.apartmentId && values.apartmentId !== "__new") return values.apartmentId;
+    if (!values.newApartmentNumber?.trim()) {
+      showToast("Entrez le numéro du nouvel appartement.");
+      return null;
+    }
+    const context = workOrderContext(order);
+    const buildingId = order.buildingId || context.building?.id || state.selectedBuildingId;
+    if (!buildingId) {
+      showToast("Aucun immeuble trouvé pour créer l'appartement.");
+      return null;
+    }
+    const existing = state.apartments.find((item) => item.buildingId === buildingId && item.number.trim().toLowerCase() === values.newApartmentNumber.trim().toLowerCase());
+    if (existing) return existing.id;
+    const apartment = {
+      id: uid("apt"),
+      buildingId,
+      number: values.newApartmentNumber.trim(),
+      occupant: values.newApartmentOccupant || ""
+    };
+    state.apartments.push(apartment);
+    return apartment.id;
+  }
+
   function collectFormResponses(form, template) {
     const responses = {};
     (template?.fields || []).forEach((field) => {
@@ -2312,6 +2357,24 @@
       }
     });
     return responses;
+  }
+
+  function validateRequiredResponses(form, template) {
+    const missing = (template?.fields || []).find((field) => {
+      if (!field.required) return false;
+      const wrapper = form.querySelector(`[name="field-${field.id}"]`)?.closest(".dynamic-field, .check-row");
+      if (wrapper?.classList.contains("hidden")) return false;
+      const inputs = Array.from(form.querySelectorAll(`[name="field-${field.id}"]`));
+      if (!inputs.length) return true;
+      if (["checkbox", "multiple"].includes(field.type)) return !inputs.some((input) => input.checked);
+      if (field.type === "single") return !inputs.some((input) => input.checked);
+      return !inputs[0].value.trim();
+    });
+    if (missing) {
+      showToast(`Champ obligatoire: ${missing.label}`);
+      return false;
+    }
+    return true;
   }
 
   function exportReport(type) {
@@ -2554,7 +2617,11 @@
       const values = sourceInputs
         .filter((input) => input.type !== "checkbox" && input.type !== "radio" || input.checked)
         .map((input) => input.value);
-      field.classList.toggle("hidden", !values.includes(field.dataset.visibleValue));
+      const hidden = !values.includes(field.dataset.visibleValue);
+      field.classList.toggle("hidden", hidden);
+      field.querySelectorAll("input, select, textarea").forEach((input) => {
+        input.disabled = hidden;
+      });
     });
   }
 

@@ -713,6 +713,19 @@ td button.link-button {
   gap: 10px;
 }
 
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.inline-check input {
+  width: 18px;
+  height: 18px;
+}
+
 .branching-box {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

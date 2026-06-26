@@ -188,6 +188,15 @@
       {
         id: "form-nettoyage-bloc",
         name: "Formulaire nettoyage bloc",
+        activityFields: {
+          type: { required: true, options: ["Thermopompe murale", "Fan coil", "Unité PTAC", "Échangeur d'air"] },
+          location: { required: true, options: ["Salon", "Chambre principale", "Pièce principale", "Salle mécanique", "Placard technique"] },
+          brand: { required: false, options: ["Mitsubishi", "Carrier", "Friedrich", "Daikin", "Venmar"] },
+          model: { required: false, options: ["MSZ-FS09", "42C", "PZE12K", "DZ14SA", "AVS N Series"] },
+          serial: { required: false, options: [] },
+          status: { required: true, options: [] },
+          notes: { required: false, options: [] }
+        },
         fields: [
           { id: "etat_general", label: "Etat general de l'unite", type: "single", options: ["Bon", "A surveiller", "Reparation requise"] },
           { id: "acces", label: "Acces a l'appartement confirme", type: "checkbox", options: ["Oui"] },
@@ -358,6 +367,7 @@
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
       id: template.id,
       name: template.name,
+      activityFields: normalizeActivityFields(template.activityFields),
       fields: (template.fields || []).map((field) => ({
         id: field.id,
         label: field.label,
@@ -398,6 +408,26 @@
       ...intervention
     }));
     return next;
+  }
+
+  function normalizeActivityFields(config = {}) {
+    const defaults = {
+      type: { label: "Type", required: true, options: [] },
+      location: { label: "Localisation", required: true, options: [] },
+      brand: { label: "Marque", required: false, options: [] },
+      model: { label: "Modèle", required: false, options: [] },
+      serial: { label: "Numéro de série", required: false, options: [] },
+      status: { label: "Statut", required: true, options: [] },
+      notes: { label: "Notes machine", required: false, options: [] }
+    };
+    return Object.fromEntries(Object.entries(defaults).map(([key, value]) => [
+      key,
+      {
+        ...value,
+        ...(config[key] || {}),
+        options: config[key]?.options || value.options
+      }
+    ]));
   }
 
   function saveState() {
@@ -1586,10 +1616,16 @@
   function formTemplateModal(modal) {
     const template = state.formTemplates.find((item) => item.id === modal.id) || {};
     const fields = template.fields?.length ? template.fields : [{ id: "", label: "", type: "text", options: [], showWhen: null }];
+    const activityFields = normalizeActivityFields(template.activityFields);
     return modalShell(template.id ? "Modifier le formulaire terrain" : "Nouveau formulaire terrain", `
       <form class="form-grid" data-form="formTemplate">
         <input type="hidden" name="id" value="${escapeHtml(template.id || "")}">
         <div class="field"><label>Nom du formulaire</label><input name="name" value="${escapeHtml(template.name || "")}" required></div>
+        <div class="form-section-title">Champs de l'activité</div>
+        <div class="forms-builder">
+          ${activityFieldCatalog().map(([key, label]) => formActivityFieldRow(key, label, activityFields[key])).join("")}
+        </div>
+        <div class="form-section-title">Questions du formulaire</div>
         <div class="forms-builder" data-question-list>
           ${fields.map((field, index) => formBuilderQuestion(field, index, fields)).join("")}
         </div>
@@ -1597,6 +1633,31 @@
         <button class="primary-button" type="submit">${template.id ? "Enregistrer" : "Créer le formulaire"}</button>
       </form>
     `);
+  }
+
+  function activityFieldCatalog() {
+    return [
+      ["type", "Type"],
+      ["location", "Localisation"],
+      ["brand", "Marque"],
+      ["model", "Modèle"],
+      ["serial", "Numéro de série"],
+      ["status", "Statut"],
+      ["notes", "Notes machine"]
+    ];
+  }
+
+  function formActivityFieldRow(key, label, config = {}) {
+    const supportsOptions = ["type", "location", "brand", "model"].includes(key);
+    return `
+      <article class="activity-field-card" data-activity-field="${key}">
+        <div class="activity-field-head">
+          <strong>${escapeHtml(label)}</strong>
+          <label class="inline-check"><input type="checkbox" name="activity-required-${key}" ${config.required ? "checked" : ""}><span>Obligatoire</span></label>
+        </div>
+        ${supportsOptions ? `<div class="field"><label>Options suggérées</label><textarea name="activity-options-${key}" placeholder="Une option par ligne">${escapeHtml((config.options || []).join("\n"))}</textarea></div>` : ""}
+      </article>
+    `;
   }
 
   function formBuilderQuestion(field, index, allFields) {
@@ -1713,29 +1774,30 @@
     const apartment = state.apartments.find((item) => item.id === selectedApartmentId);
     const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}${item.occupant ? ` - ${escapeHtml(item.occupant)}` : ""}</option>`).join("");
     const template = formTemplateForOrder(order);
+    const activityFields = normalizeActivityFields(template?.activityFields);
     const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
     return modalShell(`Nouvelle activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
       <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(equipment.id || "")}">
         <div class="form-section-title">Appartement</div>
         <div class="split">
           <div class="field"><label>Appartement</label><select name="apartmentId"><option value="__new" ${selectedApartmentId === "__new" ? "selected" : ""}>Nouvel appartement</option>${apartmentOptions}</select></div>
-          <div class="field"><label>Numéro du nouvel appartement</label><input name="newApartmentNumber" placeholder="Ex.: 1204"></div>
+          <div class="field new-apartment-field"><label>Numéro du nouvel appartement</label><input name="newApartmentNumber" placeholder="Ex.: 1204"></div>
         </div>
-        <div class="field"><label>Occupant du nouvel appartement</label><input name="newApartmentOccupant" placeholder="Nom ou note d'accès"></div>
+        <div class="field new-apartment-field"><label>Occupant du nouvel appartement</label><input name="newApartmentOccupant" placeholder="Nom ou note d'accès"></div>
         <div class="form-section-title">Machine</div>
         <div class="split">
-          <div class="field"><label>Type</label><input name="type" value="${escapeHtml(equipment.type || "")}" required></div>
-          <div class="field"><label>Localisation</label><input name="location" value="${escapeHtml(equipment.location || "")}" required></div>
+          ${activityTextInput("type", activityFields.type, equipment.type)}
+          ${activityTextInput("location", activityFields.location, equipment.location)}
         </div>
         <div class="split">
-          <div class="field"><label>Marque</label><input name="brand" value="${escapeHtml(equipment.brand || "")}"></div>
-          <div class="field"><label>Modele</label><input name="model" value="${escapeHtml(equipment.model || "")}"></div>
+          ${activityTextInput("brand", activityFields.brand, equipment.brand)}
+          ${activityTextInput("model", activityFields.model, equipment.model)}
         </div>
         <div class="split">
-          <div class="field"><label>Numero de serie</label><input name="serial" value="${escapeHtml(equipment.serial || "")}"></div>
-          <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>A planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+          <div class="field"><label>${activityFields.serial.label}${activityFields.serial.required ? " *" : ""}</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" ${activityFields.serial.required ? "required" : ""}></div>
+          <div class="field"><label>${activityFields.status.label}${activityFields.status.required ? " *" : ""}</label><select name="status" ${activityFields.status.required ? "required" : ""}><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>A planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
         </div>
-        <div class="field"><label>Notes machine</label><textarea name="equipmentNotes">${escapeHtml(equipment.notes || "")}</textarea></div>
+        <div class="field"><label>${activityFields.notes.label}${activityFields.notes.required ? " *" : ""}</label><textarea name="equipmentNotes" ${activityFields.notes.required ? "required" : ""}>${escapeHtml(equipment.notes || "")}</textarea></div>
         <div class="form-section-title">${escapeHtml(template?.name || "Formulaire")}</div>
         <div class="form-builder">
           ${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label])).join("")}
@@ -1744,6 +1806,30 @@
         <button class="primary-button" type="submit">Enregistrer appartement</button>
       </form>
     `);
+  }
+
+  function activityTextInput(name, config, value) {
+    const listId = `activity-${name}-options`;
+    const options = activityOptions(name, config);
+    return `
+      <div class="field">
+        <label>${escapeHtml(config.label)}${config.required ? " *" : ""}</label>
+        <input name="${name}" list="${listId}" value="${escapeHtml(value || "")}" ${config.required ? "required" : ""} placeholder="Tapez ou choisissez">
+        <datalist id="${listId}">
+          ${options.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}
+        </datalist>
+      </div>
+    `;
+  }
+
+  function activityOptions(name, config) {
+    const fromInventory = state.equipment.map((item) => ({
+      type: item.type,
+      location: item.location,
+      brand: item.brand,
+      model: item.model
+    }[name])).filter(Boolean);
+    return Array.from(new Set([...(config.options || []), ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
   }
 
   function renderDynamicField(field, value) {
@@ -2160,6 +2246,7 @@
     const payload = {
       id: values.id || uid("form"),
       name: values.name,
+      activityFields: collectActivityFieldSettings(form),
       fields
     };
     const index = state.formTemplates.findIndex((item) => item.id === payload.id);
@@ -2170,6 +2257,17 @@
 
   function parseOptions(value) {
     return value.split(/\r?\n|,/).map((option) => option.trim()).filter(Boolean);
+  }
+
+  function collectActivityFieldSettings(form) {
+    return Object.fromEntries(activityFieldCatalog().map(([key, label]) => [
+      key,
+      {
+        label,
+        required: Boolean(form.querySelector(`[name="activity-required-${key}"]`)?.checked),
+        options: parseOptions(form.querySelector(`[name="activity-options-${key}"]`)?.value || "")
+      }
+    ]));
   }
 
   function parseFormField(line) {
@@ -2558,10 +2656,23 @@
     app.addEventListener("change", (event) => {
       handleFilter(event);
       updateDynamicVisibility(event.target.closest("form"));
+      updateNewApartmentVisibility(event.target.closest("form"));
     });
     app.addEventListener("input", (event) => {
       updateDynamicVisibility(event.target.closest("form"));
       if (event.target.name === "q-label") refreshFormBranching(event.target.closest("form"));
+    });
+  }
+
+  function updateNewApartmentVisibility(form) {
+    if (!form || form.dataset.form !== "fieldIntervention") return;
+    const isNew = form.querySelector('[name="apartmentId"]')?.value === "__new";
+    form.querySelectorAll(".new-apartment-field").forEach((field) => {
+      field.classList.toggle("hidden", !isNew);
+      field.querySelectorAll("input, select, textarea").forEach((input) => {
+        input.disabled = !isNew;
+        if (input.name === "newApartmentNumber") input.required = isNew;
+      });
     });
   }
 
@@ -2654,6 +2765,7 @@
     else if (state.activeView === "parametres" && (can("settings") || can("users"))) app.innerHTML = settingsView();
     else app.innerHTML = dashboard();
     updateDynamicVisibility(app.querySelector("form[data-form='fieldIntervention']"));
+    updateNewApartmentVisibility(app.querySelector("form[data-form='fieldIntervention']"));
   }
 
   bindEvents();

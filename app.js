@@ -63,22 +63,22 @@
       {
         id: "b-verdun",
         clientId: "client-azur",
-        name: "RÃ©sidence Verdun",
-        address: "1140 rue Wellington, MontrÃ©al",
-        onsiteContactName: "AndrÃ© Roy",
+        name: "Résidence Verdun",
+        address: "1140 rue Wellington, Montréal",
+        onsiteContactName: "André Roy",
         onsiteContactPhone: "514-555-0188",
         onsiteContactEmail: "concierge@verdun.ca",
         billingContactName: "Sophie Martin",
         billingContactPhone: "514-555-0112",
         billingContactEmail: "facturation@gestionazur.ca",
-        notes: "AccÃ¨s par l'entrÃ©e de service."
+        notes: "Accès par l'entrée de service."
       },
       {
         id: "b-laval",
         clientId: "client-azur",
         name: "Tours Laval",
         address: "75 boulevard Cartier, Laval",
-        onsiteContactName: "MÃ©lanie Fortin",
+        onsiteContactName: "Mélanie Fortin",
         onsiteContactPhone: "450-555-0140",
         onsiteContactEmail: "surplace@tourslaval.ca",
         billingContactName: "Sophie Martin",
@@ -89,8 +89,8 @@
       {
         id: "b-nord",
         clientId: "client-nord",
-        name: "Condo RiviÃ¨re Nord",
-        address: "425 rue Principale, Saint-JÃ©rÃ´me",
+        name: "Condo Rivière Nord",
+        address: "425 rue Principale, Saint-Jérôme",
         onsiteContactName: "Daniel Leduc",
         onsiteContactPhone: "450-555-0199",
         onsiteContactEmail: "maintenance@rivieredunord.ca",
@@ -120,7 +120,7 @@
         lastService: "2026-05-18",
         nextService: "2026-11-18",
         status: "actif",
-        notes: "AccÃ¨s avec prÃ©avis de 24 h."
+        notes: "Accès avec préavis de 24 h."
       },
       {
         id: "eq-202",
@@ -134,21 +134,21 @@
         lastService: "2026-03-08",
         nextService: "2026-09-08",
         status: "surveillance",
-        notes: "Vibration lÃ©gÃ¨re Ã  vitesse Ã©levÃ©e."
+        notes: "Vibration légère à vitesse élevée."
       },
       {
         id: "eq-504",
         apartmentId: "apt-504",
-        type: "UnitÃ© PTAC",
+        type: "Unité PTAC",
         brand: "Friedrich",
         model: "PZE12K",
         serial: "FR-504-4421",
-        location: "PiÃ¨ce principale",
+        location: "Pièce principale",
         installDate: "2018-02-20",
         lastService: "2025-12-15",
         nextService: "2026-06-30",
         status: "a_planifier",
-        notes: "Nettoyage annuel Ã  complÃ©ter."
+        notes: "Nettoyage annuel à compléter."
       },
       {
         id: "eq-709",
@@ -157,7 +157,7 @@
         brand: "Daikin",
         model: "DZ14SA",
         serial: "DK-709-7711",
-        location: "Salle mÃ©canique",
+        location: "Salle mécanique",
         installDate: "2020-07-27",
         lastService: "2026-04-11",
         nextService: "2026-10-11",
@@ -167,7 +167,7 @@
       {
         id: "eq-12",
         apartmentId: "apt-12",
-        type: "Ã‰changeur d'air",
+        type: "Échangeur d'air",
         brand: "Venmar",
         model: "AVS N Series",
         serial: "VN-012-3388",
@@ -176,12 +176,12 @@
         lastService: "2026-02-22",
         nextService: "2026-08-22",
         status: "hors_service",
-        notes: "Moteur Ã  remplacer."
+        notes: "Moteur à remplacer."
       }
     ],
     serviceTypes: [
       { id: "plainte_bruit", name: "Plainte bruit / vibration", defaultPriority: "normale", linkedInterventionTypeId: "inspection" },
-      { id: "panne", name: "Panne ou arrÃªt complet", defaultPriority: "urgente", linkedInterventionTypeId: "reparation" },
+      { id: "panne", name: "Panne ou arrêt complet", defaultPriority: "urgente", linkedInterventionTypeId: "reparation" },
       { id: "entretien", name: "Demande d'entretien", defaultPriority: "normale", linkedInterventionTypeId: "nettoyage" }
     ],
     formTemplates: [
@@ -200,27 +200,27 @@
     interventionTypes: [
       {
         id: "nettoyage",
-        name: "Nettoyage prÃ©ventif",
+        name: "Nettoyage préventif",
         defaultDuration: 75,
         checklist: [
-          "Couper l'alimentation et sÃ©curiser la zone",
+          "Couper l'alimentation et sécuriser la zone",
           "Nettoyer ou remplacer les filtres",
-          "Nettoyer l'Ã©vaporateur et le drain",
-          "VÃ©rifier les serpentins et ailettes",
-          "Mesurer la tempÃ©rature de soufflage",
+          "Nettoyer l'évaporateur et le drain",
+          "Vérifier les serpentins et ailettes",
+          "Mesurer la température de soufflage",
           "Remettre en marche et valider le fonctionnement"
         ]
       },
       {
         id: "reparation",
-        name: "RÃ©paration",
+        name: "Réparation",
         defaultDuration: 120,
         checklist: [
-          "Confirmer le symptÃ´me avec le rÃ©sident ou gestionnaire",
-          "Diagnostiquer composantes Ã©lectriques et mÃ©caniques",
-          "Identifier les piÃ¨ces requises",
-          "Effectuer la rÃ©paration approuvÃ©e",
-          "Tester l'Ã©quipement en mode chaud et froid",
+          "Confirmer le symptôme avec le résident ou gestionnaire",
+          "Diagnostiquer composantes électriques et mécaniques",
+          "Identifier les pièces requises",
+          "Effectuer la réparation approuvée",
+          "Tester l'équipement en mode chaud et froid",
           "Documenter les mesures et recommandations"
         ]
       },
@@ -229,11 +229,11 @@
         name: "Inspection technique",
         defaultDuration: 45,
         checklist: [
-          "Inspecter l'Ã©tat gÃ©nÃ©ral de l'unitÃ©",
-          "VÃ©rifier bruit, vibration et odeurs",
-          "ContrÃ´ler pression, dÃ©bit et tempÃ©rature",
+          "Inspecter l'état général de l'unité",
+          "Vérifier bruit, vibration et odeurs",
+          "Contrôler pression, débit et température",
           "Photographier les anomalies",
-          "DÃ©terminer prioritÃ© de suivi"
+          "Déterminer priorité de suivi"
         ]
       }
     ],
@@ -246,7 +246,7 @@
         date: "2026-05-18",
         technicianId: "u-tech",
         status: "terminee",
-        summary: "Nettoyage complet, drain dÃ©gagÃ©, fonctionnement normal.",
+        summary: "Nettoyage complet, drain dégagé, fonctionnement normal.",
         readings: { soufflage: "10.8 C", retour: "23.4 C", pression: "OK" },
         checklistDone: [true, true, true, true, true, true]
       },
@@ -258,8 +258,8 @@
         date: "2026-03-08",
         technicianId: "u-tech",
         status: "terminee",
-        summary: "Vibration perceptible. Recommandation: vÃ©rifier support moteur au prochain passage.",
-        readings: { soufflage: "12.2 C", retour: "22.9 C", pression: "Ã€ revoir" },
+        summary: "Vibration perceptible. Recommandation: vérifier support moteur au prochain passage.",
+        readings: { soufflage: "12.2 C", retour: "22.9 C", pression: "À revoir" },
         checklistDone: [true, true, true, true, true]
       }
     ],
@@ -270,8 +270,8 @@
         buildingId: "b-laval",
         apartmentId: "apt-504",
         equipmentId: "eq-504",
-        title: "Entretien annuel Ã  planifier",
-        description: "Le gestionnaire souhaite regrouper l'entretien avec trois autres unitÃ©s.",
+        title: "Entretien annuel à planifier",
+        description: "Le gestionnaire souhaite regrouper l'entretien avec trois autres unités.",
         priority: "normale",
         status: "ouvert",
         createdAt: "2026-06-20",
@@ -283,8 +283,8 @@
         buildingId: "b-nord",
         apartmentId: "apt-12",
         equipmentId: "eq-12",
-        title: "Ã‰changeur d'air hors service",
-        description: "L'appareil ne dÃ©marre plus. Le panneau indique une erreur moteur.",
+        title: "Échangeur d'air hors service",
+        description: "L'appareil ne démarre plus. Le panneau indique une erreur moteur.",
         priority: "urgente",
         status: "en_cours",
         createdAt: "2026-06-22",
@@ -301,7 +301,7 @@
         technicianId: "u-tech",
         scheduledDate: "2026-05-18",
         status: "termine",
-        notes: "Contrat prÃ©ventif semestriel."
+        notes: "Contrat préventif semestriel."
       },
       {
         id: "wo-2",
@@ -312,7 +312,7 @@
         technicianId: "u-tech",
         scheduledDate: "2026-03-08",
         status: "termine",
-        notes: "Inspection aprÃ¨s plainte de bruit."
+        notes: "Inspection après plainte de bruit."
       },
       {
         id: "wo-3",
@@ -323,12 +323,12 @@
         technicianId: "u-tech",
         scheduledDate: "2026-06-25",
         status: "planifie",
-        notes: "PrÃ©voir moteur compatible Venmar."
+        notes: "Prévoir moteur compatible Venmar."
       }
     ],
     roleDefinitions: [
       { id: "administrateur", name: "Administrateur", rights: ["all"] },
-      { id: "equipe_interne", name: "Ã‰quipe interne", rights: ["lieux", "equipment", "tickets", "workorders", "reports", "users", "settings"] },
+      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "tickets", "workorders", "reports", "users", "settings"] },
       { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "workorders", "interventions"] },
       { id: "client", name: "Client", rights: ["portal", "lieux", "tickets", "reports"] }
     ]
@@ -443,7 +443,7 @@
   function roleLabel(role) {
     return state.roleDefinitions?.find((item) => item.id === role)?.name || {
       administrateur: "Administrateur",
-      equipe_interne: "Ã‰quipe interne",
+      equipe_interne: "Équipe interne",
       technicien: "Technicien",
       client: "Client"
     }[role] || role;
@@ -564,15 +564,15 @@
     const map = {
       actif: ["Actif", "ok"],
       surveillance: ["Surveillance", "warn"],
-      a_planifier: ["Ã€ planifier", "info"],
+      a_planifier: ["À planifier", "info"],
       hors_service: ["Hors service", "danger"],
       ouvert: ["Ouvert", "info"],
       en_cours: ["En cours", "warn"],
-      ferme: ["FermÃ©", "neutral"],
-      planifie: ["PlanifiÃ©", "info"],
-      termine: ["TerminÃ©", "ok"],
-      annule: ["AnnulÃ©", "neutral"],
-      terminee: ["TerminÃ©e", "ok"],
+      ferme: ["Fermé", "neutral"],
+      planifie: ["Planifié", "info"],
+      termine: ["Terminé", "ok"],
+      annule: ["Annulé", "neutral"],
+      terminee: ["Terminée", "ok"],
       urgente: ["Urgente", "danger"],
       normale: ["Normale", "info"],
       basse: ["Basse", "neutral"]
@@ -608,12 +608,12 @@
     const nav = [
       ["tableau", "TB", "Tableau de bord", true],
       ["lieux", "LI", "Lieux", can("lieux") || can("portal")],
-      ["equipements", "EQ", "Ã‰quipements", can("equipment") || can("portal")],
+      ["equipements", "EQ", "Équipements", can("equipment") || can("portal")],
       ["appels", "CH", "Appels de service", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
-      ["parametres", "PR", "ParamÃ¨tres", can("settings") || can("users")]
+      ["parametres", "PR", "Paramètres", can("settings") || can("users")]
     ].filter((item) => item[3]);
 
     return `
@@ -635,7 +635,7 @@
               <strong>${escapeHtml(user.name)}</strong>
               <span>${roleLabel(user.role)}</span>
             </div>
-            <button class="ghost-button" data-action="logout">DÃ©connexion</button>
+            <button class="ghost-button" data-action="logout">Déconnexion</button>
           </div>
         </aside>
         <main class="main">${content}</main>
@@ -651,7 +651,7 @@
         <section class="login-panel">
           <div class="brand-mark"><span class="logo">CP</span><span>ClimaParc</span></div>
           <h1>Gestion HVAC multi-immeubles</h1>
-          <p>Inventaire des Ã©quipements, interventions, appels de service, bons de travail, checklists techniques et accÃ¨s client.</p>
+          <p>Inventaire des équipements, interventions, appels de service, bons de travail, checklists techniques et accès client.</p>
           <form class="login-form" data-form="login">
             <div class="field">
               <label for="email">Courriel</label>
@@ -664,14 +664,14 @@
             <button class="primary-button" type="submit">Connexion</button>
           </form>
           <div class="login-links">
-            <button class="ghost-button" data-action="open-modal" data-modal="signup">CrÃ©er un compte</button>
-            <button class="link-button" data-action="open-modal" data-modal="forgotPassword">Mot de passe oubliÃ©?</button>
+            <button class="ghost-button" data-action="open-modal" data-modal="signup">Créer un compte</button>
+            <button class="link-button" data-action="open-modal" data-modal="forgotPassword">Mot de passe oublié?</button>
           </div>
         </section>
         <section class="login-visual">
           <div class="visual-copy">
-            <h2>Parc HVAC, appartements et travaux au mÃªme endroit.</h2>
-            <p>Une vue claire pour l'Ã©quipe interne, les techniciens et les administrateurs de copropriÃ©tÃ©s.</p>
+            <h2>Parc HVAC, appartements et travaux au même endroit.</h2>
+            <p>Une vue claire pour l'équipe interne, les techniciens et les administrateurs de copropriétés.</p>
           </div>
         </section>
       </div>
@@ -698,9 +698,9 @@
       ? `<button class="primary-button" data-action="open-modal" data-modal="building">Nouveau lieu</button>`
       : "";
     return appShell(`
-      ${renderTopbar("Lieux", "Organisation par nom de bÃ¢timent et adresse, puis appartements et machines.", actions)}
+      ${renderTopbar("Lieux", "Organisation par nom de bâtiment et adresse, puis appartements et machines.", actions)}
       <section class="cards-grid">
-        ${buildings.map((building) => buildingCard(building)).join("") || `<div class="empty">Aucun lieu enregistrÃ©.</div>`}
+        ${buildings.map((building) => buildingCard(building)).join("") || `<div class="empty">Aucun lieu enregistré.</div>`}
       </section>
     `);
   }
@@ -751,16 +751,16 @@
             <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
             <div><span>Adresse</span><strong>${escapeHtml(building.address)}</strong></div>
             <div><span>Ressource sur place</span><strong>${escapeHtml(building.onsiteContactName || "-")}</strong></div>
-            <div><span>TÃ©lÃ©phone sur place</span><strong>${escapeHtml(building.onsiteContactPhone || "-")}</strong></div>
+            <div><span>Téléphone sur place</span><strong>${escapeHtml(building.onsiteContactPhone || "-")}</strong></div>
             <div><span>Email sur place</span><strong>${escapeHtml(building.onsiteContactEmail || "-")}</strong></div>
             <div><span>Ressource facturation</span><strong>${escapeHtml(building.billingContactName || "-")}</strong></div>
-            <div><span>TÃ©lÃ©phone facturation</span><strong>${escapeHtml(building.billingContactPhone || "-")}</strong></div>
+            <div><span>Téléphone facturation</span><strong>${escapeHtml(building.billingContactPhone || "-")}</strong></div>
             <div><span>Email facturation</span><strong>${escapeHtml(building.billingContactEmail || "-")}</strong></div>
             <div><span>Notes</span><strong>${escapeHtml(building.notes || "-")}</strong></div>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><h2>Appartements cadastrÃ©s</h2></div>
+          <div class="panel-header"><h2>Appartements cadastrés</h2></div>
           <div class="panel-body cards-list">
             ${apartments.map((apartment) => apartmentBlock(apartment)).join("") || `<div class="empty">Aucun appartement dans ce lieu.</div>`}
           </div>
@@ -784,7 +784,7 @@
               <strong>${escapeHtml(item.type)}</strong>
               <span>${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${statusText(item.status)}</span>
             </button>
-          `).join("") || `<div class="meta">Aucune machine enregistrÃ©e.</div>`}
+          `).join("") || `<div class="meta">Aucune machine enregistrée.</div>`}
         </div>
         ${currentUser().role !== "client" ? `
           <div class="actions">
@@ -805,9 +805,9 @@
     const planned = orders.filter((order) => order.status === "planifie").length;
     const out = equipment.filter((item) => item.status === "hors_service").length;
     const stats = [
-      ["Ã‰quipements", equipment.length],
-      ["Ã€ traiter", ongoing],
-      ["BT planifiÃ©s", planned],
+      ["Équipements", equipment.length],
+      ["À traiter", ongoing],
+      ["BT planifiés", planned],
       ["Hors service", out + overdue]
     ];
 
@@ -830,18 +830,18 @@
     `;
 
     return appShell(`
-      ${renderTopbar("Tableau de bord", "Vue opÃ©rationnelle du parc HVAC et des travaux en cours.", actions)}
+      ${renderTopbar("Tableau de bord", "Vue opérationnelle du parc HVAC et des travaux en cours.", actions)}
       <section class="stats-grid">
         ${stats.map(([label, value]) => `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`).join("")}
       </section>
       <section class="grid">
         <div class="panel">
-          <div class="panel-header"><h2>Ã‰quipements Ã  surveiller</h2><button class="ghost-button" data-action="view" data-view="equipements">Voir tout</button></div>
+          <div class="panel-header"><h2>Équipements à surveiller</h2><button class="ghost-button" data-action="view" data-view="equipements">Voir tout</button></div>
           <div class="panel-body">${equipmentTable(equipment.filter((item) => item.status !== "actif" || item.nextService <= today()).slice(0, 6), false)}</div>
         </div>
         <div class="stack">
-          <button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi prÃ©ventif.</span></button>
-          ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">CrÃ©er un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
+          <button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>
+          ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
           <div class="panel">
             <div class="panel-header"><h2>Appels actifs</h2></div>
             <div class="panel-body cards-list">${urgentTickets || `<div class="empty">Aucun appel actif.</div>`}</div>
@@ -871,9 +871,9 @@
 
   function equipmentView() {
     const equipment = filteredEquipment();
-    const actions = `${can("equipment") && currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="equipment">Nouvel Ã©quipement</button>` : ""}`;
+    const actions = `${can("equipment") && currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="equipment">Nouvel équipement</button>` : ""}`;
     return appShell(`
-      ${renderTopbar("Ã‰quipements", "Inventaire par immeuble, appartement et appareil.", actions)}
+      ${renderTopbar("Équipements", "Inventaire par immeuble, appartement et appareil.", actions)}
       <section class="panel">
         <div class="panel-body">
           ${filtersBlock()}
@@ -908,26 +908,26 @@
             <option value="all">Tous</option>
             <option value="actif" ${state.filters.status === "actif" ? "selected" : ""}>Actif</option>
             <option value="surveillance" ${state.filters.status === "surveillance" ? "selected" : ""}>Surveillance</option>
-            <option value="a_planifier" ${state.filters.status === "a_planifier" ? "selected" : ""}>Ã€ planifier</option>
+            <option value="a_planifier" ${state.filters.status === "a_planifier" ? "selected" : ""}>À planifier</option>
             <option value="hors_service" ${state.filters.status === "hors_service" ? "selected" : ""}>Hors service</option>
           </select>
         </div>
         <div class="field">
           <label>Recherche</label>
-          <input data-action="filter" data-filter="search" value="${escapeHtml(state.filters.search)}" placeholder="ModÃ¨le, sÃ©rie, lieu">
+          <input data-action="filter" data-filter="search" value="${escapeHtml(state.filters.search)}" placeholder="Modèle, série, lieu">
         </div>
       </div>
     `;
   }
 
   function equipmentTable(equipment, allowDetail) {
-    if (!equipment.length) return `<div class="empty">Aucun Ã©quipement trouvÃ©.</div>`;
+    if (!equipment.length) return `<div class="empty">Aucun équipement trouvé.</div>`;
     return `
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Ã‰quipement</th>
+              <th>Équipement</th>
               <th>Immeuble</th>
               <th>Appartement</th>
               <th>Dernier service</th>
@@ -975,7 +975,7 @@
       ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
     `;
     return appShell(`
-      ${renderTopbar("Dossier Ã©quipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
+      ${renderTopbar("Dossier équipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
       <section class="detail-layout">
         <div class="panel">
           <div class="panel-header"><h2>${escapeHtml(equipment.type)}</h2>${statusBadge(equipment.status)}</div>
@@ -983,8 +983,8 @@
             <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
             <div><span>Immeuble</span><strong>${escapeHtml(building?.name || "-")}</strong></div>
             <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")} - ${escapeHtml(apartment?.occupant || "")}</strong></div>
-            <div><span>Marque / modÃ¨le</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div>
-            <div><span>NumÃ©ro de sÃ©rie</span><strong>${escapeHtml(equipment.serial)}</strong></div>
+            <div><span>Marque / modèle</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div>
+            <div><span>Numéro de série</span><strong>${escapeHtml(equipment.serial)}</strong></div>
             <div><span>Localisation</span><strong>${escapeHtml(equipment.location)}</strong></div>
             <div><span>Installation</span><strong>${formatDate(equipment.installDate)}</strong></div>
             <div><span>Note</span><strong>${escapeHtml(equipment.notes)}</strong></div>
@@ -994,16 +994,16 @@
           <div class="panel">
             <div class="panel-header"><h2>Historique des interventions</h2></div>
             <div class="panel-body timeline">
-              ${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrÃ©e.</div>`}
+              ${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrée.</div>`}
             </div>
           </div>
           <div class="split">
             <div class="panel">
-              <div class="panel-header"><h2>Appels liÃ©s</h2></div>
+              <div class="panel-header"><h2>Appels liés</h2></div>
               <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket)).join("") || `<div class="empty">Aucun appel.</div>`}</div>
             </div>
             <div class="panel">
-              <div class="panel-header"><h2>Bons liÃ©s</h2></div>
+              <div class="panel-header"><h2>Bons liés</h2></div>
               <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order)).join("") || `<div class="empty">Aucun bon.</div>`}</div>
             </div>
           </div>
@@ -1029,7 +1029,7 @@
   function ticketsView() {
     const tickets = scopedTickets();
     return appShell(`
-      ${renderTopbar("Appels de service", "Demandes clients, prioritÃ©s et suivi opÃ©rationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>`)}
+      ${renderTopbar("Appels de service", "Demandes clients, priorités et suivi opérationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>`)}
       <section class="panel">
         <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket, true)).join("") || `<div class="empty">Aucun appel de service.</div>`}</div>
       </section>
@@ -1040,7 +1040,7 @@
     const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
     const actions = expanded && can("workorders")
-      ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">CrÃ©er BT</button>`
+      ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
       : "";
     return `
       <article class="list-item">
@@ -1067,7 +1067,7 @@
   function workOrdersView() {
     const orders = scopedWorkOrders();
     return appShell(`
-      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exÃ©cution des checklists.", can("workorders") ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
+      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exécution des checklists.", can("workorders") ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
       <section class="panel">
         <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order, true)).join("") || `<div class="empty">Aucun bon de travail.</div>`}</div>
       </section>
@@ -1086,12 +1086,12 @@
           <h3>${escapeHtml(order.number)} - ${escapeHtml(type?.name || "")}</h3>
           ${statusBadge(order.status)}
         </div>
-        <div class="meta">${formatDate(order.scheduledDate)} - ${escapeHtml(tech?.name || "Non assignÃ©")}</div>
+        <div class="meta">${formatDate(order.scheduledDate)} - ${escapeHtml(tech?.name || "Non assigné")}</div>
         <div class="meta">${escapeHtml(building?.name || "-")} - ${escapeHtml(scopeLabel)}</div>
         <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
-        <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisÃ©${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysÃ©e${progress.machines > 1 ? "s" : ""}</div>
+        <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisé${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysée${progress.machines > 1 ? "s" : ""}</div>
         <div class="meta">${escapeHtml(order.notes || "")}</div>
-        ${expanded ? `<div class="actions"><button class="primary-button" data-action="execute-workorder" data-id="${order.id}">ExÃ©cuter</button>${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${order.id}">Checklist</button>` : ""}${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${order.id}" data-status="termine">Terminer</button>` : ""}</div>` : ""}
+        ${expanded ? `<div class="actions"><button class="primary-button" data-action="execute-workorder" data-id="${order.id}">Exécuter</button>${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${order.id}">Checklist</button>` : ""}${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${order.id}" data-status="termine">Terminer</button>` : ""}</div>` : ""}
       </article>
     `;
   }
@@ -1152,11 +1152,11 @@
                     </div>
                   </article>
                 `;
-              }).join("") || `<div class="empty">Aucune machine encore cadastrÃ©e pour cet appartement.</div>`}
+              }).join("") || `<div class="empty">Aucune machine encore cadastrée pour cet appartement.</div>`}
             </div>
           </div>
           <div class="panel">
-            <div class="panel-header"><h2>Informations collectÃ©es</h2></div>
+            <div class="panel-header"><h2>Informations collectées</h2></div>
             <div class="panel-body cards-list">
               ${apartmentInterventions.map((intervention) => fieldResponseCard(intervention)).join("") || `<div class="empty">Aucune information saisie pour cet appartement.</div>`}
             </div>
@@ -1196,21 +1196,21 @@
 
   function reportsView() {
     return appShell(`
-      ${renderTopbar("Rapports", "Exports CSV pour suivi client, opÃ©rations et historique technique.")}
+      ${renderTopbar("Rapports", "Exports CSV pour suivi client, opérations et historique technique.")}
       <section class="report-grid">
         <article class="report-tile">
           <h3>Inventaire HVAC</h3>
-          <p>Liste des Ã©quipements avec client, immeuble, appartement, statut et prochaines maintenances.</p>
+          <p>Liste des équipements avec client, immeuble, appartement, statut et prochaines maintenances.</p>
           <button class="primary-button" data-action="export" data-report="equipment">Exporter CSV</button>
         </article>
         <article class="report-tile">
           <h3>Historique des interventions</h3>
-          <p>Interventions terminÃ©es, technicien, type de travail, lectures et rÃ©sumÃ©.</p>
+          <p>Interventions terminées, technicien, type de travail, lectures et résumé.</p>
           <button class="primary-button" data-action="export" data-report="interventions">Exporter CSV</button>
         </article>
         <article class="report-tile">
           <h3>Appels et bons de travail</h3>
-          <p>Demandes ouvertes, prioritÃ©s, bons planifiÃ©s et statut d'exÃ©cution.</p>
+          <p>Demandes ouvertes, priorités, bons planifiés et statut d'exécution.</p>
           <button class="primary-button" data-action="export" data-report="operations">Exporter CSV</button>
         </article>
       </section>
@@ -1220,11 +1220,11 @@
   function usersView() {
     const roles = state.roleDefinitions.map((role) => role.id);
     return appShell(`
-      ${renderTopbar("Utilisateurs et accÃ¨s", "ContrÃ´le des rÃ´les pour clients, techniciens, Ã©quipe interne et administrateurs.", `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
+      ${renderTopbar("Utilisateurs et accès", "Contrôle des rôles pour clients, techniciens, équipe interne et administrateurs.", `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
       <section class="panel">
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>Nom</th><th>Courriel</th><th>RÃ´le</th><th>Client liÃ©</th><th></th></tr></thead>
+            <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Client lié</th><th></th></tr></thead>
             <tbody>
               ${state.users.map((user) => {
                 const client = state.clients.find((item) => item.id === user.clientId);
@@ -1235,12 +1235,12 @@
         </div>
       </section>
       <section class="panel" style="margin-top:16px">
-        <div class="panel-header"><h2>Matrice d'accÃ¨s</h2></div>
+        <div class="panel-header"><h2>Matrice d'accès</h2></div>
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>RÃ´le</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
+            <thead><tr><th>Rôle</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
             <tbody>
-              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "AssignÃ©s" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
+              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
             </tbody>
           </table>
         </div>
@@ -1250,22 +1250,22 @@
 
   function rightsCatalog() {
     return [
-      ["all", "AccÃ¨s complet"],
+      ["all", "Accès complet"],
       ["lieux", "Lieux et appartements"],
-      ["equipment", "Ã‰quipements"],
+      ["equipment", "Équipements"],
       ["tickets", "Appels de service"],
       ["workorders", "Bons de travail"],
       ["interventions", "Interventions"],
       ["reports", "Rapports"],
       ["users", "Utilisateurs"],
-      ["settings", "ParamÃ¨tres"],
+      ["settings", "Paramètres"],
       ["portal", "Portail client"]
     ];
   }
 
   function settingsView() {
     return appShell(`
-      ${renderTopbar("ParamÃ¨tres", "Types d'appels, checklists et droits d'accÃ¨s.", `
+      ${renderTopbar("Paramètres", "Types d'appels, checklists et droits d'accès.", `
         <button class="primary-button" data-action="open-modal" data-modal="serviceType">Type d'appel</button>
         <button class="ghost-button" data-action="open-modal" data-modal="interventionType">Type de checklist</button>
         <button class="ghost-button" data-action="open-modal" data-modal="formTemplate">Formulaire terrain</button>
@@ -1280,7 +1280,7 @@
                 return `
                   <article class="list-item">
                     <h3>${escapeHtml(type.name)}</h3>
-                    <div class="meta">PrioritÃ© par dÃ©faut: ${statusText(type.defaultPriority)} | Checklist liÃ©e: ${escapeHtml(linked?.name || "-")}</div>
+                    <div class="meta">Priorité par défaut: ${statusText(type.defaultPriority)} | Checklist liée: ${escapeHtml(linked?.name || "-")}</div>
                     <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="serviceType" data-id="${type.id}">Modifier</button></div>
                   </article>
                 `;
@@ -1293,7 +1293,7 @@
               ${state.interventionTypes.map((type) => `
                 <article class="list-item">
                   <h3>${escapeHtml(type.name)}</h3>
-                  <div class="meta">DurÃ©e estimÃ©e: ${type.defaultDuration} min | ${type.checklist.length} Ã©tapes</div>
+                  <div class="meta">Durée estimée: ${type.defaultDuration} min | ${type.checklist.length} étapes</div>
                   <div class="mini-list">${type.checklist.map((item) => `<div class="meta">- ${escapeHtml(item)}</div>`).join("")}</div>
                   <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="interventionType" data-id="${type.id}">Modifier</button></div>
                 </article>
@@ -1315,7 +1315,7 @@
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><h2>RÃ´les et droits</h2></div>
+          <div class="panel-header"><h2>Rôles et droits</h2></div>
           <div class="panel-body cards-list">
             ${state.roleDefinitions.map((role) => `
               <article class="list-item">
@@ -1364,27 +1364,27 @@
   }
 
   function signupModal() {
-    return modalShell("CrÃ©er un compte", `
+    return modalShell("Créer un compte", `
       <form class="form-grid" data-form="signup">
         <div class="field"><label>Entreprise / gestionnaire</label><input name="companyName" required autocomplete="organization"></div>
         <div class="split">
           <div class="field"><label>Nom complet</label><input name="name" required autocomplete="name"></div>
-          <div class="field"><label>TÃ©lÃ©phone</label><input name="phone" autocomplete="tel"></div>
+          <div class="field"><label>Téléphone</label><input name="phone" autocomplete="tel"></div>
         </div>
         <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" type="password" required autocomplete="new-password" minlength="8"></div>
           <div class="field"><label>Confirmer le mot de passe</label><input name="confirmPassword" type="password" required autocomplete="new-password" minlength="8"></div>
         </div>
-        <button class="primary-button" type="submit">CrÃ©er mon compte</button>
+        <button class="primary-button" type="submit">Créer mon compte</button>
       </form>
     `);
   }
 
   function forgotPasswordModal() {
-    return modalShell("Mot de passe oubliÃ©", `
+    return modalShell("Mot de passe oublié", `
       <form class="form-grid" data-form="forgotPassword">
-        <p class="meta">Entrez votre courriel. Si un compte existe, une demande de rÃ©initialisation sera enregistrÃ©e.</p>
+        <p class="meta">Entrez votre courriel. Si un compte existe, une demande de réinitialisation sera enregistrée.</p>
         <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
         <button class="primary-button" type="submit">Envoyer la demande</button>
       </form>
@@ -1398,22 +1398,22 @@
       <form class="form-grid" data-form="building">
         <input type="hidden" name="id" value="${escapeHtml(building.id || "")}">
         <div class="split">
-          <div class="field"><label>Nom du bÃ¢timent</label><input name="name" value="${escapeHtml(building.name || "")}" required></div>
+          <div class="field"><label>Nom du bâtiment</label><input name="name" value="${escapeHtml(building.name || "")}" required></div>
           <div class="field"><label>Client / administrateur</label><select name="clientId" required>${clientOptions}</select></div>
         </div>
         <div class="field"><label>Adresse</label><input name="address" value="${escapeHtml(building.address || "")}" required></div>
         <div class="split">
           <div class="field"><label>Personne ressource sur place</label><input name="onsiteContactName" value="${escapeHtml(building.onsiteContactName || "")}"></div>
-          <div class="field"><label>TÃ©lÃ©phone sur place</label><input name="onsiteContactPhone" value="${escapeHtml(building.onsiteContactPhone || "")}"></div>
+          <div class="field"><label>Téléphone sur place</label><input name="onsiteContactPhone" value="${escapeHtml(building.onsiteContactPhone || "")}"></div>
         </div>
         <div class="field"><label>Email sur place</label><input name="onsiteContactEmail" type="email" value="${escapeHtml(building.onsiteContactEmail || "")}"></div>
         <div class="split">
           <div class="field"><label>Personne ressource facturation</label><input name="billingContactName" value="${escapeHtml(building.billingContactName || "")}"></div>
-          <div class="field"><label>TÃ©lÃ©phone facturation</label><input name="billingContactPhone" value="${escapeHtml(building.billingContactPhone || "")}"></div>
+          <div class="field"><label>Téléphone facturation</label><input name="billingContactPhone" value="${escapeHtml(building.billingContactPhone || "")}"></div>
         </div>
         <div class="field"><label>Email facturation</label><input name="billingContactEmail" type="email" value="${escapeHtml(building.billingContactEmail || "")}"></div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(building.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${building.id ? "Enregistrer" : "CrÃ©er le lieu"}</button>
+        <button class="primary-button" type="submit">${building.id ? "Enregistrer" : "Créer le lieu"}</button>
       </form>
     `);
   }
@@ -1426,10 +1426,10 @@
         <input type="hidden" name="id" value="${escapeHtml(apartment.id || "")}">
         <div class="field"><label>Lieu</label><select name="buildingId" required>${buildingOptions}</select></div>
         <div class="split">
-          <div class="field"><label>NumÃ©ro d'appartement</label><input name="number" value="${escapeHtml(apartment.number || "")}" required></div>
+          <div class="field"><label>Numéro d'appartement</label><input name="number" value="${escapeHtml(apartment.number || "")}" required></div>
           <div class="field"><label>Occupant</label><input name="occupant" value="${escapeHtml(apartment.occupant || "")}"></div>
         </div>
-        <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "CrÃ©er l'appartement"}</button>
+        <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "Créer l'appartement"}</button>
       </form>
     `);
   }
@@ -1445,15 +1445,15 @@
     return modalShell(ticket.id ? "Modifier l'appel de service" : "Nouvel appel de service", `
       <form class="form-grid" data-form="ticket">
         <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
-        <div class="field"><label>Ã‰quipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
+        <div class="field"><label>Équipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
         <div class="field"><label>Type d'appel</label><select name="serviceTypeId">${serviceOptions}</select></div>
         <div class="split">
           <div class="field"><label>Titre</label><input name="title" value="${escapeHtml(ticket.title || "")}" required placeholder="Ex.: Bruit anormal"></div>
-          <div class="field"><label>PrioritÃ©</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
+          <div class="field"><label>Priorité</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
         </div>
-        <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>FermÃ©</option></select></div>
+        <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>Fermé</option></select></div>
         <div class="field"><label>Description</label><textarea name="description" required>${escapeHtml(ticket.description || "")}</textarea></div>
-        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "CrÃ©er l'appel"}</button>
+        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer l'appel"}</button>
       </form>
     `);
   }
@@ -1488,11 +1488,11 @@
           <div class="field"><label>Technicien</label><select name="technicianId">${techOptions}</select></div>
         </div>
         <div class="split">
-          <div class="field"><label>Date prÃ©vue</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
-          <div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>PlanifiÃ©</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>TerminÃ©</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>AnnulÃ©</option></select></div>
+          <div class="field"><label>Date prévue</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
+          <div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>Planifié</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>Terminé</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>Annulé</option></select></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(order.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${order.id ? "Enregistrer" : "CrÃ©er le BT"}</button>
+        <button class="primary-button" type="submit">${order.id ? "Enregistrer" : "Créer le BT"}</button>
       </form>
     `);
   }
@@ -1503,7 +1503,7 @@
       const building = buildingForApartment(apartment.id);
       return `<option value="${apartment.id}" ${equipment.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment.number)}</option>`;
     }).join("");
-    return modalShell(equipment.id ? "Modifier la machine" : "Nouvel Ã©quipement", `
+    return modalShell(equipment.id ? "Modifier la machine" : "Nouvel équipement", `
       <form class="form-grid" data-form="equipment">
         <input type="hidden" name="id" value="${escapeHtml(equipment.id || "")}">
         <div class="field"><label>Appartement</label><select name="apartmentId">${apartmentOptions}</select></div>
@@ -1513,19 +1513,19 @@
         </div>
         <div class="split">
           <div class="field"><label>Marque</label><input name="brand" value="${escapeHtml(equipment.brand || "")}" required></div>
-          <div class="field"><label>ModÃ¨le</label><input name="model" value="${escapeHtml(equipment.model || "")}" required></div>
+          <div class="field"><label>Modèle</label><input name="model" value="${escapeHtml(equipment.model || "")}" required></div>
         </div>
         <div class="split">
-          <div class="field"><label>NumÃ©ro de sÃ©rie</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div>
+          <div class="field"><label>Numéro de série</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div>
           <div class="field"><label>Date d'installation</label><input name="installDate" type="date" value="${escapeHtml(equipment.installDate || today())}"></div>
         </div>
         <div class="split">
           <div class="field"><label>Dernier service</label><input name="lastService" type="date" value="${escapeHtml(equipment.lastService || "")}"></div>
           <div class="field"><label>Prochain service</label><input name="nextService" type="date" value="${escapeHtml(equipment.nextService || "")}"></div>
         </div>
-        <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>Ã€ planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+        <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>À planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(equipment.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'Ã©quipement"}</button>
+        <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
       </form>
     `);
   }
@@ -1543,10 +1543,10 @@
         </div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" value="${escapeHtml(user.password || "temp123")}" required></div>
-          <div class="field"><label>RÃ´le</label><select name="role">${roles}</select></div>
+          <div class="field"><label>Rôle</label><select name="role">${roles}</select></div>
         </div>
-        <div class="field"><label>Client liÃ©</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>
-        <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "CrÃ©er l'utilisateur"}</button>
+        <div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>
+        <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
       </form>
     `);
   }
@@ -1559,10 +1559,10 @@
         <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
         <div class="field"><label>Nom du type d'appel</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
         <div class="split">
-          <div class="field"><label>PrioritÃ© par dÃ©faut</label><select name="defaultPriority"><option value="basse" ${type.defaultPriority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${type.defaultPriority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${type.defaultPriority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
-          <div class="field"><label>Checklist liÃ©e</label><select name="linkedInterventionTypeId">${checklistOptions}</select></div>
+          <div class="field"><label>Priorité par défaut</label><select name="defaultPriority"><option value="basse" ${type.defaultPriority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${type.defaultPriority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${type.defaultPriority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
+          <div class="field"><label>Checklist liée</label><select name="linkedInterventionTypeId">${checklistOptions}</select></div>
         </div>
-        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "CrÃ©er le type"}</button>
+        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "Créer le type"}</button>
       </form>
     `);
   }
@@ -1574,10 +1574,10 @@
         <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
         <div class="split">
           <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
-          <div class="field"><label>DurÃ©e estimÃ©e (minutes)</label><input name="defaultDuration" type="number" min="1" value="${escapeHtml(type.defaultDuration || 60)}" required></div>
+          <div class="field"><label>Durée estimée (minutes)</label><input name="defaultDuration" type="number" min="1" value="${escapeHtml(type.defaultDuration || 60)}" required></div>
         </div>
-        <div class="field"><label>Ã‰tapes de checklist</label><textarea name="checklist" required placeholder="Une Ã©tape par ligne">${escapeHtml((type.checklist || []).join("\n"))}</textarea></div>
-        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "CrÃ©er la checklist"}</button>
+        <div class="field"><label>Étapes de checklist</label><textarea name="checklist" required placeholder="Une étape par ligne">${escapeHtml((type.checklist || []).join("\n"))}</textarea></div>
+        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "Créer la checklist"}</button>
       </form>
     `);
   }
@@ -1611,15 +1611,15 @@
         <span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(right)}</span></span>
       </label>
     `).join("");
-    return modalShell(role.id ? "Modifier le rÃ´le" : "Nouveau rÃ´le", `
+    return modalShell(role.id ? "Modifier le rôle" : "Nouveau rôle", `
       <form class="form-grid" data-form="role">
         <input type="hidden" name="id" value="${escapeHtml(role.id || "")}">
         <div class="split">
-          <div class="field"><label>Identifiant du rÃ´le</label><input name="roleId" value="${escapeHtml(role.id || "")}" ${role.id ? "readonly" : ""} required></div>
-          <div class="field"><label>Nom affichÃ©</label><input name="name" value="${escapeHtml(role.name || "")}" required></div>
+          <div class="field"><label>Identifiant du rôle</label><input name="roleId" value="${escapeHtml(role.id || "")}" ${role.id ? "readonly" : ""} required></div>
+          <div class="field"><label>Nom affiché</label><input name="name" value="${escapeHtml(role.name || "")}" required></div>
         </div>
         <div class="checklist">${checks}</div>
-        <button class="primary-button" type="submit">${role.id ? "Enregistrer" : "CrÃ©er le rÃ´le"}</button>
+        <button class="primary-button" type="submit">${role.id ? "Enregistrer" : "Créer le rôle"}</button>
       </form>
     `);
   }
@@ -1635,16 +1635,16 @@
           ${checks.map((item, index) => `
             <label class="check-row">
               <input type="checkbox" name="check-${index}" ${existing?.checklistDone?.[index] ? "checked" : ""}>
-              <span><strong>${escapeHtml(item)}</strong><span>Ã‰tape ${index + 1}</span></span>
+              <span><strong>${escapeHtml(item)}</strong><span>Étape ${index + 1}</span></span>
             </label>
           `).join("")}
         </div>
         <div class="split">
-          <div class="field"><label>TempÃ©rature de soufflage</label><input name="soufflage" value="${escapeHtml(existing?.readings?.soufflage || "")}" placeholder="Ex.: 11.2 C"></div>
-          <div class="field"><label>TempÃ©rature de retour</label><input name="retour" value="${escapeHtml(existing?.readings?.retour || "")}" placeholder="Ex.: 23.0 C"></div>
+          <div class="field"><label>Température de soufflage</label><input name="soufflage" value="${escapeHtml(existing?.readings?.soufflage || "")}" placeholder="Ex.: 11.2 C"></div>
+          <div class="field"><label>Température de retour</label><input name="retour" value="${escapeHtml(existing?.readings?.retour || "")}" placeholder="Ex.: 23.0 C"></div>
         </div>
         <div class="field"><label>Pression / observation</label><input name="pression" value="${escapeHtml(existing?.readings?.pression || "")}"></div>
-        <div class="field"><label>RÃ©sumÃ© de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+        <div class="field"><label>Résumé de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
         <button class="primary-button" type="submit">Enregistrer l'intervention</button>
       </form>
     `);
@@ -1751,11 +1751,11 @@
       return;
     }
     if (values.password.length < 8) {
-      showToast("Le mot de passe doit contenir au moins 8 caractÃ¨res.");
+      showToast("Le mot de passe doit contenir au moins 8 caractères.");
       return;
     }
     if (state.users.some((user) => user.email.toLowerCase() === values.email.toLowerCase())) {
-      showToast("Un compte existe dÃ©jÃ  avec ce courriel.");
+      showToast("Un compte existe déjà avec ce courriel.");
       return;
     }
     if (SERVER_ENABLED) {
@@ -1768,14 +1768,14 @@
         });
         const payload = await response.json();
         if (!response.ok) {
-          showToast(payload.error || "CrÃ©ation du compte impossible.");
+          showToast(payload.error || "Création du compte impossible.");
           return;
         }
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
         state.activeView = "lieux";
         state.modal = null;
-        state.toast = "Compte crÃ©Ã©.";
+        state.toast = "Compte créé.";
         saveState();
         render();
       } catch (error) {
@@ -1800,7 +1800,7 @@
     };
     state.clients.push(client);
     state.users.push(user);
-    setState({ sessionUserId: user.id, activeView: "lieux", modal: null, toast: "Compte crÃ©Ã©." });
+    setState({ sessionUserId: user.id, activeView: "lieux", modal: null, toast: "Compte créé." });
   }
 
   async function requestPasswordReset(values) {
@@ -1820,7 +1820,7 @@
       state.passwordResetRequests.unshift({ id: uid("reset"), email: values.email, createdAt: today(), status: "nouvelle" });
       saveState();
     }
-    setState({ modal: null, toast: "Si le compte existe, la demande a Ã©tÃ© enregistrÃ©e." });
+    setState({ modal: null, toast: "Si le compte existe, la demande a été enregistrée." });
   }
 
   async function login(values) {
@@ -1881,7 +1881,7 @@
     const index = state.buildings.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.buildings[index] = payload;
     else state.buildings.unshift(payload);
-    setState({ modal: null, selectedBuildingId: payload.id, activeView: "lieu_detail", toast: index >= 0 ? "Lieu modifiÃ©." : "Lieu crÃ©Ã©." });
+    setState({ modal: null, selectedBuildingId: payload.id, activeView: "lieu_detail", toast: index >= 0 ? "Lieu modifié." : "Lieu créé." });
   }
 
   function saveApartment(values) {
@@ -1894,7 +1894,7 @@
     const index = state.apartments.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.apartments[index] = payload;
     else state.apartments.push(payload);
-    setState({ modal: null, selectedBuildingId: payload.buildingId, activeView: "lieu_detail", toast: index >= 0 ? "Appartement modifiÃ©." : "Appartement crÃ©Ã©." });
+    setState({ modal: null, selectedBuildingId: payload.buildingId, activeView: "lieu_detail", toast: index >= 0 ? "Appartement modifié." : "Appartement créé." });
   }
 
   function createTicket(values) {
@@ -1912,7 +1912,7 @@
         priority: values.priority,
         status: values.status
       });
-      setState({ modal: null, activeView: "appels", toast: "Appel de service modifiÃ©." });
+      setState({ modal: null, activeView: "appels", toast: "Appel de service modifié." });
       return;
     }
     const ticket = {
@@ -1930,7 +1930,7 @@
       createdBy: currentUser().id
     };
     state.tickets.unshift(ticket);
-    setState({ modal: null, activeView: "appels", toast: "Appel de service crÃ©Ã©." });
+    setState({ modal: null, activeView: "appels", toast: "Appel de service créé." });
   }
 
   function createWorkOrder(values) {
@@ -1956,7 +1956,7 @@
         status: values.status,
         notes: values.notes
       });
-      setState({ modal: null, activeView: "bons", toast: "Bon de travail modifiÃ©." });
+      setState({ modal: null, activeView: "bons", toast: "Bon de travail modifié." });
       return;
     }
     const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
@@ -1979,7 +1979,7 @@
       const ticket = state.tickets.find((item) => item.id === values.ticketId);
       if (ticket) ticket.status = "en_cours";
     }
-    setState({ modal: null, activeView: "bons", toast: "Bon de travail crÃ©Ã©." });
+    setState({ modal: null, activeView: "bons", toast: "Bon de travail créé." });
   }
 
   function createEquipment(values) {
@@ -1998,7 +1998,7 @@
         status: values.status,
         notes: values.notes
       });
-      setState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Machine modifiÃ©e." });
+      setState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Machine modifiée." });
       return;
     }
     const equipment = {
@@ -2016,7 +2016,7 @@
       notes: values.notes
     };
     state.equipment.unshift(equipment);
-    setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Ã‰quipement ajoutÃ©." });
+    setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Équipement ajouté." });
   }
 
   function createUser(values) {
@@ -2029,7 +2029,7 @@
         role: values.role,
         clientId: values.clientId || null
       });
-      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifiÃ©." });
+      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
       return;
     }
     state.users.push({
@@ -2040,7 +2040,7 @@
       role: values.role,
       clientId: values.clientId || null
     });
-    setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur crÃ©Ã©." });
+    setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
   }
 
   function saveServiceType(values) {
@@ -2053,7 +2053,7 @@
     const index = state.serviceTypes.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.serviceTypes[index] = payload;
     else state.serviceTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type d'appel modifiÃ©." : "Type d'appel crÃ©Ã©." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type d'appel modifié." : "Type d'appel créé." });
   }
 
   function saveInterventionType(values) {
@@ -2066,7 +2066,7 @@
     const index = state.interventionTypes.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.interventionTypes[index] = payload;
     else state.interventionTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Checklist modifiÃ©e." : "Checklist crÃ©Ã©e." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Checklist modifiée." : "Checklist créée." });
   }
 
   function saveFormTemplate(values) {
@@ -2128,7 +2128,7 @@
     const index = state.roleDefinitions.findIndex((item) => item.id === roleId);
     if (index >= 0) state.roleDefinitions[index] = payload;
     else state.roleDefinitions.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "RÃ´le modifiÃ©." : "RÃ´le crÃ©Ã©." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Rôle modifié." : "Rôle créé." });
   }
 
   function saveChecklist(form, values) {
@@ -2162,7 +2162,7 @@
       next.setMonth(next.getMonth() + 6);
       equipment.nextService = next.toISOString().slice(0, 10);
     }
-    setState({ modal: null, activeView: "bons", toast: "Checklist enregistrÃ©e." });
+    setState({ modal: null, activeView: "bons", toast: "Checklist enregistrée." });
   }
 
   function saveFieldIntervention(form, values) {
@@ -2320,7 +2320,7 @@
       ];
     }
     downloadCsv(filename, rows);
-    showToast("Rapport CSV tÃ©lÃ©chargÃ©.");
+    showToast("Rapport CSV téléchargé.");
   }
 
   function statusText(status) {
@@ -2341,7 +2341,7 @@
 
   function downloadCsv(filename, rows) {
     if (!rows.length) {
-      showToast("Aucune donnÃ©e Ã  exporter.");
+      showToast("Aucune donnée à exporter.");
       return;
     }
     const headers = Object.keys(rows[0]);
@@ -2408,12 +2408,12 @@
       if (action === "ticket-status") {
         const ticket = state.tickets.find((item) => item.id === target.dataset.id);
         if (ticket) ticket.status = target.dataset.status;
-        setState({ toast: "Statut de l'appel mis Ã  jour." });
+        setState({ toast: "Statut de l'appel mis à jour." });
       }
       if (action === "order-status") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
         if (order) order.status = target.dataset.status;
-        setState({ toast: "Statut du BT mis Ã  jour." });
+        setState({ toast: "Statut du BT mis à jour." });
       }
       if (action === "export") exportReport(target.dataset.report);
     });
@@ -2471,3 +2471,4 @@
   render();
   restoreSession();
 })();
+

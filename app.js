@@ -1395,10 +1395,10 @@
     return "";
   }
 
-  function modalShell(title, body) {
+  function modalShell(title, body, className = "") {
     return `
       <div class="modal-backdrop" data-action="close-modal">
-        <section class="modal-card" data-modal-card>
+        <section class="modal-card ${className}" data-modal-card>
           <div class="panel-header">
             <h2>${title}</h2>
             <button class="icon-button" data-action="close-modal" aria-label="Fermer">X</button>
@@ -1659,7 +1659,7 @@
         <button class="ghost-button" type="button" data-action="add-form-section">Ajouter une section</button>
         <button class="primary-button" type="submit">${template.id ? "Enregistrer" : "Créer le formulaire"}</button>
       </form>
-    `);
+    `, "modal-card-wide form-template-modal");
   }
 
   function activityFieldCatalog() {

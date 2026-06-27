@@ -714,6 +714,10 @@ td button.link-button {
   background: white;
 }
 
+.form-template-modal .question-card {
+  padding: 18px;
+}
+
 .section-card {
   border-left-color: var(--accent);
   background: #fffaf6;
@@ -779,15 +783,15 @@ td button.link-button {
 
 .option-editor {
   display: grid;
-  gap: 9px;
+  gap: 8px;
 }
 
 .option-row {
   display: grid;
-  grid-template-columns: 26px minmax(130px, 1fr) auto minmax(170px, 0.8fr) 40px;
-  gap: 10px;
-  align-items: center;
-  padding: 8px;
+  grid-template-columns: 22px minmax(220px, 1.25fr) 110px minmax(260px, 0.95fr) 40px;
+  gap: 12px;
+  align-items: end;
+  padding: 10px;
   border-radius: 7px;
   background: var(--surface-soft);
 }
@@ -805,7 +809,7 @@ td button.link-button {
 }
 
 .compact-field {
-  gap: 4px;
+  gap: 5px;
 }
 
 .compact-field label {
@@ -924,6 +928,14 @@ td button.link-button {
   max-height: min(880px, calc(100vh - 40px));
   overflow: auto;
   box-shadow: var(--shadow);
+}
+
+.modal-card-wide {
+  width: min(1180px, calc(100vw - 28px));
+}
+
+.form-template-modal {
+  max-height: min(920px, calc(100vh - 28px));
 }
 
 .modal-card .panel-header {

@@ -1231,6 +1231,7 @@
       <article class="list-item">
         <h3>${escapeHtml(equipment?.type || "Machine")}</h3>
         <div class="definition compact">${responses || `<div><span>Formulaire</span><strong>Aucune reponse</strong></div>`}</div>
+        ${intervention.attachments?.length ? `<div class="mini-list">${intervention.attachments.map((file) => `<div class="meta">Pièce jointe: ${escapeHtml(file.name)}</div>`).join("")}</div>` : ""}
         <div class="meta">${escapeHtml(intervention.summary || "")}</div>
       </article>
     `;
@@ -1730,15 +1731,13 @@
           <label>Réponse par défaut</label>
           <input name="q-default" value="${escapeHtml(Array.isArray(field.defaultValue) ? field.defaultValue.join(", ") : field.defaultValue || "")}" placeholder="Option ou texte par défaut">
         </div>
-        ${choiceFieldTypes().includes(field.type) ? `
-          <div class="option-editor" data-option-list>
+        <div class="option-editor ${choiceFieldTypes().includes(field.type) ? "" : "hidden"}" data-option-list>
             ${(field.options?.length ? field.options : [""]).map((option) => formOptionRow(option, field, targetOptions)).join("")}
-          </div>
-          <div class="actions">
+        </div>
+        <div class="actions option-actions ${choiceFieldTypes().includes(field.type) ? "" : "hidden"}">
             <button class="link-button" type="button" data-action="add-form-option">+ Ajouter une option</button>
             <button class="link-button" type="button" data-action="add-other-option">Ajouter une option « Autre »</button>
-          </div>
-        ` : ""}
+        </div>
         <div class="branching-box">
           <div class="field">
             <label>Afficher seulement si</label>
@@ -1775,7 +1774,7 @@
     const target = field.branchRules?.[option] || "";
     return `
       <div class="option-row" data-option-row>
-        <span class="option-dot"></span>
+        <span class="option-drag-handle" draggable="true" title="Déplacer">☰</span>
         <input name="q-option" value="${escapeHtml(option)}" placeholder="Option">
         <label class="inline-check"><input type="checkbox" name="q-option-default" ${defaultValues.includes(option) ? "checked" : ""}><span>Défaut</span></label>
         <div class="field compact-field">
@@ -1896,6 +1895,12 @@
         <div class="form-builder dynamic-form-grid">
           ${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}
         </div>
+        <div class="field">
+          <label>Photos et documents</label>
+          <input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,video/*,audio/*">
+          <p class="meta">Maximum 3 fichiers, 10 MB par fichier. Les fichiers seront associés à l'appartement et à la machine de cette activité.</p>
+        </div>
+        ${existing?.attachments?.length ? `<div class="mini-list">${existing.attachments.map((file) => `<div class="meta">- ${escapeHtml(file.name)} (${escapeHtml(file.type || "fichier")})</div>`).join("")}</div>` : ""}
         <div class="field"><label>Resume de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
         <button class="primary-button" type="submit">Enregistrer appartement</button>
       </form>
@@ -2515,7 +2520,7 @@
     setState({ modal: null, activeView: "bons", toast: "Checklist enregistrée." });
   }
 
-  function saveFieldIntervention(form, values) {
+  async function saveFieldIntervention(form, values) {
     const orderId = form.dataset.orderId;
     const order = state.workOrders.find((item) => item.id === orderId);
     const template = formTemplateForOrder(order);
@@ -2568,6 +2573,17 @@
     intervention.formTemplateId = template?.id || "";
     intervention.formResponses = responses;
     intervention.summary = values.summary;
+    let attachments = [];
+    try {
+      attachments = await collectAttachments(form, apartmentId, equipment.id);
+    } catch (error) {
+      showToast("Impossible de lire les fichiers joints.");
+      return;
+    }
+    if (!attachments) return;
+    if (attachments.length) {
+      intervention.attachments = [...(intervention.attachments || []), ...attachments];
+    }
     if (!existing) state.interventions.unshift(intervention);
     equipment.lastService = today();
     if (!equipment.nextService) {
@@ -2622,6 +2638,39 @@
       }
     });
     return responses;
+  }
+
+  async function collectAttachments(form, apartmentId, equipmentId) {
+    const input = form.querySelector('[name="attachments"]');
+    const files = Array.from(input?.files || []);
+    if (files.length > 3) {
+      showToast("Maximum 3 fichiers par activité.");
+      return null;
+    }
+    const oversized = files.find((file) => file.size > 10 * 1024 * 1024);
+    if (oversized) {
+      showToast(`${oversized.name} dépasse 10 MB.`);
+      return null;
+    }
+    return Promise.all(files.map((file) => readAttachment(file, apartmentId, equipmentId)));
+  }
+
+  function readAttachment(file, apartmentId, equipmentId) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({
+        id: uid("file"),
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        apartmentId,
+        equipmentId,
+        uploadedAt: today(),
+        dataUrl: reader.result
+      });
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   }
 
   function validateRequiredResponses(form, template) {
@@ -2850,6 +2899,7 @@
       handleFilter(event);
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
+      if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
     });
     app.addEventListener("input", (event) => {
       updateDynamicVisibility(event.target.closest("form"));
@@ -2876,7 +2926,7 @@
     if (!form) return;
     const list = form.querySelector("[data-question-list]");
     const fields = currentBuilderFields(form);
-    list.insertAdjacentHTML("beforeend", formBuilderQuestion({ id: uid("q"), label: "", type: "text", options: [], showWhen: null, layout: "full", defaultValue: "" }, fields.length, fields));
+    list.insertAdjacentHTML("beforeend", formBuilderQuestion({ id: uid("q"), label: "", type: "select", options: [""], showWhen: null, layout: "full", defaultValue: "" }, fields.length, fields));
     refreshFormBranching(form);
   }
 
@@ -2905,6 +2955,19 @@
     const fields = currentBuilderFields(form);
     const targetOptions = formBranchTargets(fields, card.dataset.fieldId);
     list.insertAdjacentHTML("beforeend", formOptionRow(value, { defaultValue: "", branchRules: {} }, targetOptions));
+  }
+
+  function updateQuestionOptionEditor(card) {
+    if (!card) return;
+    const type = card.querySelector('[name="q-type"]')?.value;
+    const show = choiceFieldTypes().includes(type);
+    const list = card.querySelector("[data-option-list]");
+    const actions = card.querySelector(".option-actions");
+    list?.classList.toggle("hidden", !show);
+    actions?.classList.toggle("hidden", !show);
+    if (show && list && !list.querySelector("[data-option-row]")) {
+      addFormOption(card);
+    }
   }
 
   function removeFormOption(row) {
@@ -2981,8 +3044,15 @@
   }
 
   let draggedQuestion = null;
+  let draggedOption = null;
 
   function handleQuestionDragStart(event) {
+    const optionRow = event.target.closest("[data-option-row]");
+    if (optionRow) {
+      draggedOption = optionRow;
+      event.dataTransfer.effectAllowed = "move";
+      return;
+    }
     const card = event.target.closest("[data-question]");
     if (!card) return;
     draggedQuestion = card;
@@ -2990,12 +3060,28 @@
   }
 
   function handleQuestionDragOver(event) {
+    const optionRow = event.target.closest("[data-option-row]");
+    if (optionRow && draggedOption && optionRow !== draggedOption) {
+      event.preventDefault();
+      return;
+    }
     const card = event.target.closest("[data-question]");
     if (!card || !draggedQuestion || card === draggedQuestion) return;
     event.preventDefault();
   }
 
   function handleQuestionDrop(event) {
+    const optionRow = event.target.closest("[data-option-row]");
+    if (optionRow && draggedOption && optionRow !== draggedOption) {
+      event.preventDefault();
+      const rows = Array.from(optionRow.parentElement.querySelectorAll("[data-option-row]"));
+      const from = rows.indexOf(draggedOption);
+      const to = rows.indexOf(optionRow);
+      if (from < to) optionRow.after(draggedOption);
+      else optionRow.before(draggedOption);
+      draggedOption = null;
+      return;
+    }
     const card = event.target.closest("[data-question]");
     if (!card || !draggedQuestion || card === draggedQuestion) return;
     event.preventDefault();

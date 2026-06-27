@@ -788,7 +788,7 @@ td button.link-button {
 
 .option-row {
   display: grid;
-  grid-template-columns: 22px minmax(220px, 1.25fr) 110px minmax(260px, 0.95fr) 40px;
+  grid-template-columns: 24px minmax(220px, 1.25fr) 110px minmax(260px, 0.95fr) 40px;
   gap: 12px;
   align-items: end;
   padding: 10px;
@@ -800,12 +800,14 @@ td button.link-button {
   background: white;
 }
 
-.option-dot {
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--muted);
-  border-radius: 999px;
-  background: white;
+.option-drag-handle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 36px;
+  color: var(--muted);
+  cursor: grab;
+  font-weight: 900;
 }
 
 .compact-field {

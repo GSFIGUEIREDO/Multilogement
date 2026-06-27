@@ -14,6 +14,7 @@
     selectedExecutionApartmentId: null,
     modal: null,
     toast: "",
+    resetToken: "",
     filters: {
       buildingId: "all",
       apartmentId: "all",
@@ -344,6 +345,12 @@
   };
 
   let state = loadState();
+  const resetTokenFromUrl = new URLSearchParams(window.location.search).get("resetToken") || "";
+  if (resetTokenFromUrl) {
+    state.sessionUserId = null;
+    state.resetToken = resetTokenFromUrl;
+    state.modal = { type: "resetPassword" };
+  }
 
   function loadState() {
     if (SERVER_ENABLED) {
@@ -1375,6 +1382,7 @@
     if (modal.type === "role") return roleModal(modal);
     if (modal.type === "signup") return signupModal();
     if (modal.type === "forgotPassword") return forgotPasswordModal();
+    if (modal.type === "resetPassword") return resetPasswordModal();
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     return "";
@@ -1418,6 +1426,17 @@
         <p class="meta">Entrez votre courriel. Si un compte existe, une demande de réinitialisation sera enregistrée.</p>
         <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
         <button class="primary-button" type="submit">Envoyer la demande</button>
+      </form>
+    `);
+  }
+
+  function resetPasswordModal() {
+    return modalShell("Nouveau mot de passe", `
+      <form class="form-grid" data-form="resetPassword">
+        <p class="meta">Choisissez un nouveau mot de passe pour votre compte.</p>
+        <div class="field"><label>Nouveau mot de passe</label><input name="password" type="password" required autocomplete="new-password" minlength="8"></div>
+        <div class="field"><label>Confirmer le mot de passe</label><input name="confirmPassword" type="password" required autocomplete="new-password" minlength="8"></div>
+        <button class="primary-button" type="submit">Réinitialiser le mot de passe</button>
       </form>
     `);
   }
@@ -1866,6 +1885,7 @@
     if (formType === "login") login(values);
     if (formType === "signup") signup(values);
     if (formType === "forgotPassword") requestPasswordReset(values);
+    if (formType === "resetPassword") resetPassword(values);
     if (formType === "building") saveBuilding(values);
     if (formType === "apartment") saveApartment(values);
     if (formType === "ticket") createTicket(values);
@@ -1882,6 +1902,7 @@
 
   async function restoreSession() {
     if (!SERVER_ENABLED) return;
+    if (state.resetToken) return;
     restoringSession = true;
     try {
       const response = await fetch("/api/session", { credentials: "same-origin" });
@@ -1960,12 +1981,17 @@
   async function requestPasswordReset(values) {
     if (SERVER_ENABLED) {
       try {
-        await fetch("/api/password-reset-request", {
+        const response = await fetch("/api/password-reset-request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify({ email: values.email, seed })
         });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          showToast(payload.error || "Demande impossible.");
+          return;
+        }
       } catch (error) {
         showToast("Serveur indisponible.");
         return;
@@ -1975,6 +2001,39 @@
       saveState();
     }
     setState({ modal: null, toast: "Si le compte existe, la demande a été enregistrée." });
+  }
+
+  async function resetPassword(values) {
+    if (values.password !== values.confirmPassword) {
+      showToast("Les mots de passe ne correspondent pas.");
+      return;
+    }
+    if (values.password.length < 8) {
+      showToast("Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
+    if (!state.resetToken) {
+      showToast("Lien de réinitialisation invalide.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/password-reset-confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ token: state.resetToken, password: values.password, confirmPassword: values.confirmPassword, seed })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showToast(payload.error || "Réinitialisation impossible.");
+        return;
+      }
+      state.resetToken = "";
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setState({ modal: null, toast: "Mot de passe réinitialisé. Vous pouvez vous connecter." });
+    } catch (error) {
+      showToast("Serveur indisponible.");
+    }
   }
 
   async function login(values) {

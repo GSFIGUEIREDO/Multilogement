@@ -8,8 +8,10 @@ import mimetypes
 import os
 import secrets
 import sqlite3
+import smtplib
 import time
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +27,13 @@ SESSION_TTL_SECONDS = int(os.environ.get("CLIMAPARC_SESSION_TTL", "28800"))
 HOST = os.environ.get("CLIMAPARC_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT") or os.environ.get("CLIMAPARC_PORT", "8000"))
 USE_POSTGRES = bool(DATABASE_URL)
+PASSWORD_RESET_TTL_SECONDS = int(os.environ.get("CLIMAPARC_PASSWORD_RESET_TTL", "3600"))
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "no-reply@climaparc.ca")
 
 if USE_POSTGRES:
     import psycopg
@@ -139,6 +148,60 @@ def password_hash(password: str, salt: str | None = None) -> tuple[str, str]:
 def verify_password(password: str, expected_hash: str, salt: str) -> bool:
     actual_hash, _ = password_hash(password, salt)
     return hmac.compare_digest(actual_hash, expected_hash)
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def reset_expiry_iso() -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=PASSWORD_RESET_TTL_SECONDS)).isoformat()
+
+
+def reset_expired(value: str | None) -> bool:
+    if not value:
+        return True
+    try:
+        return datetime.fromisoformat(value) < datetime.now(timezone.utc)
+    except ValueError:
+        return True
+
+
+def public_base_url(headers) -> str:
+    if APP_BASE_URL:
+        return APP_BASE_URL
+    host = headers.get("Host", f"{HOST}:{PORT}")
+    scheme = headers.get("X-Forwarded-Proto", "https" if "onrender.com" in host else "http")
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def send_password_reset_email(email: str, reset_url: str) -> bool:
+    if not SMTP_HOST:
+        return False
+    message = EmailMessage()
+    message["Subject"] = "Réinitialisation de votre mot de passe ClimaParc"
+    message["From"] = SMTP_FROM
+    message["To"] = email
+    message.set_content(
+        "\n".join([
+            "Bonjour,",
+            "",
+            "Vous avez demandé la réinitialisation de votre mot de passe ClimaParc.",
+            f"Utilisez ce lien dans la prochaine heure: {reset_url}",
+            "",
+            "Si vous n'avez pas demandé cette opération, vous pouvez ignorer ce message.",
+        ])
+    )
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+            smtp.starttls()
+            if SMTP_USER or SMTP_PASSWORD:
+                smtp.login(SMTP_USER, SMTP_PASSWORD)
+            smtp.send_message(message)
+        return True
+    except Exception as error:
+        print(f"Password reset email failed: {error}")
+        return False
 
 
 def get_state(connection) -> dict | None:
@@ -268,6 +331,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/password-reset-request":
             self.handle_password_reset_request()
             return
+        if parsed.path == "/api/password-reset-confirm":
+            self.handle_password_reset_confirm()
+            return
         if parsed.path == "/api/logout":
             self.handle_logout()
             return
@@ -359,15 +425,75 @@ class Handler(BaseHTTPRequestHandler):
         payload = self.read_json()
         state = ensure_bootstrap_state(payload.get("seed"))
         email = str(payload.get("email", "")).strip().lower()
+        email_sent = False
         if email:
-            state.setdefault("passwordResetRequests", []).insert(0, {
-                "id": new_id("reset"),
-                "email": email,
-                "createdAt": datetime.now(timezone.utc).date().isoformat(),
-                "status": "nouvelle",
-            })
             with db() as connection:
+                user = execute(connection, "select * from climaparc_users where email = ?", (email,)).fetchone()
+                reset_record = {
+                    "id": new_id("reset"),
+                    "email": email,
+                    "createdAt": datetime.now(timezone.utc).date().isoformat(),
+                    "status": "nouvelle",
+                    "emailSent": False,
+                }
+                if user:
+                    token = secrets.token_urlsafe(32)
+                    reset_url = f"{public_base_url(self.headers)}/?resetToken={token}"
+                    email_sent = send_password_reset_email(email, reset_url)
+                    reset_record.update({
+                        "userId": row_get(user, "id"),
+                        "tokenHash": token_hash(token),
+                        "expiresAt": reset_expiry_iso(),
+                        "status": "email_envoye" if email_sent else "email_non_configure",
+                        "emailSent": email_sent,
+                    })
+                state.setdefault("passwordResetRequests", []).insert(0, reset_record)
+                state["passwordResetRequests"] = state["passwordResetRequests"][:100]
                 save_state(connection, state)
+        self.json_response({"ok": True, "emailSent": email_sent, "mailConfigured": bool(SMTP_HOST)})
+
+    def handle_password_reset_confirm(self) -> None:
+        payload = self.read_json()
+        state = ensure_bootstrap_state(payload.get("seed"))
+        token = str(payload.get("token", "")).strip()
+        password = str(payload.get("password", ""))
+        confirm_password = str(payload.get("confirmPassword", ""))
+        if not token:
+            self.json_response({"error": "Lien de réinitialisation invalide."}, HTTPStatus.BAD_REQUEST)
+            return
+        if password != confirm_password:
+            self.json_response({"error": "Les mots de passe ne correspondent pas."}, HTTPStatus.BAD_REQUEST)
+            return
+        if len(password) < 8:
+            self.json_response({"error": "Le mot de passe doit contenir au moins 8 caractères."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        hashed = token_hash(token)
+        reset_request = next(
+            (
+                item for item in state.get("passwordResetRequests", [])
+                if item.get("tokenHash") == hashed and item.get("status") not in {"utilise", "expire"}
+            ),
+            None,
+        )
+        if not reset_request or reset_expired(reset_request.get("expiresAt")):
+            if reset_request:
+                reset_request["status"] = "expire"
+                with db() as connection:
+                    save_state(connection, state)
+            self.json_response({"error": "Lien expiré ou invalide."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        user = next((item for item in state.get("users", []) if item.get("id") == reset_request.get("userId")), None)
+        if not user:
+            self.json_response({"error": "Compte introuvable."}, HTTPStatus.BAD_REQUEST)
+            return
+        user["password"] = password
+        reset_request["status"] = "utilise"
+        reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
+        with db() as connection:
+            save_state(connection, state)
+            sync_users(connection, state)
         self.json_response({"ok": True})
 
     def handle_logout(self) -> None:

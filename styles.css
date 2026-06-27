@@ -455,6 +455,14 @@ td button.link-button {
   font-weight: 800;
 }
 
+.link-button {
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-weight: 900;
+}
+
 .login-links .link-button {
   justify-self: center;
   padding: 8px;
@@ -706,7 +714,40 @@ td button.link-button {
   background: white;
 }
 
+.section-card {
+  border-left-color: var(--accent);
+  background: #fffaf6;
+}
+
 .question-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  cursor: grab;
+}
+
+.activity-field-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.activity-field-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -734,6 +775,66 @@ td button.link-button {
   border: 1px dashed var(--line);
   border-radius: 7px;
   background: var(--surface-soft);
+}
+
+.option-editor {
+  display: grid;
+  gap: 9px;
+}
+
+.option-row {
+  display: grid;
+  grid-template-columns: 26px minmax(130px, 1fr) auto minmax(170px, 0.8fr) 40px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--surface-soft);
+}
+
+.option-row input[name="q-option"] {
+  background: white;
+}
+
+.option-dot {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  background: white;
+}
+
+.compact-field {
+  gap: 4px;
+}
+
+.compact-field label {
+  font-size: 0.72rem;
+}
+
+.dynamic-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dynamic-field,
+.form-runtime-section {
+  grid-column: 1 / -1;
+}
+
+.dynamic-field.half-field {
+  grid-column: span 1;
+}
+
+.form-runtime-section {
+  padding: 18px 0 6px;
+  border-bottom: 3px solid var(--brand);
+}
+
+.form-runtime-section h3 {
+  margin: 0;
+  font-size: 1.2rem;
 }
 
 .form-section-title {
@@ -952,7 +1053,21 @@ td button.link-button {
   .filters,
   .split,
   .branching-box,
+  .dynamic-form-grid,
   .report-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dynamic-field.half-field {
+    grid-column: 1 / -1;
+  }
+
+  .option-row {
+    grid-template-columns: 24px minmax(0, 1fr) 40px;
+  }
+
+  .option-row .inline-check,
+  .option-row .compact-field {
+    grid-column: 2 / -1;
   }
 }

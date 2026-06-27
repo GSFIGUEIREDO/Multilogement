@@ -381,6 +381,9 @@
         type: field.type || "text",
         options: field.options || [],
         required: Boolean(field.required),
+        defaultValue: field.defaultValue ?? (field.type === "multiple" ? [] : ""),
+        layout: field.layout || "full",
+        branchRules: field.branchRules || {},
         showWhen: field.showWhen || null
       }))
     }));
@@ -1151,6 +1154,7 @@
     return appShell(`
       ${renderTopbar(`Execution ${order.number}`, `${building?.name || "-"} - ${type?.name || ""}`, `
         <button class="ghost-button" data-action="view" data-view="bons">Retour</button>
+        <button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Changer le formulaire</button>
         <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
       `)}
       <section class="stats-grid">
@@ -1346,7 +1350,10 @@
                   <h3>${escapeHtml(template.name)}</h3>
                   <div class="meta">${template.fields.length} question${template.fields.length > 1 ? "s" : ""}</div>
                   <div class="mini-list">${template.fields.slice(0, 4).map((field) => `<div class="meta">- ${escapeHtml(field.label)} (${fieldTypeLabel(field.type)})</div>`).join("")}</div>
-                  <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="formTemplate" data-id="${template.id}">Modifier</button></div>
+                  <div class="actions">
+                    <button class="ghost-button" data-action="open-modal" data-modal="formTemplate" data-id="${template.id}">Modifier</button>
+                    <button class="ghost-button" data-action="duplicate-form-template" data-id="${template.id}">Dupliquer</button>
+                  </div>
                 </article>
               `).join("")}
             </div>
@@ -1634,7 +1641,7 @@
 
   function formTemplateModal(modal) {
     const template = state.formTemplates.find((item) => item.id === modal.id) || {};
-    const fields = template.fields?.length ? template.fields : [{ id: "", label: "", type: "text", options: [], showWhen: null }];
+    const fields = template.fields?.length ? template.fields : [{ id: "", label: "", type: "text", options: [], showWhen: null, layout: "full", defaultValue: "" }];
     const activityFields = normalizeActivityFields(template.activityFields);
     return modalShell(template.id ? "Modifier le formulaire terrain" : "Nouveau formulaire terrain", `
       <form class="form-grid" data-form="formTemplate">
@@ -1649,6 +1656,7 @@
           ${fields.map((field, index) => formBuilderQuestion(field, index, fields)).join("")}
         </div>
         <button class="ghost-button" type="button" data-action="add-form-question">Ajouter une question</button>
+        <button class="ghost-button" type="button" data-action="add-form-section">Ajouter une section</button>
         <button class="primary-button" type="submit">${template.id ? "Enregistrer" : "Créer le formulaire"}</button>
       </form>
     `);
@@ -1680,15 +1688,20 @@
   }
 
   function formBuilderQuestion(field, index, allFields) {
+    if (field.type === "section") return formBuilderSection(field, index);
     const sourceOptions = allFields
       .filter((item) => item.id !== field.id && item.label)
       .map((item) => `<option value="${escapeHtml(item.id)}" ${field.showWhen?.fieldId === item.id ? "selected" : ""}>${escapeHtml(item.label)}</option>`)
       .join("");
+    const targetOptions = formBranchTargets(allFields, field.id);
     return `
-      <article class="question-card" data-question data-field-id="${escapeHtml(field.id || "")}">
+      <article class="question-card" data-question data-field-id="${escapeHtml(field.id || "")}" draggable="true">
         <div class="question-card-head">
-          <strong>Question ${index + 1}</strong>
-          <button class="icon-button" type="button" data-action="remove-form-question" aria-label="Supprimer">X</button>
+          <strong><span class="drag-handle">☰</span> Question ${index + 1}</strong>
+          <div class="actions">
+            <button class="icon-button" type="button" data-action="duplicate-form-question" aria-label="Dupliquer">+</button>
+            <button class="icon-button" type="button" data-action="remove-form-question" aria-label="Supprimer">X</button>
+          </div>
         </div>
         <div class="field">
           <label>Question</label>
@@ -1706,10 +1719,26 @@
             </select>
           </div>
           <div class="field">
-            <label>Options de réponse</label>
-            <textarea name="q-options" placeholder="Une option par ligne">${escapeHtml((field.options || []).join("\n"))}</textarea>
+            <label>Disposition</label>
+            <select name="q-layout">
+              <option value="full" ${field.layout !== "half" ? "selected" : ""}>Largeur complète</option>
+              <option value="half" ${field.layout === "half" ? "selected" : ""}>Demi-colonne</option>
+            </select>
           </div>
         </div>
+        <div class="field">
+          <label>Réponse par défaut</label>
+          <input name="q-default" value="${escapeHtml(Array.isArray(field.defaultValue) ? field.defaultValue.join(", ") : field.defaultValue || "")}" placeholder="Option ou texte par défaut">
+        </div>
+        ${choiceFieldTypes().includes(field.type) ? `
+          <div class="option-editor" data-option-list>
+            ${(field.options?.length ? field.options : [""]).map((option) => formOptionRow(option, field, targetOptions)).join("")}
+          </div>
+          <div class="actions">
+            <button class="link-button" type="button" data-action="add-form-option">+ Ajouter une option</button>
+            <button class="link-button" type="button" data-action="add-other-option">Ajouter une option « Autre »</button>
+          </div>
+        ` : ""}
         <div class="branching-box">
           <div class="field">
             <label>Afficher seulement si</label>
@@ -1727,6 +1756,51 @@
     `;
   }
 
+  function formBuilderSection(field, index) {
+    return `
+      <article class="question-card section-card" data-question data-field-id="${escapeHtml(field.id || "")}" draggable="true">
+        <div class="question-card-head">
+          <strong><span class="drag-handle">☰</span> Section ${index + 1}</strong>
+          <button class="icon-button" type="button" data-action="remove-form-question" aria-label="Supprimer">X</button>
+        </div>
+        <input type="hidden" name="q-type" value="section">
+        <input type="hidden" name="q-layout" value="full">
+        <div class="field"><label>Titre de section</label><input name="q-label" value="${escapeHtml(field.label || "")}" placeholder="Ex.: Unité intérieure 1 - Inspection" required></div>
+      </article>
+    `;
+  }
+
+  function formOptionRow(option, field, targetOptions) {
+    const defaultValues = Array.isArray(field.defaultValue) ? field.defaultValue : [field.defaultValue].filter(Boolean);
+    const target = field.branchRules?.[option] || "";
+    return `
+      <div class="option-row" data-option-row>
+        <span class="option-dot"></span>
+        <input name="q-option" value="${escapeHtml(option)}" placeholder="Option">
+        <label class="inline-check"><input type="checkbox" name="q-option-default" ${defaultValues.includes(option) ? "checked" : ""}><span>Défaut</span></label>
+        <div class="field compact-field">
+          <label>Aller à</label>
+          <select name="q-option-branch">
+            <option value="">Suivant</option>
+            <option value="__end" ${target === "__end" ? "selected" : ""}>Fin du formulaire</option>
+            ${targetOptions.map((item) => `<option value="${escapeHtml(item.id)}" ${target === item.id ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+          </select>
+        </div>
+        <button class="icon-button" type="button" data-action="remove-form-option" aria-label="Supprimer">X</button>
+      </div>
+    `;
+  }
+
+  function formBranchTargets(fields, currentId) {
+    return fields
+      .filter((item) => item.id !== currentId && item.label)
+      .map((item, index) => ({ id: item.id, label: `${index + 1}. ${item.label}` }));
+  }
+
+  function choiceFieldTypes() {
+    return ["checkbox", "single", "multiple", "select"];
+  }
+
   function questionTypeOptions(selected) {
     return [
       ["text", "Réponse courte"],
@@ -1734,7 +1808,8 @@
       ["checkbox", "Case à cocher"],
       ["single", "Choix unique"],
       ["multiple", "Choix multiples"],
-      ["select", "Liste déroulante"]
+      ["select", "Liste déroulante"],
+      ["section", "Section"]
     ].map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`).join("");
   }
 
@@ -1818,8 +1893,8 @@
         </div>
         <div class="field"><label>${activityFields.notes.label}${activityFields.notes.required ? " *" : ""}</label><textarea name="equipmentNotes" ${activityFields.notes.required ? "required" : ""}>${escapeHtml(equipment.notes || "")}</textarea></div>
         <div class="form-section-title">${escapeHtml(template?.name || "Formulaire")}</div>
-        <div class="form-builder">
-          ${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label])).join("")}
+        <div class="form-builder dynamic-form-grid">
+          ${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}
         </div>
         <div class="field"><label>Resume de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
         <button class="primary-button" type="submit">Enregistrer appartement</button>
@@ -1852,28 +1927,32 @@
   }
 
   function renderDynamicField(field, value) {
+    if (field.type === "section") {
+      return `<div class="form-runtime-section"><h3>${escapeHtml(field.label)}</h3></div>`;
+    }
     const depends = field.showWhen ? `data-visible-field="${escapeHtml(field.showWhen.fieldId)}" data-visible-value="${escapeHtml(field.showWhen.value)}"` : "";
     const options = field.options?.length ? field.options : ["Oui"];
     const required = field.required ? "required" : "";
     const label = `${escapeHtml(field.label)}${field.required ? " *" : ""}`;
+    const layoutClass = field.layout === "half" ? " half-field" : "";
     if (field.type === "long") {
-      return `<div class="field dynamic-field" ${depends}><label>${label}</label><textarea name="field-${field.id}" ${required}>${escapeHtml(value || "")}</textarea></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><textarea name="field-${field.id}" ${required}>${escapeHtml(value || "")}</textarea></div>`;
     }
     if (field.type === "checkbox") {
-      const checked = Array.isArray(value) ? value.includes(options[0]) : Boolean(value);
-      return `<label class="check-row dynamic-field" ${depends} data-required="${field.required ? "true" : "false"}"><input type="checkbox" name="field-${field.id}" value="${escapeHtml(options[0])}" ${checked ? "checked" : ""}><span><strong>${label}</strong><span>${escapeHtml(options[0])}</span></span></label>`;
+      const values = Array.isArray(value) ? value : [value].filter(Boolean);
+      return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list checkbox-choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${values.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "single") {
-      return `<div class="field dynamic-field" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option, index) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""} ${field.required && index === 0 ? "required" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option, index) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""} ${field.required && index === 0 ? "required" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "multiple") {
-      return `<div class="field dynamic-field" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "select") {
       const listId = `list-${field.id}`;
-      return `<div class="field dynamic-field" ${depends}><label>${label}</label><input name="field-${field.id}" list="${escapeHtml(listId)}" value="${escapeHtml(value || "")}" ${required} placeholder="Tapez ou choisissez"><datalist id="${escapeHtml(listId)}">${options.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" list="${escapeHtml(listId)}" value="${escapeHtml(value || "")}" ${required} placeholder="Tapez ou choisissez"><datalist id="${escapeHtml(listId)}">${options.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist></div>`;
     }
-    return `<div class="field dynamic-field" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
+    return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
   }
 
   function handleSubmit(event) {
@@ -2287,14 +2366,42 @@
       const label = card.querySelector('[name="q-label"]')?.value.trim();
       if (!label) return null;
       const existingId = card.dataset.fieldId;
+      const type = card.querySelector('[name="q-type"]')?.value || "text";
+      if (type === "section") {
+        return {
+          id: existingId || slugify(label),
+          label,
+          type: "section",
+          options: [],
+          required: false,
+          defaultValue: "",
+          layout: "full",
+          branchRules: {},
+          showWhen: null
+        };
+      }
       const showField = card.querySelector('[name="q-show-field"]')?.value || "";
       const showValue = card.querySelector('[name="q-show-value"]')?.value.trim() || "";
+      const options = Array.from(card.querySelectorAll('[name="q-option"]')).map((input) => input.value.trim()).filter(Boolean);
+      const defaultFromOptions = Array.from(card.querySelectorAll("[data-option-row]"))
+        .filter((row) => row.querySelector('[name="q-option-default"]')?.checked)
+        .map((row) => row.querySelector('[name="q-option"]')?.value.trim())
+        .filter(Boolean);
+      const typedDefault = card.querySelector('[name="q-default"]')?.value.trim() || "";
+      const branchRules = Object.fromEntries(Array.from(card.querySelectorAll("[data-option-row]")).map((row) => {
+        const option = row.querySelector('[name="q-option"]')?.value.trim();
+        const target = row.querySelector('[name="q-option-branch"]')?.value || "";
+        return option && target ? [option, target] : null;
+      }).filter(Boolean));
       return {
         id: existingId || slugify(label),
         label,
-        type: card.querySelector('[name="q-type"]')?.value || "text",
-        options: parseOptions(card.querySelector('[name="q-options"]')?.value || ""),
+        type,
+        options,
         required: Boolean(card.querySelector('[name="q-required"]')?.checked),
+        defaultValue: ["multiple", "checkbox"].includes(type) ? defaultFromOptions : (defaultFromOptions[0] || typedDefault),
+        layout: card.querySelector('[name="q-layout"]')?.value || "full",
+        branchRules,
         showWhen: showField && showValue ? { fieldId: showField, value: showValue } : null
       };
     }).filter(Boolean);
@@ -2501,6 +2608,7 @@
   function collectFormResponses(form, template) {
     const responses = {};
     (template?.fields || []).forEach((field) => {
+      if (field.type === "section") return;
       const wrapper = form.querySelector(`[name="field-${field.id}"]`)?.closest(".dynamic-field, .check-row");
       if (wrapper?.classList.contains("hidden")) return;
       const inputs = Array.from(form.querySelectorAll(`[name="field-${field.id}"]`));
@@ -2518,6 +2626,7 @@
 
   function validateRequiredResponses(form, template) {
     const missing = (template?.fields || []).find((field) => {
+      if (field.type === "section") return false;
       if (!field.required) return false;
       const wrapper = form.querySelector(`[name="field-${field.id}"]`)?.closest(".dynamic-field, .check-row");
       if (wrapper?.classList.contains("hidden")) return false;
@@ -2622,7 +2731,8 @@
       checkbox: "case a cocher",
       single: "selection unique",
       multiple: "selection multiple",
-      select: "liste déroulante"
+      select: "liste déroulante",
+      section: "section"
     }[type] || type;
   }
 
@@ -2696,8 +2806,32 @@
         addFormQuestion(target.closest("form"));
         return;
       }
+      if (action === "add-form-section") {
+        addFormSection(target.closest("form"));
+        return;
+      }
+      if (action === "duplicate-form-question") {
+        duplicateFormQuestion(target.closest("[data-question]"));
+        return;
+      }
+      if (action === "add-form-option") {
+        addFormOption(target.closest("[data-question]"));
+        return;
+      }
+      if (action === "add-other-option") {
+        addFormOption(target.closest("[data-question]"), "Autre");
+        return;
+      }
+      if (action === "remove-form-option") {
+        removeFormOption(target.closest("[data-option-row]"));
+        return;
+      }
       if (action === "remove-form-question") {
         removeFormQuestion(target.closest("[data-question]"));
+        return;
+      }
+      if (action === "duplicate-form-template") {
+        duplicateFormTemplate(target.dataset.id);
         return;
       }
       if (action === "ticket-status") {
@@ -2721,6 +2855,9 @@
       updateDynamicVisibility(event.target.closest("form"));
       if (event.target.name === "q-label") refreshFormBranching(event.target.closest("form"));
     });
+    app.addEventListener("dragstart", handleQuestionDragStart);
+    app.addEventListener("dragover", handleQuestionDragOver);
+    app.addEventListener("drop", handleQuestionDrop);
   }
 
   function updateNewApartmentVisibility(form) {
@@ -2739,8 +2876,45 @@
     if (!form) return;
     const list = form.querySelector("[data-question-list]");
     const fields = currentBuilderFields(form);
-    list.insertAdjacentHTML("beforeend", formBuilderQuestion({ id: uid("q"), label: "", type: "text", options: [], showWhen: null }, fields.length, fields));
+    list.insertAdjacentHTML("beforeend", formBuilderQuestion({ id: uid("q"), label: "", type: "text", options: [], showWhen: null, layout: "full", defaultValue: "" }, fields.length, fields));
     refreshFormBranching(form);
+  }
+
+  function addFormSection(form) {
+    if (!form) return;
+    const list = form.querySelector("[data-question-list]");
+    const fields = currentBuilderFields(form);
+    list.insertAdjacentHTML("beforeend", formBuilderQuestion({ id: uid("section"), label: "", type: "section", options: [], showWhen: null, layout: "full" }, fields.length, fields));
+    refreshFormBranching(form);
+  }
+
+  function duplicateFormQuestion(card) {
+    if (!card) return;
+    const form = card.closest("form");
+    const clone = card.cloneNode(true);
+    clone.dataset.fieldId = uid("q");
+    clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+    card.insertAdjacentElement("afterend", clone);
+    refreshFormBranching(form);
+  }
+
+  function addFormOption(card, value = "") {
+    if (!card) return;
+    const list = card.querySelector("[data-option-list]");
+    const form = card.closest("form");
+    const fields = currentBuilderFields(form);
+    const targetOptions = formBranchTargets(fields, card.dataset.fieldId);
+    list.insertAdjacentHTML("beforeend", formOptionRow(value, { defaultValue: "", branchRules: {} }, targetOptions));
+  }
+
+  function removeFormOption(row) {
+    if (!row) return;
+    const list = row.closest("[data-option-list]");
+    if (list.querySelectorAll("[data-option-row]").length <= 1) {
+      row.querySelector('[name="q-option"]').value = "";
+      return;
+    }
+    row.remove();
   }
 
   function removeFormQuestion(card) {
@@ -2752,6 +2926,23 @@
     }
     card.remove();
     refreshFormBranching(form);
+  }
+
+  function duplicateFormTemplate(id) {
+    const template = state.formTemplates.find((item) => item.id === id);
+    if (!template) return;
+    const copy = JSON.parse(JSON.stringify(template));
+    const idMap = Object.fromEntries(copy.fields.map((field) => [field.id, uid(field.type === "section" ? "section" : "q")]));
+    copy.id = uid("form");
+    copy.name = `${template.name} - copie`;
+    copy.fields = copy.fields.map((field) => ({
+      ...field,
+      id: idMap[field.id],
+      showWhen: field.showWhen ? { ...field.showWhen, fieldId: idMap[field.showWhen.fieldId] || field.showWhen.fieldId } : null,
+      branchRules: Object.fromEntries(Object.entries(field.branchRules || {}).map(([option, target]) => [option, idMap[target] || target]))
+    }));
+    state.formTemplates.push(copy);
+    setState({ modal: { type: "formTemplate", id: copy.id }, activeView: "parametres", toast: "Formulaire dupliqué." });
   }
 
   function currentBuilderFields(form) {
@@ -2769,6 +2960,7 @@
     const fields = currentBuilderFields(form);
     form.querySelectorAll("[data-question]").forEach((card) => {
       const select = card.querySelector('[name="q-show-field"]');
+      if (!select) return;
       const current = select.value;
       const options = fields
         .filter((field) => field.id !== card.dataset.fieldId)
@@ -2776,7 +2968,45 @@
         .join("");
       select.innerHTML = `<option value="">Toujours afficher</option>${options}`;
       select.value = fields.some((field) => field.id === current && field.id !== card.dataset.fieldId) ? current : "";
+      const branchOptions = fields
+        .filter((field) => field.id !== card.dataset.fieldId)
+        .map((field, index) => `<option value="${escapeHtml(field.id)}">${index + 1}. ${escapeHtml(field.label)}</option>`)
+        .join("");
+      card.querySelectorAll('[name="q-option-branch"]').forEach((branchSelect) => {
+        const selected = branchSelect.value;
+        branchSelect.innerHTML = `<option value="">Suivant</option><option value="__end">Fin du formulaire</option>${branchOptions}`;
+        branchSelect.value = selected;
+      });
     });
+  }
+
+  let draggedQuestion = null;
+
+  function handleQuestionDragStart(event) {
+    const card = event.target.closest("[data-question]");
+    if (!card) return;
+    draggedQuestion = card;
+    event.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleQuestionDragOver(event) {
+    const card = event.target.closest("[data-question]");
+    if (!card || !draggedQuestion || card === draggedQuestion) return;
+    event.preventDefault();
+  }
+
+  function handleQuestionDrop(event) {
+    const card = event.target.closest("[data-question]");
+    if (!card || !draggedQuestion || card === draggedQuestion) return;
+    event.preventDefault();
+    const list = card.parentElement;
+    const cards = Array.from(list.querySelectorAll("[data-question]"));
+    const from = cards.indexOf(draggedQuestion);
+    const to = cards.indexOf(card);
+    if (from < to) card.after(draggedQuestion);
+    else card.before(draggedQuestion);
+    refreshFormBranching(card.closest("form"));
+    draggedQuestion = null;
   }
 
   function updateDynamicVisibility(form) {

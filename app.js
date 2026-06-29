@@ -2,6 +2,7 @@
   const STORAGE_KEY = "climaparc_hvac_v2";
   const SERVER_ENABLED = typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:");
   let saveTimer = null;
+  let toastTimer = null;
   let restoringSession = false;
 
   const seed = {
@@ -480,7 +481,7 @@
 
   function saveState() {
     if (!SERVER_ENABLED) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
@@ -494,6 +495,7 @@
       }).catch(() => {
         state.toast = "Sauvegarde serveur indisponible.";
         render();
+        scheduleToastClear();
       });
     }, 250);
   }
@@ -513,6 +515,17 @@
     state = { ...state, ...patch };
     saveState();
     render();
+    if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
+  }
+
+  function scheduleToastClear() {
+    clearTimeout(toastTimer);
+    if (!state.toast) return;
+    toastTimer = setTimeout(() => {
+      state = { ...state, toast: "" };
+      saveState();
+      render();
+    }, 2500);
   }
 
   function currentUser() {
@@ -2187,6 +2200,7 @@
         state.toast = "Compte créé.";
         saveState();
         render();
+        scheduleToastClear();
       } catch (error) {
         showToast("Serveur indisponible.");
       }
@@ -2972,14 +2986,7 @@
   }
 
   function showToast(message) {
-    state.toast = message;
-    saveState();
-    render();
-    setTimeout(() => {
-      state.toast = "";
-      saveState();
-      render();
-    }, 2500);
+    setState({ toast: message });
   }
 
   function bindEvents() {

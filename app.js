@@ -27,7 +27,7 @@
       search: ""
     },
     reportFilters: {
-      reportType: "parc_mensuel",
+      reportType: "dashboard_operationnel",
       clientId: "all",
       startDate: "",
       endDate: ""
@@ -464,6 +464,9 @@
       startDate: data.reportFilters?.startDate || monthStart(today()),
       endDate: data.reportFilters?.endDate || today()
     };
+    if (!allReportTypes().includes(next.reportFilters.reportType)) {
+      next.reportFilters.reportType = seed.reportFilters.reportType;
+    }
     next.sidebarMode = data.sidebarMode || seed.sidebarMode;
     next.mobileMenuOpen = false;
     next.navOrder = mergeNavOrder(data.navOrder);
@@ -921,7 +924,8 @@
 
   function addDateInterval(dateValue, amount, unit) {
     const date = new Date(`${dateValue || today()}T12:00:00`);
-    if (unit === "months") date.setMonth(date.getMonth() + Number(amount || 1));
+    if (unit === "days") date.setDate(date.getDate() + Number(amount || 1));
+    else if (unit === "months") date.setMonth(date.getMonth() + Number(amount || 1));
     else date.setFullYear(date.getFullYear() + Number(amount || 1));
     return date.toISOString().slice(0, 10);
   }
@@ -1866,8 +1870,9 @@
 
   function reportsView() {
     const context = reportContext();
+    const meta = reportAudienceMeta();
     return appShell(`
-      ${renderTopbar("Rapports", "Tableaux exécutifs pour suivre le parc HVAC, la maintenance et les risques.", `
+      ${renderTopbar(meta.title, meta.subtitle, `
         <button class="ghost-button" data-action="export" data-report="equipment">CSV inventaire</button>
         <button class="ghost-button" data-action="export" data-report="interventions">CSV interventions</button>
         <button class="ghost-button" data-action="export" data-report="operations">CSV opérations</button>
@@ -1879,20 +1884,18 @@
 
   function reportControls() {
     const filters = state.reportFilters;
+    const reports = availableReportTypes();
+    const selectedType = effectiveReportType();
     const clientOptions = currentUser().role === "client"
       ? ""
-      : `<div class="field"><label>Client gestionnaire</label><select data-action="report-filter" data-filter="clientId"><option value="all">Tous les clients</option>${state.clients.map((client) => `<option value="${client.id}" ${filters.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("")}</select></div>`;
+      : `<div class="field"><label>Client / contrat</label><select data-action="report-filter" data-filter="clientId"><option value="all">Tous les clients</option>${state.clients.map((client) => `<option value="${client.id}" ${filters.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("")}</select></div>`;
     return `
       <section class="panel report-controls">
         <div class="panel-body filters">
           <div class="field">
             <label>Type de rapport</label>
             <select data-action="report-filter" data-filter="reportType">
-              <option value="parc_mensuel" ${filters.reportType === "parc_mensuel" ? "selected" : ""}>Rapport mensuel de parc HVAC</option>
-              <option value="maintenance_preventive" ${filters.reportType === "maintenance_preventive" ? "selected" : ""}>Rapport de maintenance préventive</option>
-              <option value="appels_service" ${filters.reportType === "appels_service" ? "selected" : ""}>Rapport des appels de service</option>
-              <option value="hors_service" ${filters.reportType === "hors_service" ? "selected" : ""}>Rapport des équipements hors service</option>
-              <option value="budget_annuel" ${filters.reportType === "budget_annuel" ? "selected" : ""}>Rapport annuel pour budget</option>
+              ${reports.map(([id, label]) => `<option value="${id}" ${selectedType === id ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
             </select>
           </div>
           ${clientOptions}
@@ -1929,14 +1932,279 @@
     };
   }
 
+  function clientReportTypes() {
+    return [
+      ["parc_mensuel", "Rapport mensuel de parc HVAC"],
+      ["maintenance_preventive", "Rapport de maintenance préventive"],
+      ["appels_service", "Rapport des appels de service"],
+      ["hors_service", "Rapport des équipements hors service"],
+      ["budget_annuel", "Rapport annuel pour budget"]
+    ];
+  }
+
+  function internalReportTypes() {
+    return [
+      ["dashboard_operationnel", "Dashboard opérationnel interne"],
+      ["productivite_techniciens", "Productivité des techniciens"],
+      ["retard_backlog", "Retard / backlog"],
+      ["qualite_service", "Qualité de service"],
+      ["planification_preventive", "Planification préventive"],
+      ["inventaire_parc", "Inventaire / parc machines"],
+      ["commercial_rentabilite", "Commercial / rentabilité future"]
+    ];
+  }
+
+  function allReportTypes() {
+    return [...clientReportTypes(), ...internalReportTypes()].map(([id]) => id);
+  }
+
+  function availableReportTypes() {
+    return currentUser()?.role === "client" ? clientReportTypes() : internalReportTypes();
+  }
+
+  function effectiveReportType() {
+    const allowed = availableReportTypes().map(([id]) => id);
+    return allowed.includes(state.reportFilters.reportType) ? state.reportFilters.reportType : allowed[0];
+  }
+
+  function reportAudienceMeta() {
+    if (currentUser()?.role === "client") {
+      return {
+        title: "Rapports client",
+        subtitle: "Vue exécutive du parc HVAC, de la maintenance et des appels de service."
+      };
+    }
+    return {
+      title: "Rapports internes",
+      subtitle: "Pilotage opérationnel, productivité, qualité, backlog et planification."
+    };
+  }
+
   function selectedExecutiveReport(context) {
     return {
+      dashboard_operationnel: internalOperationsDashboard,
+      productivite_techniciens: technicianProductivityReport,
+      retard_backlog: backlogReport,
+      qualite_service: serviceQualityReport,
+      planification_preventive: preventivePlanningReport,
+      inventaire_parc: inventoryParkReport,
+      commercial_rentabilite: commercialFutureReport,
       parc_mensuel: monthlyParkReport,
       maintenance_preventive: preventiveMaintenanceReport,
       appels_service: serviceCallsReport,
       hors_service: outOfServiceReport,
       budget_annuel: annualBudgetReport
-    }[state.reportFilters.reportType]?.(context) || monthlyParkReport(context);
+    }[effectiveReportType()]?.(context) || internalOperationsDashboard(context);
+  }
+
+  function internalOperationsDashboard(context) {
+    const urgentTickets = context.tickets.filter((ticket) => ticket.priority === "urgente" && ticket.status !== "ferme");
+    const overdueOrders = context.workOrders.filter((order) => order.status !== "termine" && order.scheduledDate < today());
+    const ongoingOrders = context.workOrders.filter((order) => order.status === "en_cours");
+    const technicians = state.users.filter((user) => user.role === "technicien");
+    const monthInterventions = context.interventions.filter((item) => inPeriod(item.date, monthStart(today()), today()));
+    const criticalEquipment = context.equipment.filter((item) => ["hors_service", "a_planifier", "surveillance"].includes(item.status));
+    const dueReminders = context.reminders.filter((reminder) => reminderIsDue(reminder));
+    const workload = technicians.map((tech) => [tech.name, context.workOrders.filter((order) => order.technicianId === tech.id && order.status !== "termine").length]);
+    const callsEvolution = monthsBetween(context.startDate, context.endDate).map((month) => [monthLabel(month), context.tickets.filter((ticket) => monthKey(ticket.createdAt) === month).length]);
+    const nextWeek = addDateInterval(today(), 7, "days");
+    const upcoming = context.equipment.filter((item) => item.nextService && item.nextService >= today() && item.nextService <= nextWeek).sort((a, b) => a.nextService.localeCompare(b.nextService));
+    return reportShell("Dashboard opérationnel interne", "Vue quotidienne pour prioriser l'équipe administrative.", `
+      ${reportKpis([
+        ["Appels ouverts", context.tickets.filter((ticket) => ticket.status === "ouvert").length],
+        ["Urgents", urgentTickets.length],
+        ["BT en cours", ongoingOrders.length],
+        ["BT atrasados", overdueOrders.length],
+        ["Techniciens", technicians.length],
+        ["Rappels échus", dueReminders.length]
+      ], urgentTickets.length || overdueOrders.length || dueReminders.length ? "danger" : "")}
+      <section class="report-layout">
+        ${barChart("Charge de travail par technicien", workload)}
+        ${barChart("Évolution des appels", callsEvolution)}
+      </section>
+      <section class="report-layout">
+        ${tablePanel("Prochains services de la semaine", ["Date", "Immeuble", "Appartement", "Équipement"], upcoming.slice(0, 10).map((item) => {
+          const { apartment, building } = equipmentContext(item.id);
+          return [formatDate(item.nextService), building?.name || "-", apartment?.number || "-", item.type];
+        }))}
+        ${summaryPanel("Signaux du jour", [
+          `${monthInterventions.length} interventions conclues ce mois-ci.`,
+          `${criticalEquipment.length} équipements critiques ou à surveiller.`,
+          `${dueReminders.length} rappels vencidos ou à traiter.`
+        ])}
+      </section>
+    `);
+  }
+
+  function technicianProductivityReport(context) {
+    const technicians = state.users.filter((user) => user.role === "technicien");
+    const rows = technicians.map((tech) => {
+      const assigned = context.workOrders.filter((order) => order.technicianId === tech.id);
+      const completed = assigned.filter((order) => order.status === "termine");
+      const interventions = context.interventions.filter((item) => item.technicianId === tech.id && inPeriod(item.date, context.startDate, context.endDate));
+      const apartmentsVisited = new Set(interventions.map((item) => item.apartmentId || equipmentContext(item.equipmentId).apartment?.id).filter(Boolean)).size;
+      const attachments = interventions.reduce((sum, item) => sum + (item.attachments?.length || 0), 0);
+      return { tech, assigned, completed, interventions, apartmentsVisited, attachments };
+    });
+    const completeChecklists = context.interventions.filter((item) => item.checklistDone?.length && item.checklistDone.every(Boolean)).length;
+    const checklistRate = context.interventions.length ? Math.round((completeChecklists / context.interventions.length) * 100) : 0;
+    return reportShell("Rapport de productivité des techniciens", "Indicateurs de gestion à lire avec le contexte de complexité terrain.", `
+      ${reportKpis([
+        ["BT attribués", rows.reduce((sum, row) => sum + row.assigned.length, 0)],
+        ["BT conclus", rows.reduce((sum, row) => sum + row.completed.length, 0)],
+        ["Interventions", rows.reduce((sum, row) => sum + row.interventions.length, 0)],
+        ["Appartements visités", rows.reduce((sum, row) => sum + row.apartmentsVisited, 0)],
+        ["Photos/documents", rows.reduce((sum, row) => sum + row.attachments, 0)],
+        ["Checklists 100%", `${checklistRate}%`]
+      ])}
+      <section class="report-layout">
+        ${barChart("BT conclus par technicien", rows.map((row) => [row.tech.name, row.completed.length]))}
+        ${progressPanel("Checklists complètes", checklistRate, "Ce KPI mesure la complétude documentaire, pas la difficulté réelle de l'intervention.")}
+      </section>
+      ${tablePanel("Synthèse par technicien", ["Technicien", "BT attribués", "BT conclus", "Interventions", "Docs", "Appartements"], rows.map((row) => [row.tech.name, row.assigned.length, row.completed.length, row.interventions.length, row.attachments, row.apartmentsVisited]))}
+    `);
+  }
+
+  function backlogReport(context) {
+    const openTickets = context.tickets.filter((ticket) => ticket.status !== "ferme");
+    const plannedNotDone = context.workOrders.filter((order) => order.status !== "termine" && order.scheduledDate <= today());
+    const dueReminders = context.reminders.filter((reminder) => reminderIsDue(reminder));
+    const noNextService = context.equipment.filter((item) => !item.nextService);
+    const noRecentHistory = context.equipment.filter((item) => !item.lastService || daysBetween(item.lastService, today()) > 365);
+    const buckets = [
+      ["0-7 jours", openTickets.filter((ticket) => daysBetween(ticket.createdAt, today()) <= 7).length],
+      ["8-15 jours", openTickets.filter((ticket) => daysBetween(ticket.createdAt, today()) >= 8 && daysBetween(ticket.createdAt, today()) <= 15).length],
+      ["16-30 jours", openTickets.filter((ticket) => daysBetween(ticket.createdAt, today()) >= 16 && daysBetween(ticket.createdAt, today()) <= 30).length],
+      ["30+ jours", openTickets.filter((ticket) => daysBetween(ticket.createdAt, today()) > 30).length]
+    ];
+    return reportShell("Rapport de retard / backlog", "Détecter les pendências avant perte de contrôle opérationnel.", `
+      ${reportKpis([
+        ["Appels ouverts", openTickets.length],
+        ["BT non exécutés", plannedNotDone.length],
+        ["Rappels vencidos", dueReminders.length],
+        ["Sans prochain service", noNextService.length],
+        ["Sans historique récent", noRecentHistory.length]
+      ], openTickets.length || plannedNotDone.length || dueReminders.length ? "danger" : "")}
+      <section class="report-layout">
+        ${barChart("Pendências par ancienneté", buckets)}
+        ${tablePanel("Appels urgents atrasados", ["Appel", "Âge", "Immeuble", "Équipement"], openTickets.filter((ticket) => ticket.priority === "urgente").map((ticket) => {
+          const { building, equipment } = equipmentContext(ticket.equipmentId);
+          return [ticket.number || ticket.id, `${daysBetween(ticket.createdAt, today())} j`, building?.name || "-", equipment?.type || "-"];
+        }))}
+      </section>
+    `);
+  }
+
+  function serviceQualityReport(context) {
+    const interventionsInPeriod = context.interventions.filter((item) => inPeriod(item.date, context.startDate, context.endDate));
+    const incomplete = interventionsInPeriod.filter((item) => item.checklistDone?.length && !item.checklistDone.every(Boolean));
+    const withoutPhoto = interventionsInPeriod.filter((item) => !(item.attachments?.length));
+    const withoutObservation = interventionsInPeriod.filter((item) => !(item.summary || "").trim());
+    const recurringEquipment = Object.entries(countBy([...context.tickets, ...context.interventions], (item) => item.equipmentId))
+      .filter(([, count]) => count > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([equipmentId, count]) => {
+        const { building, apartment, equipment } = equipmentContext(equipmentId);
+        return [`${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, count];
+      });
+    const byReason = state.serviceTypes.map((type) => [type.name, context.tickets.filter((ticket) => ticket.serviceTypeId === type.id).length]).filter(([, value]) => value);
+    return reportShell("Rapport de qualité de service", "Contrôler documentation, récurrence et qualité d'exécution.", `
+      ${reportKpis([
+        ["Checklists incomplètes", incomplete.length],
+        ["Sans photo/doc", withoutPhoto.length],
+        ["Sans observation", withoutObservation.length],
+        ["Machines récurrentes", recurringEquipment.length],
+        ["Appels réouverts", 0]
+      ], incomplete.length || withoutPhoto.length || withoutObservation.length ? "danger" : "")}
+      <section class="report-layout">
+        ${barChart("Machines avec visites/problèmes récurrents", recurringEquipment)}
+        ${donutChart("Motifs des appels", byReason.map(([label, value], index) => [label, value, ["info", "warn", "danger", "neutral"][index % 4]]))}
+      </section>
+      ${barChart("Interventions sans documentation complète", [["Checklist incomplète", incomplete.length], ["Sans photo/document", withoutPhoto.length], ["Sans observation", withoutObservation.length]])}
+    `);
+  }
+
+  function preventivePlanningReport(context) {
+    const preventiveTypes = new Set(state.interventionTypes.filter((type) => /nettoyage|prevent|prévent|entretien/i.test(type.name)).map((type) => type.id));
+    const preventiveOrders = context.workOrders.filter((order) => preventiveTypes.has(order.typeId) || /entretien|nettoyage/i.test(order.notes || ""));
+    const monthOrders = preventiveOrders.filter((order) => inPeriod(order.scheduledDate, monthStart(today()), today()));
+    const late = preventiveOrders.filter((order) => order.status !== "termine" && order.scheduledDate < today());
+    const future = preventiveOrders.filter((order) => order.scheduledDate >= today());
+    const noReminder = context.equipment.filter((item) => !context.reminders.some((reminder) => reminder.equipmentId === item.id && reminder.status === "active"));
+    const byWeek = [1, 2, 3, 4, 5].map((week) => [`Semaine ${week}`, future.filter((order) => Math.ceil(Number(order.scheduledDate.slice(8, 10)) / 7) === week).length]);
+    const byBuilding = context.buildings.map((building) => [building.name, future.filter((order) => order.buildingId === building.id || equipmentContext(order.equipmentId).building?.id === building.id).length]).filter(([, value]) => value);
+    return reportShell("Rapport de planification préventive", "Préparer les contrats récurrents et lisser la charge de travail.", `
+      ${reportKpis([
+        ["Préventives du mois", monthOrders.length],
+        ["Préventives atrasadas", late.length],
+        ["Futures", future.length],
+        ["Équipements sans rappel", noReminder.length]
+      ], late.length || noReminder.length ? "danger" : "")}
+      <section class="report-layout">
+        ${barChart("Préventives par semaine", byWeek)}
+        ${barChart("Volume futur par immeuble", byBuilding)}
+      </section>
+      ${donutChart("Statut des préventives", [["Planifié", preventiveOrders.filter((order) => order.status === "planifie").length, "info"], ["En cours", preventiveOrders.filter((order) => order.status === "en_cours").length, "warn"], ["Conclu", preventiveOrders.filter((order) => order.status === "termine").length, "ok"]])}
+    `);
+  }
+
+  function inventoryParkReport(context) {
+    const missingSerial = context.equipment.filter((item) => !item.serial);
+    const missingInstall = context.equipment.filter((item) => !item.installDate);
+    const missingLocation = context.equipment.filter((item) => !item.location);
+    const byBrand = Object.entries(countBy(context.equipment, (item) => item.brand || "Sans marque")).sort((a, b) => b[1] - a[1]);
+    const byType = Object.entries(countBy(context.equipment, (item) => item.type || "Sans type")).sort((a, b) => b[1] - a[1]);
+    const byStatus = Object.entries(countBy(context.equipment, (item) => statusText(item.status))).map(([label, value], index) => [label, value, ["ok", "warn", "info", "danger", "neutral"][index % 5]]);
+    return reportShell("Rapport inventaire / parc machines", "Qualité de données et répartition technique du parc.", `
+      ${reportKpis([
+        ["Équipements", context.equipment.length],
+        ["Sans série", missingSerial.length],
+        ["Sans installation", missingInstall.length],
+        ["Sans localisation", missingLocation.length]
+      ], missingSerial.length || missingInstall.length || missingLocation.length ? "danger" : "")}
+      <section class="report-layout">
+        ${barChart("Machines par marque", byBrand.slice(0, 10))}
+        ${barChart("Machines par type", byType.slice(0, 10))}
+      </section>
+      <section class="report-layout">
+        ${donutChart("Statut des équipements", byStatus)}
+        ${tablePanel("Qualité des données", ["Champ manquant", "Quantité"], [["Numéro de série", missingSerial.length], ["Date d'installation", missingInstall.length], ["Localisation", missingLocation.length]])}
+      </section>
+    `);
+  }
+
+  function commercialFutureReport(context) {
+    const byClient = state.clients.map((client) => {
+      const buildings = context.buildings.filter((building) => building.clientId === client.id);
+      const buildingIds = buildings.map((building) => building.id);
+      const apartments = context.apartments.filter((apartment) => buildingIds.includes(apartment.buildingId));
+      const apartmentIds = apartments.map((apartment) => apartment.id);
+      const equipmentIds = context.equipment.filter((item) => apartmentIds.includes(item.apartmentId)).map((item) => item.id);
+      return {
+        client,
+        visits: context.interventions.filter((item) => equipmentIds.includes(item.equipmentId)).length,
+        tickets: context.tickets.filter((ticket) => equipmentIds.includes(ticket.equipmentId)).length,
+        equipment: equipmentIds.length
+      };
+    }).filter((row) => row.equipment || row.tickets || row.visits);
+    return reportShell("Rapport commercial / rentabilité future", "Base de pilotage commercial prête pour l'ajout futur des valeurs.", `
+      ${reportKpis([
+        ["Clients suivis", byClient.length],
+        ["Visites", byClient.reduce((sum, row) => sum + row.visits, 0)],
+        ["Appels", byClient.reduce((sum, row) => sum + row.tickets, 0)],
+        ["Revenus", "À venir"]
+      ])}
+      <section class="report-layout">
+        ${barChart("Visites par client", byClient.map((row) => [row.client.name, row.visits]))}
+        ${barChart("Clients avec plus d'appels", byClient.map((row) => [row.client.name, row.tickets]))}
+      </section>
+      ${summaryPanel("Évolution prévue", [
+        "Quand les valeurs seront ajoutées, ce rapport pourra afficher revenu par contrat, coût par client et rentabilité par intervention.",
+        "Aujourd'hui, il sert déjà à repérer les clients avec volume élevé de visites ou d'appels.",
+        "Les équipements avec interventions répétées peuvent alimenter des recommandations de remplacement."
+      ])}
+    `);
   }
 
   function monthlyParkReport(context) {
@@ -2116,11 +2384,12 @@
   }
 
   function reportShell(title, subtitle, content) {
+    const badge = currentUser()?.role === "client" ? "Rapport client" : "Rapport interne";
     return `
       <section class="executive-report">
         <div class="report-cover">
           <div>
-            <span class="badge neutral">Rapport client</span>
+            <span class="badge neutral">${badge}</span>
             <h2>${escapeHtml(title)}</h2>
             <p>${escapeHtml(subtitle)}</p>
           </div>
@@ -2285,7 +2554,7 @@
           <table>
             <thead><tr><th>Rôle</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
             <tbody>
-              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
+              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${role === "client" ? "Client" : ["administrateur", "equipe_interne"].includes(role) ? "Interne" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
             </tbody>
           </table>
         </div>
@@ -4522,7 +4791,7 @@
     else if (state.activeView === "appels") app.innerHTML = ticketsView();
     else if (state.activeView === "bons") app.innerHTML = workOrdersView();
     else if (state.activeView === "execution") app.innerHTML = workOrderExecutionView();
-    else if (state.activeView === "rapports") app.innerHTML = reportsView();
+    else if (state.activeView === "rapports" && can("reports")) app.innerHTML = reportsView();
     else if (state.activeView === "utilisateurs" && can("users")) app.innerHTML = usersView();
     else if (state.activeView === "parametres" && (can("settings") || can("users"))) app.innerHTML = settingsView();
     else app.innerHTML = dashboard();

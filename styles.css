@@ -1586,9 +1586,11 @@ td button.link-button {
   }
 
   .global-search {
-    top: 70px;
+    position: relative;
+    top: auto;
     width: 100%;
     max-width: 100%;
+    margin-top: 0;
   }
 }
 
@@ -1647,7 +1649,7 @@ td button.link-button {
   }
 
   .global-search {
-    margin-bottom: 14px;
+    margin: 0 0 18px;
     width: 100%;
     max-width: 100%;
   }

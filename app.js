@@ -725,8 +725,9 @@
     return `
       <div class="app-shell sidebar-${state.sidebarMode} ${state.mobileMenuOpen ? "mobile-menu-open" : ""}">
         <header class="mobile-appbar">
-          <div class="brand-mark"><span class="logo">CP</span><span class="brand-name">ClimaParc</span></div>
-          <button class="mobile-menu-button" type="button" data-action="toggle-mobile-menu" aria-expanded="${state.mobileMenuOpen}" aria-label="${state.mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}">${state.mobileMenuOpen ? "Fermer" : "Menu"}</button>
+          <button class="mobile-brand-button brand-mark" type="button" data-action="toggle-mobile-menu" aria-expanded="${state.mobileMenuOpen}" aria-label="${state.mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}">
+            <span class="logo">CP</span><span class="brand-name">ClimaParc</span>
+          </button>
         </header>
         <button class="mobile-menu-backdrop" type="button" data-action="close-mobile-menu" aria-label="Fermer le menu"></button>
         <aside class="sidebar">
@@ -2085,15 +2086,11 @@
   }
 
   function activityTextInput(name, config, value) {
-    const listId = `activity-${name}-options`;
     const options = activityOptions(name, config);
     return `
-      <div class="field">
+      <div class="field combo-field">
         <label>${escapeHtml(config.label)}${config.required ? " *" : ""}</label>
-        <input name="${name}" list="${listId}" value="${escapeHtml(value || "")}" ${config.required ? "required" : ""} placeholder="Tapez ou choisissez">
-        <datalist id="${listId}">
-          ${options.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}
-        </datalist>
+        ${comboInput(name, value || "", options, config.required)}
       </div>
     `;
   }
@@ -2106,6 +2103,16 @@
       model: item.model
     }[name])).filter(Boolean);
     return Array.from(new Set([...(config.options || []), ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
+  }
+
+  function comboInput(name, value, options, required = false) {
+    const uniqueOptions = Array.from(new Set(options || [])).filter(Boolean);
+    return `
+      <input name="${escapeHtml(name)}" value="${escapeHtml(value || "")}" ${required ? "required" : ""} placeholder="Tapez ou choisissez" autocomplete="off" data-combo-input>
+      <div class="combo-options hidden" data-combo-options>
+        ${uniqueOptions.map((option) => `<button type="button" data-action="combo-option" data-value="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("") || `<span>Aucune option</span>`}
+      </div>
+    `;
   }
 
   function renderDynamicField(field, value) {
@@ -2131,8 +2138,7 @@
       return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "select") {
-      const listId = `list-${field.id}`;
-      return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" list="${escapeHtml(listId)}" value="${escapeHtml(value || "")}" ${required} placeholder="Tapez ou choisissez"><datalist id="${escapeHtml(listId)}">${options.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist></div>`;
+      return `<div class="field combo-field dynamic-field${layoutClass}" ${depends}><label>${label}</label>${comboInput(`field-${field.id}`, value || "", options, field.required)}</div>`;
     }
     return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
   }
@@ -3009,10 +3015,15 @@
     app.addEventListener("click", (event) => {
       const modalCard = event.target.closest("[data-modal-card]");
       const target = event.target.closest("[data-action]");
+      if (!event.target.closest(".combo-field")) hideComboOptions();
       if (!target) return;
       const action = target.dataset.action;
       if (action === "close-modal" && modalCard && target.classList.contains("modal-backdrop")) return;
       if (action === "logout") logout();
+      if (action === "combo-option") {
+        chooseComboOption(target);
+        return;
+      }
       if (action === "view") setState({ activeView: target.dataset.view, modal: null, mobileMenuOpen: false });
       if (action === "toggle-mobile-menu") {
         setState({ mobileMenuOpen: !state.mobileMenuOpen });
@@ -3111,7 +3122,11 @@
     });
     app.addEventListener("input", (event) => {
       updateDynamicVisibility(event.target.closest("form"));
+      if (event.target.matches("[data-combo-input]")) updateComboOptions(event.target);
       if (event.target.name === "q-label") refreshFormBranching(event.target.closest("form"));
+    });
+    app.addEventListener("focusin", (event) => {
+      if (event.target.matches("[data-combo-input]")) updateComboOptions(event.target);
     });
     app.addEventListener("dragstart", handleQuestionDragStart);
     app.addEventListener("dragover", handleQuestionDragOver);
@@ -3253,6 +3268,35 @@
         branchSelect.value = selected;
       });
     });
+  }
+
+  function updateComboOptions(input) {
+    const field = input.closest(".combo-field");
+    const list = field?.querySelector("[data-combo-options]");
+    if (!list) return;
+    const query = input.value.trim().toLowerCase();
+    const buttons = Array.from(list.querySelectorAll("button[data-value]"));
+    let visibleCount = 0;
+    buttons.forEach((button) => {
+      const visible = !query || button.dataset.value.toLowerCase().includes(query);
+      button.classList.toggle("hidden", !visible);
+      if (visible) visibleCount += 1;
+    });
+    list.classList.toggle("hidden", visibleCount === 0);
+  }
+
+  function chooseComboOption(button) {
+    const field = button.closest(".combo-field");
+    const input = field?.querySelector("[data-combo-input]");
+    if (!input) return;
+    input.value = button.dataset.value || "";
+    field.querySelector("[data-combo-options]")?.classList.add("hidden");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function hideComboOptions() {
+    document.querySelectorAll("[data-combo-options]").forEach((list) => list.classList.add("hidden"));
   }
 
   let draggedQuestion = null;

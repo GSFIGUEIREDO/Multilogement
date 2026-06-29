@@ -198,6 +198,13 @@ textarea:focus {
   display: none;
 }
 
+.mobile-brand-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+}
+
 .app-shell.sidebar-auto {
   grid-template-columns: 72px minmax(0, 1fr);
 }
@@ -1003,6 +1010,44 @@ td button.link-button {
   font-size: 0.72rem;
 }
 
+.combo-field {
+  position: relative;
+}
+
+.combo-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 45;
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.combo-options button,
+.combo-options span {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: white;
+  text-align: left;
+}
+
+.combo-options button:hover {
+  background: var(--surface-soft);
+}
+
+.combo-options button:last-child {
+  border-bottom: 0;
+}
+
 .dynamic-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1218,16 +1263,6 @@ td button.link-button {
 
   .mobile-appbar .brand-mark {
     margin: 0;
-  }
-
-  .mobile-menu-button {
-    min-height: 42px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 7px;
-    padding: 9px 14px;
-    color: white;
-    background: rgba(255, 255, 255, 0.12);
-    font-weight: 900;
   }
 
   .mobile-menu-backdrop {
@@ -1462,6 +1497,11 @@ td button.link-button {
   .activity-field-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .combo-options {
+    max-height: 260px;
+    z-index: 60;
   }
 
   .option-row {

@@ -427,7 +427,7 @@
     roleDefinitions: [
       { id: "administrateur", name: "Administrateur", rights: ["all"] },
       { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "alerts", "tickets", "workorders", "reports", "users", "settings"] },
-      { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "alerts", "workorders", "interventions"] },
+      { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "alerts", "workorders", "interventions", "reports"] },
       { id: "client", name: "Client", rights: ["portal", "lieux", "alerts", "tickets", "reports"] }
     ]
   };
@@ -489,6 +489,11 @@
       }))
     }));
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
+    next.roleDefinitions = next.roleDefinitions.map((role) => {
+      if (role.id === "technicien" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports"] };
+      if (role.id === "client" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports"] };
+      return role;
+    });
     next.passwordResetRequests = data.passwordResetRequests || [];
     next.selectedBuildingId = data.selectedBuildingId || next.buildings[0]?.id || null;
     next.buildings = (data.buildings || seed.buildings).map((building) => ({
@@ -1886,7 +1891,7 @@
     const filters = state.reportFilters;
     const reports = availableReportTypes();
     const selectedType = effectiveReportType();
-    const clientOptions = currentUser().role === "client"
+    const clientOptions = ["client", "technicien"].includes(currentUser().role)
       ? ""
       : `<div class="field"><label>Client / contrat</label><select data-action="report-filter" data-filter="clientId"><option value="all">Tous les clients</option>${state.clients.map((client) => `<option value="${client.id}" ${filters.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("")}</select></div>`;
     return `
@@ -1954,12 +1959,24 @@
     ];
   }
 
+  function technicianReportTypes() {
+    return [
+      ["tech_journalier", "Rapport journalier du technicien"],
+      ["tech_checklist", "Rapport de checklist d'intervention"],
+      ["tech_historique_machine", "Rapport d'historique machine"],
+      ["tech_problemes_recurrents", "Rapport de problèmes récurrents"],
+      ["tech_fin_journee", "Rapport de fin de journée"]
+    ];
+  }
+
   function allReportTypes() {
-    return [...clientReportTypes(), ...internalReportTypes()].map(([id]) => id);
+    return [...clientReportTypes(), ...internalReportTypes(), ...technicianReportTypes()].map(([id]) => id);
   }
 
   function availableReportTypes() {
-    return currentUser()?.role === "client" ? clientReportTypes() : internalReportTypes();
+    if (currentUser()?.role === "client") return clientReportTypes();
+    if (currentUser()?.role === "technicien") return technicianReportTypes();
+    return internalReportTypes();
   }
 
   function effectiveReportType() {
@@ -1972,6 +1989,12 @@
       return {
         title: "Rapports client",
         subtitle: "Vue exécutive du parc HVAC, de la maintenance et des appels de service."
+      };
+    }
+    if (currentUser()?.role === "technicien") {
+      return {
+        title: "Rapports technicien",
+        subtitle: "Rappels pratiques pour la journée, les checklists, les machines et la fin de quart."
       };
     }
     return {
@@ -1989,6 +2012,11 @@
       planification_preventive: preventivePlanningReport,
       inventaire_parc: inventoryParkReport,
       commercial_rentabilite: commercialFutureReport,
+      tech_journalier: technicianDailyReport,
+      tech_checklist: technicianChecklistReport,
+      tech_historique_machine: technicianMachineHistoryReport,
+      tech_problemes_recurrents: technicianRecurringProblemsReport,
+      tech_fin_journee: technicianEndOfDayReport,
       parc_mensuel: monthlyParkReport,
       maintenance_preventive: preventiveMaintenanceReport,
       appels_service: serviceCallsReport,
@@ -2207,6 +2235,193 @@
     `);
   }
 
+  function technicianOrders(context) {
+    const user = currentUser();
+    return context.workOrders.filter((order) => !user || user.role !== "technicien" || order.technicianId === user.id);
+  }
+
+  function technicianEquipment(context) {
+    const orderEquipmentIds = technicianOrders(context).map((order) => order.equipmentId).filter(Boolean);
+    const interventionEquipmentIds = context.interventions
+      .filter((item) => item.technicianId === currentUser()?.id)
+      .map((item) => item.equipmentId);
+    const ids = new Set([...orderEquipmentIds, ...interventionEquipmentIds]);
+    return context.equipment.filter((item) => ids.has(item.id));
+  }
+
+  function technicianDailyReport(context) {
+    const orders = technicianOrders(context)
+      .filter((order) => order.scheduledDate === today())
+      .sort((a, b) => {
+        const aContext = workOrderContext(a);
+        const bContext = workOrderContext(b);
+        return `${aContext.building?.address || ""} ${aContext.apartment?.number || ""}`.localeCompare(`${bContext.building?.address || ""} ${bContext.apartment?.number || ""}`, "fr", { numeric: true });
+      });
+    return reportShell("Rapport journalier du technicien", "Roteiro pratique du jour, optimisé pour consultation mobile.", `
+      ${reportKpis([
+        ["BT du jour", orders.length],
+        ["À faire", orders.filter((order) => order.status === "planifie").length],
+        ["En cours", orders.filter((order) => order.status === "en_cours").length],
+        ["Terminés", orders.filter((order) => order.status === "termine").length]
+      ])}
+      ${tablePanel("Roteiro du jour", ["Statut", "Adresse", "Apt", "Intervention", "Priorité", "Contact", "Checklist"], orders.map((order) => {
+        const { equipment, apartment, building } = workOrderContext(order);
+        const type = state.interventionTypes.find((item) => item.id === order.typeId);
+        const ticket = state.tickets.find((item) => item.id === order.ticketId);
+        return [
+          statusText(order.status),
+          building?.address || building?.name || "-",
+          apartment?.number || (order.buildingId ? "Bloc" : "-"),
+          `${type?.name || "-"} | ${equipment?.type || "Immeuble"}`,
+          statusText(ticket?.priority || "normale"),
+          building?.onsiteContactName ? `${building.onsiteContactName} ${building.onsiteContactPhone || ""}` : "-",
+          `${type?.checklist?.length || 0} étapes`
+        ];
+      }))}
+      ${summaryPanel("Actions terrain", [
+        "Ouvrir le BT pour exécuter le formulaire et joindre les photos.",
+        "L'option d'itinéraire pourra être branchée plus tard à l'adresse du lieu.",
+        "Les observations importantes se trouvent dans les notes du BT et le dossier machine."
+      ])}
+    `);
+  }
+
+  function technicianChecklistReport(context) {
+    const interventions = context.interventions
+      .filter((item) => item.technicianId === currentUser()?.id && inPeriod(item.date, context.startDate, context.endDate))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const completedSteps = interventions.reduce((sum, item) => sum + (item.checklistDone || []).filter(Boolean).length, 0);
+    const totalSteps = interventions.reduce((sum, item) => sum + (item.checklistDone || []).length, 0);
+    const progress = totalSteps ? Math.round((completedSteps / totalSteps) * 100) : 0;
+    const missingPhotos = interventions.filter((item) => !(item.attachments?.length));
+    const missingNotes = interventions.filter((item) => !(item.summary || "").trim());
+    return reportShell("Rapport de checklist d'intervention", "Contrôle rapide des étapes, lectures, photos et observations.", `
+      ${reportKpis([
+        ["Interventions", interventions.length],
+        ["Étapes faites", completedSteps],
+        ["Étapes pendantes", Math.max(0, totalSteps - completedSteps)],
+        ["Sans photo", missingPhotos.length],
+        ["Sans observation", missingNotes.length]
+      ], missingPhotos.length || missingNotes.length ? "danger" : "")}
+      <section class="report-layout">
+        ${progressPanel("Progression checklist", progress, `${completedSteps}/${totalSteps || 0} étapes réalisées dans la période.`)}
+        ${barChart("Documentation manquante", [["Sans photo/document", missingPhotos.length], ["Sans observation", missingNotes.length]])}
+      </section>
+      ${tablePanel("Dernières interventions", ["Date", "Machine", "Étapes", "Photos", "Résumé"], interventions.slice(0, 10).map((item) => {
+        const { equipment, apartment } = equipmentContext(item.equipmentId);
+        const done = (item.checklistDone || []).filter(Boolean).length;
+        const total = (item.checklistDone || []).length;
+        return [formatDate(item.date), `Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, `${done}/${total}`, item.attachments?.length || 0, item.summary || "-"];
+      }))}
+    `);
+  }
+
+  function technicianMachineHistoryReport(context) {
+    const machines = technicianEquipment(context);
+    const machineRows = machines.map((machine) => {
+      const interventions = context.interventions.filter((item) => item.equipmentId === machine.id).sort((a, b) => b.date.localeCompare(a.date));
+      const tickets = context.tickets.filter((ticket) => ticket.equipmentId === machine.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const { apartment, building } = equipmentContext(machine.id);
+      return {
+        machine,
+        apartment,
+        building,
+        interventions,
+        tickets,
+        lastEventDate: [interventions[0]?.date, tickets[0]?.createdAt].filter(Boolean).sort().pop() || machine.lastService || ""
+      };
+    }).sort((a, b) => (b.lastEventDate || "").localeCompare(a.lastEventDate || ""));
+    const recurring = machineRows.filter((row) => row.tickets.filter((ticket) => daysBetween(ticket.createdAt, today()) <= 365).length >= 2);
+    return reportShell("Rapport d'historique machine", "Résumé terrain pour comprendre rapidement le contexte d'une machine.", `
+      ${reportKpis([
+        ["Machines liées", machineRows.length],
+        ["Avec historique récent", machineRows.filter((row) => row.lastEventDate).length],
+        ["Récurrentes", recurring.length],
+        ["Hors service", machineRows.filter((row) => row.machine.status === "hors_service").length]
+      ], recurring.length ? "danger" : "")}
+      ${tablePanel("Historique rapide", ["Machine", "Statut", "Dernier service", "Prochain", "Interventions 12 mois", "Dernier appel"], machineRows.slice(0, 12).map((row) => [
+        `${row.building?.name || "-"} | Apt ${row.apartment?.number || "-"} | ${row.machine.type}`,
+        statusText(row.machine.status),
+        formatDate(row.machine.lastService),
+        formatDate(row.machine.nextService),
+        row.interventions.filter((item) => daysBetween(item.date, today()) <= 365).length,
+        row.tickets[0] ? `${row.tickets[0].number || row.tickets[0].id} - ${row.tickets[0].title}` : "-"
+      ]))}
+      ${timelinePanel("Derniers événements", machineRows.flatMap((row) => [
+        ...row.interventions.slice(0, 2).map((item) => [item.date, `${row.machine.type} | Intervention | ${item.summary || "-"}`]),
+        ...row.tickets.slice(0, 2).map((ticket) => [ticket.createdAt, `${row.machine.type} | Appel | ${ticket.title}`])
+      ]).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 10))}
+    `);
+  }
+
+  function technicianRecurringProblemsReport(context) {
+    const since = addDateInterval(today(), -6, "months");
+    const recentTickets = context.tickets.filter((ticket) => ticket.createdAt >= since);
+    const byEquipment = Object.entries(countBy(recentTickets, (ticket) => ticket.equipmentId))
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1]);
+    const repeatedByType = [];
+    byEquipment.forEach(([equipmentId]) => {
+      state.serviceTypes.forEach((type) => {
+        const count = recentTickets.filter((ticket) => ticket.equipmentId === equipmentId && ticket.serviceTypeId === type.id).length;
+        if (count >= 2) {
+          const { equipment, apartment, building } = equipmentContext(equipmentId);
+          repeatedByType.push({ equipment, apartment, building, type, count });
+        }
+      });
+    });
+    return reportShell("Rapport de problèmes récurrents", "Alertes terrain pour éviter de traiter un problème récurrent comme isolé.", `
+      ${reportKpis([
+        ["Machines récurrentes", byEquipment.length],
+        ["Problèmes répétés", repeatedByType.length],
+        ["Période", "6 mois"]
+      ], byEquipment.length ? "danger" : "")}
+      ${tablePanel("Alertes récurrentes", ["Alerte", "Immeuble", "Apt", "Machine"], repeatedByType.map((row) => [
+        `Attention: ${row.count} appels pour ${row.type.name}`,
+        row.building?.name || "-",
+        row.apartment?.number || "-",
+        row.equipment?.type || "-"
+      ]))}
+      ${barChart("Machines avec le plus d'appels", byEquipment.slice(0, 8).map(([equipmentId, count]) => {
+        const { equipment, apartment } = equipmentContext(equipmentId);
+        return [`Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, count];
+      }))}
+    `);
+  }
+
+  function technicianEndOfDayReport(context) {
+    const todayOrders = technicianOrders(context).filter((order) => order.scheduledDate === today());
+    const completed = todayOrders.filter((order) => order.status === "termine");
+    const notCompleted = todayOrders.filter((order) => order.status !== "termine");
+    const todayInterventions = context.interventions.filter((item) => item.technicianId === currentUser()?.id && item.date === today());
+    const missingPhotos = todayInterventions.filter((item) => !(item.attachments?.length));
+    const missingNotes = todayInterventions.filter((item) => !(item.summary || "").trim());
+    return reportShell("Rapport de fin de journée", "Synthèse pratique à valider avant de terminer le quart.", `
+      ${reportKpis([
+        ["BT conclus", completed.length],
+        ["BT non conclus", notCompleted.length],
+        ["Interventions", todayInterventions.length],
+        ["Photos manquantes", missingPhotos.length],
+        ["Notes pendantes", missingNotes.length]
+      ], notCompleted.length || missingPhotos.length || missingNotes.length ? "danger" : "")}
+      <section class="report-layout">
+        ${tablePanel("BT non conclus", ["BT", "Adresse", "Apt", "Prochaine étape"], notCompleted.map((order) => {
+          const { apartment, building, equipment } = workOrderContext(order);
+          return [order.number, building?.address || building?.name || "-", apartment?.number || "-", order.notes || equipment?.notes || "-"];
+        }))}
+        ${tablePanel("Documentation à compléter", ["Machine", "Photo", "Observation"], todayInterventions.filter((item) => !(item.attachments?.length) || !(item.summary || "").trim()).map((item) => {
+          const { equipment, apartment } = equipmentContext(item.equipmentId);
+          return [`Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, item.attachments?.length ? "OK" : "Manquante", (item.summary || "").trim() ? "OK" : "Manquante"];
+        }))}
+      </section>
+      ${summaryPanel("Prochaines étapes", [
+        "Vérifier les BT non conclus et inscrire la raison dans les notes.",
+        "Ajouter les photos manquantes avant fermeture du BT.",
+        "Signaler les pièces nécessaires dans le résumé ou l'appel associé."
+      ])}
+    `);
+  }
+
   function monthlyParkReport(context) {
     const equipment = context.equipment;
     const statusCounts = countBy(equipment, (item) => item.status || "actif");
@@ -2384,7 +2599,7 @@
   }
 
   function reportShell(title, subtitle, content) {
-    const badge = currentUser()?.role === "client" ? "Rapport client" : "Rapport interne";
+    const badge = currentUser()?.role === "client" ? "Rapport client" : currentUser()?.role === "technicien" ? "Rapport technicien" : "Rapport interne";
     return `
       <section class="executive-report">
         <div class="report-cover">
@@ -2554,7 +2769,7 @@
           <table>
             <thead><tr><th>Rôle</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
             <tbody>
-              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${role === "client" ? "Client" : ["administrateur", "equipe_interne"].includes(role) ? "Interne" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
+              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${role === "client" ? "Client" : role === "technicien" ? "Technicien" : ["administrateur", "equipe_interne"].includes(role) ? "Interne" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
             </tbody>
           </table>
         </div>

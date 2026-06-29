@@ -308,6 +308,7 @@ textarea:focus {
 }
 
 .nav-icon {
+  position: relative;
   flex: 0 0 24px;
   width: 24px;
   height: 24px;
@@ -317,6 +318,17 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.12);
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+.alert-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #0d292d;
+  border-radius: 999px;
+  background: var(--danger);
 }
 
 .nav-label,
@@ -489,7 +501,7 @@ textarea:focus {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -705,6 +717,53 @@ td button.link-button {
 .list-item h3 {
   margin: 0;
   font-size: 0.98rem;
+}
+
+.reminder-item.is-due {
+  border-color: rgba(178, 59, 59, 0.45);
+  background: #fffafa;
+}
+
+.equipment-check-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.equipment-check-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  color: var(--ink);
+}
+
+.equipment-check-row input {
+  width: auto;
+  margin-top: 2px;
+}
+
+.equipment-check-row span {
+  display: grid;
+  gap: 2px;
+}
+
+.equipment-check-row small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.danger-link {
+  color: var(--danger);
 }
 
 .attachment-open {

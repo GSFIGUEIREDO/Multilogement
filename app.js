@@ -18,7 +18,7 @@
     resetToken: "",
     sidebarMode: "auto",
     mobileMenuOpen: false,
-    navOrder: ["tableau", "lieux", "equipements", "appels", "bons", "rapports", "utilisateurs", "parametres"],
+    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
       apartmentId: "all",
@@ -236,6 +236,34 @@
         ]
       }
     ],
+    reminders: [
+      {
+        id: "rem-101",
+        equipmentId: "eq-101",
+        title: "Entretien annuel",
+        frequencyValue: 1,
+        frequencyUnit: "years",
+        startDate: "2026-05-18",
+        nextDueDate: "2027-05-18",
+        status: "active",
+        notes: "Rappel d'entretien préventif annuel.",
+        createdAt: "2026-06-25",
+        lastSeenDueDate: ""
+      },
+      {
+        id: "rem-504",
+        equipmentId: "eq-504",
+        title: "Nettoyage préventif",
+        frequencyValue: 2,
+        frequencyUnit: "years",
+        startDate: "2024-06-30",
+        nextDueDate: "2026-06-30",
+        status: "active",
+        notes: "Cycle de deux ans pour les unités PTAC.",
+        createdAt: "2026-06-25",
+        lastSeenDueDate: ""
+      }
+    ],
     formTemplates: [
       {
         id: "form-nettoyage-bloc",
@@ -389,9 +417,9 @@
     ],
     roleDefinitions: [
       { id: "administrateur", name: "Administrateur", rights: ["all"] },
-      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "tickets", "workorders", "reports", "users", "settings"] },
-      { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "workorders", "interventions"] },
-      { id: "client", name: "Client", rights: ["portal", "lieux", "tickets", "reports"] }
+      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "alerts", "tickets", "workorders", "reports", "users", "settings"] },
+      { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "alerts", "workorders", "interventions"] },
+      { id: "client", name: "Client", rights: ["portal", "lieux", "alerts", "tickets", "reports"] }
     ]
   };
 
@@ -462,6 +490,19 @@
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
       ...item
+    }));
+    next.reminders = (Array.isArray(data.reminders) ? data.reminders : []).map((reminder) => ({
+      id: reminder.id || uid("rem"),
+      equipmentId: reminder.equipmentId || "",
+      title: reminder.title || "Rappel",
+      frequencyValue: Number(reminder.frequencyValue || 1),
+      frequencyUnit: reminder.frequencyUnit || "years",
+      startDate: reminder.startDate || today(),
+      nextDueDate: reminder.nextDueDate || reminder.startDate || today(),
+      status: reminder.status || "active",
+      notes: reminder.notes || "",
+      createdAt: reminder.createdAt || today(),
+      lastSeenDueDate: reminder.lastSeenDueDate || ""
     }));
     next.workOrders = (data.workOrders || seed.workOrders).map((order) => ({
       scope: order.buildingId ? "building" : "equipment",
@@ -673,6 +714,32 @@
     return state.workOrders.filter((order) => equipmentIds.includes(order.equipmentId) || buildingIds.includes(order.buildingId));
   }
 
+  function scopedReminders() {
+    const equipmentIds = scopedEquipment().map((item) => item.id);
+    return (state.reminders || []).filter((reminder) => equipmentIds.includes(reminder.equipmentId));
+  }
+
+  function reminderIsDue(reminder) {
+    return reminder.status === "active" && reminder.nextDueDate && reminder.nextDueDate <= today();
+  }
+
+  function unseenReminderCount() {
+    return scopedReminders().filter((reminder) => reminderIsDue(reminder) && reminder.lastSeenDueDate !== reminder.nextDueDate).length;
+  }
+
+  function reminderStatus(reminder) {
+    if (reminder.status === "inactive") return "inactive";
+    return reminderIsDue(reminder) ? "due" : "upcoming";
+  }
+
+  function reminderStatusBadge(reminder) {
+    return statusBadge(reminderStatus(reminder));
+  }
+
+  function canManageReminders() {
+    return can("alerts") || can("equipment") || can("portal");
+  }
+
   function buildingForApartment(apartmentId) {
     const apartment = state.apartments.find((item) => item.id === apartmentId);
     return state.buildings.find((item) => item.id === apartment?.buildingId);
@@ -744,7 +811,11 @@
       terminee: ["Terminée", "ok"],
       urgente: ["Urgente", "danger"],
       normale: ["Normale", "info"],
-      basse: ["Basse", "neutral"]
+      basse: ["Basse", "neutral"],
+      active: ["Actif", "ok"],
+      inactive: ["Inactif", "neutral"],
+      due: ["À traiter", "danger"],
+      upcoming: ["À venir", "info"]
     };
     const [label, tone] = map[status] || [status, "neutral"];
     return `<span class="badge ${tone}">${label}</span>`;
@@ -757,6 +828,13 @@
 
   function today() {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  function addDateInterval(dateValue, amount, unit) {
+    const date = new Date(`${dateValue || today()}T12:00:00`);
+    if (unit === "months") date.setMonth(date.getMonth() + Number(amount || 1));
+    else date.setFullYear(date.getFullYear() + Number(amount || 1));
+    return date.toISOString().slice(0, 10);
   }
 
   function uid(prefix) {
@@ -813,7 +891,7 @@
             ${nav
               .map(([view, icon, label]) => `
                 <button class="nav-link ${state.activeView === view ? "active" : ""}" type="button" data-action="view" data-view="${view}" title="${escapeHtml(label)}">
-                  <span class="nav-icon">${icon}</span>
+                  <span class="nav-icon">${icon}${view === "alertes" && unseenReminderCount() ? `<span class="alert-dot" aria-label="${unseenReminderCount()} nouveau rappel"></span>` : ""}</span>
                   <span class="nav-label">${label}</span>
                 </button>
               `)
@@ -839,6 +917,7 @@
       ["tableau", "TB", "Tableau de bord", true],
       ["lieux", "LI", "Lieux", can("lieux") || can("portal")],
       ["equipements", "EQ", "Équipements", can("equipment") || can("portal")],
+      ["alertes", "AL", "Alertes", canManageReminders()],
       ["appels", "CH", "Appels de service", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
       ["rapports", "RP", "Rapports", can("reports")],
@@ -1007,14 +1086,17 @@
     const equipment = scopedEquipment();
     const tickets = scopedTickets();
     const orders = scopedWorkOrders();
+    const reminders = scopedReminders();
     const overdue = equipment.filter((item) => item.nextService <= today() && item.status !== "hors_service").length;
     const ongoing = tickets.filter((ticket) => ["ouvert", "en_cours"].includes(ticket.status)).length;
     const planned = orders.filter((order) => order.status === "planifie").length;
     const out = equipment.filter((item) => item.status === "hors_service").length;
+    const dueReminders = reminders.filter((reminder) => reminderIsDue(reminder));
     const stats = [
       ["Équipements", equipment.length],
       ["À traiter", ongoing],
       ["BT planifiés", planned],
+      ["Alertes", dueReminders.length],
       ["Hors service", out + overdue]
     ];
 
@@ -1049,6 +1131,7 @@
         <div class="stack">
           <button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>
           ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
+          ${canManageReminders() ? `<button class="quick-action" data-action="view" data-view="alertes">Centre d'alertes<span>Consulter les rappels actifs, à venir ou inactifs.</span></button>` : ""}
           <div class="panel">
             <div class="panel-header"><h2>Appels actifs</h2></div>
             <div class="panel-body cards-list">${urgentTickets || `<div class="empty">Aucun appel actif.</div>`}</div>
@@ -1176,9 +1259,11 @@
     const orders = state.workOrders.filter((item) => item.equipmentId === equipment.id);
     const tickets = state.tickets.filter((item) => item.equipmentId === equipment.id);
     const attachments = equipment.attachments || [];
+    const reminders = scopedReminders().filter((item) => item.equipmentId === equipment.id);
     const actionButtons = `
       <button class="ghost-button" data-action="view" data-view="equipements">Retour</button>
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
+      ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
       ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvel appel</button>` : ""}
       ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
     `;
@@ -1213,6 +1298,15 @@
             <div class="panel">
               <div class="panel-header"><h2>Bons liés</h2></div>
               <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order)).join("") || `<div class="empty">Aucun bon.</div>`}</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Rappels</h2>
+              ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}
+            </div>
+            <div class="panel-body cards-list">
+              ${reminders.map((reminder) => reminderItem(reminder, true)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}
             </div>
           </div>
           <div class="panel">
@@ -1296,6 +1390,59 @@
         <p class="meta">${escapeHtml(item.summary)}</p>
         ${readings ? `<p class="meta">${escapeHtml(readings)}</p>` : ""}
       </div>
+    `;
+  }
+
+  function alertsView() {
+    const reminders = scopedReminders()
+      .slice()
+      .sort((a, b) => {
+        const statusOrder = { due: 0, upcoming: 1, inactive: 2 };
+        return (statusOrder[reminderStatus(a)] ?? 9) - (statusOrder[reminderStatus(b)] ?? 9) || (a.nextDueDate || "").localeCompare(b.nextDueDate || "");
+      });
+    const due = reminders.filter((reminder) => reminderIsDue(reminder));
+    const upcoming = reminders.filter((reminder) => reminder.status === "active" && !reminderIsDue(reminder));
+    const inactive = reminders.filter((reminder) => reminder.status === "inactive");
+    return appShell(`
+      ${renderTopbar("Centre d'alertes", "Rappels personnalisés liés aux équipements.", `
+        <button class="primary-button" data-action="open-modal" data-modal="reminder">Nouveau rappel</button>
+        ${due.length ? `<button class="ghost-button" data-action="mark-reminders-seen">Marquer comme vu</button>` : ""}
+      `)}
+      <section class="stats-grid">
+        <div class="stat"><span>À traiter</span><strong>${due.length}</strong></div>
+        <div class="stat"><span>À venir</span><strong>${upcoming.length}</strong></div>
+        <div class="stat"><span>Inactifs</span><strong>${inactive.length}</strong></div>
+      </section>
+      <section class="panel">
+        <div class="panel-body cards-list">
+          ${reminders.map((reminder) => reminderItem(reminder, true)).join("") || `<div class="empty">Aucun rappel créé.</div>`}
+        </div>
+      </section>
+    `);
+  }
+
+  function reminderItem(reminder, expanded = false) {
+    const { equipment, apartment, building } = equipmentContext(reminder.equipmentId);
+    const frequency = `${reminder.frequencyValue} ${reminder.frequencyUnit === "years" ? "an(s)" : "mois"}`;
+    return `
+      <article class="list-item reminder-item ${reminderIsDue(reminder) ? "is-due" : ""}">
+        <div class="actions" style="justify-content:space-between">
+          <h3>${escapeHtml(reminder.title)}</h3>
+          <span>${reminderStatusBadge(reminder)}</span>
+        </div>
+        <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "-")}</div>
+        <div class="meta">Prochaine alerte: ${formatDate(reminder.nextDueDate)} | Fréquence: ${escapeHtml(frequency)}</div>
+        ${reminder.notes ? `<div class="meta">${escapeHtml(reminder.notes)}</div>` : ""}
+        ${expanded ? `
+          <div class="actions">
+            <button class="link-button" data-action="select-equipment" data-id="${escapeHtml(reminder.equipmentId)}">Dossier machine</button>
+            <button class="ghost-button" data-action="open-modal" data-modal="reminder" data-id="${escapeHtml(reminder.id)}">Modifier</button>
+            <button class="ghost-button" data-action="reminder-status" data-id="${escapeHtml(reminder.id)}" data-status="${reminder.status === "active" ? "inactive" : "active"}">${reminder.status === "active" ? "Inactiver" : "Activer"}</button>
+            ${reminderIsDue(reminder) ? `<button class="ghost-button" data-action="mark-reminder-seen" data-id="${escapeHtml(reminder.id)}">Vu</button>` : ""}
+            <button class="link-button danger-link" data-action="delete-reminder" data-id="${escapeHtml(reminder.id)}">Supprimer</button>
+          </div>
+        ` : ""}
+      </article>
     `;
   }
 
@@ -1547,6 +1694,7 @@
       ["all", "Accès complet"],
       ["lieux", "Lieux et appartements"],
       ["equipment", "Équipements"],
+      ["alerts", "Alertes et rappels"],
       ["tickets", "Appels de service"],
       ["workorders", "Bons de travail"],
       ["interventions", "Interventions"],
@@ -1676,6 +1824,7 @@
     if (modal.type === "building") return buildingModal(modal);
     if (modal.type === "apartment") return apartmentModal(modal);
     if (modal.type === "equipment") return equipmentModal(modal);
+    if (modal.type === "reminder") return reminderModal(modal);
     if (modal.type === "user") return userModal(modal);
     if (modal.type === "serviceType") return serviceTypeModal(modal);
     if (modal.type === "dataField") return dataFieldModal(modal);
@@ -1883,6 +2032,54 @@
         <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
       </form>
     `);
+  }
+
+  function reminderModal(modal) {
+    const reminder = state.reminders.find((item) => item.id === modal.id) || {
+      equipmentId: modal.equipmentId || "",
+      title: "Entretien préventif",
+      frequencyValue: 1,
+      frequencyUnit: "years",
+      startDate: today(),
+      nextDueDate: "",
+      status: "active",
+      notes: ""
+    };
+    const nextDueDate = reminder.nextDueDate || addDateInterval(reminder.startDate || today(), reminder.frequencyValue || 1, reminder.frequencyUnit || "years");
+    const selectedEquipmentIds = new Set([reminder.equipmentId || modal.equipmentId].filter(Boolean));
+    const equipmentRows = scopedEquipment().map((item) => {
+      const { apartment, building } = equipmentContext(item.id);
+      return `
+        <label class="equipment-check-row">
+          <input type="${reminder.id ? "radio" : "checkbox"}" name="equipmentIds" value="${escapeHtml(item.id)}" ${selectedEquipmentIds.has(item.id) ? "checked" : ""}>
+          <span>
+            <strong>${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")}</strong>
+            <small>${escapeHtml(item.type)} | ${escapeHtml(item.brand)} ${escapeHtml(item.model)}</small>
+          </span>
+        </label>
+      `;
+    }).join("");
+    return modalShell(reminder.id ? "Modifier le rappel" : "Nouveau rappel", `
+      <form class="form-grid" data-form="reminder">
+        <input type="hidden" name="id" value="${escapeHtml(reminder.id || "")}">
+        <div class="field"><label>Titre</label><input name="title" value="${escapeHtml(reminder.title || "")}" required placeholder="Ex.: Entretien annuel"></div>
+        <div class="field">
+          <label>Équipement${reminder.id ? "" : "s"}</label>
+          <div class="equipment-check-list">${equipmentRows || `<div class="empty">Aucun équipement disponible.</div>`}</div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Début du rappel</label><input name="startDate" type="date" value="${escapeHtml(reminder.startDate || today())}" required></div>
+          <div class="field"><label>Prochaine alerte</label><input name="nextDueDate" type="date" value="${escapeHtml(nextDueDate)}" required></div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Répéter chaque</label><input name="frequencyValue" type="number" min="1" value="${escapeHtml(reminder.frequencyValue || 1)}" required></div>
+          <div class="field"><label>Période</label><select name="frequencyUnit"><option value="years" ${reminder.frequencyUnit === "years" ? "selected" : ""}>Année(s)</option><option value="months" ${reminder.frequencyUnit === "months" ? "selected" : ""}>Mois</option></select></div>
+        </div>
+        <div class="field"><label>Statut</label><select name="status"><option value="active" ${reminder.status !== "inactive" ? "selected" : ""}>Actif</option><option value="inactive" ${reminder.status === "inactive" ? "selected" : ""}>Inactif</option></select></div>
+        <div class="field"><label>Notes</label><textarea name="notes" placeholder="Ex.: Étages 1 à 5, entretien annuel.">${escapeHtml(reminder.notes || "")}</textarea></div>
+        <button class="primary-button" type="submit">${reminder.id ? "Enregistrer" : "Créer le rappel"}</button>
+      </form>
+    `, "modal-card-wide");
   }
 
   function userModal(modal) {
@@ -2356,6 +2553,7 @@
     if (formType === "ticket") createTicket(values);
     if (formType === "workorder") createWorkOrder(values);
     if (formType === "equipment") createEquipment(values);
+    if (formType === "reminder") saveReminder(form, values);
     if (formType === "user") createUser(values);
     if (formType === "dataField") saveDataField(form, values);
     if (formType === "serviceType") saveServiceType(values);
@@ -2697,6 +2895,43 @@
     };
     state.equipment.unshift(equipment);
     setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Équipement ajouté." });
+  }
+
+  function saveReminder(form, values) {
+    const equipmentIds = Array.from(form.querySelectorAll("input[name='equipmentIds']:checked")).map((input) => input.value);
+    if (!equipmentIds.length) {
+      showToast("Sélectionnez au moins un équipement.");
+      return;
+    }
+    const payload = {
+      title: values.title,
+      frequencyValue: Math.max(1, Number(values.frequencyValue || 1)),
+      frequencyUnit: values.frequencyUnit || "years",
+      startDate: values.startDate || today(),
+      nextDueDate: values.nextDueDate || addDateInterval(values.startDate || today(), values.frequencyValue || 1, values.frequencyUnit || "years"),
+      status: values.status || "active",
+      notes: values.notes || ""
+    };
+    const existing = state.reminders.find((item) => item.id === values.id);
+    if (existing) {
+      Object.assign(existing, {
+        ...payload,
+        equipmentId: equipmentIds[0],
+        lastSeenDueDate: existing.nextDueDate === payload.nextDueDate ? existing.lastSeenDueDate : ""
+      });
+      setState({ modal: null, activeView: "alertes", toast: "Rappel modifié." });
+      return;
+    }
+    equipmentIds.forEach((equipmentId) => {
+      state.reminders.unshift({
+        id: uid("rem"),
+        equipmentId,
+        ...payload,
+        createdAt: today(),
+        lastSeenDueDate: ""
+      });
+    });
+    setState({ modal: null, activeView: "alertes", toast: equipmentIds.length > 1 ? "Rappels créés." : "Rappel créé." });
   }
 
   function createUser(values) {
@@ -3340,6 +3575,27 @@
         if (order) order.status = target.dataset.status;
         setState({ toast: "Statut du BT mis à jour." });
       }
+      if (action === "reminder-status") {
+        const reminder = state.reminders.find((item) => item.id === target.dataset.id);
+        if (reminder) reminder.status = target.dataset.status;
+        setState({ toast: "Statut du rappel mis à jour." });
+      }
+      if (action === "mark-reminder-seen") {
+        const reminder = state.reminders.find((item) => item.id === target.dataset.id);
+        if (reminder) reminder.lastSeenDueDate = reminder.nextDueDate;
+        setState({ toast: "Rappel marqué comme vu." });
+      }
+      if (action === "mark-reminders-seen") {
+        scopedReminders().forEach((reminder) => {
+          if (reminderIsDue(reminder)) reminder.lastSeenDueDate = reminder.nextDueDate;
+        });
+        setState({ toast: "Alertes marquées comme vues." });
+      }
+      if (action === "delete-reminder") {
+        if (!confirm("Supprimer ce rappel?")) return;
+        state.reminders = state.reminders.filter((item) => item.id !== target.dataset.id);
+        setState({ activeView: "alertes", toast: "Rappel supprimé." });
+      }
       if (action === "export") exportReport(target.dataset.report);
     });
     app.addEventListener("change", (event) => {
@@ -3628,6 +3884,7 @@
     else if (state.activeView === "lieu_detail") app.innerHTML = buildingDetailView();
     else if (state.activeView === "equipements") app.innerHTML = equipmentView();
     else if (state.activeView === "detail") app.innerHTML = equipmentDetailView();
+    else if (state.activeView === "alertes" && canManageReminders()) app.innerHTML = alertsView();
     else if (state.activeView === "appels") app.innerHTML = ticketsView();
     else if (state.activeView === "bons") app.innerHTML = workOrdersView();
     else if (state.activeView === "execution") app.innerHTML = workOrderExecutionView();

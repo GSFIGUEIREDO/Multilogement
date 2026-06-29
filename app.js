@@ -26,6 +26,12 @@
       status: "all",
       search: ""
     },
+    reportFilters: {
+      reportType: "parc_mensuel",
+      clientId: "all",
+      startDate: "",
+      endDate: ""
+    },
     passwordResetRequests: [],
     users: [
       {
@@ -452,6 +458,12 @@
   function normalizeState(data) {
     const next = { ...JSON.parse(JSON.stringify(seed)), ...data };
     next.filters = { ...seed.filters, ...(data.filters || {}) };
+    next.reportFilters = {
+      ...seed.reportFilters,
+      ...(data.reportFilters || {}),
+      startDate: data.reportFilters?.startDate || monthStart(today()),
+      endDate: data.reportFilters?.endDate || today()
+    };
     next.sidebarMode = data.sidebarMode || seed.sidebarMode;
     next.mobileMenuOpen = false;
     next.navOrder = mergeNavOrder(data.navOrder);
@@ -488,6 +500,7 @@
     }));
     next.tickets = (data.tickets || seed.tickets).map((ticket, index) => ({
       serviceTypeId: next.serviceTypes[0]?.id || "",
+      closedAt: "",
       ...ticket,
       number: ticket.number || ticketNumberFromIndex(index + 1, ticket.createdAt)
     }));
@@ -858,6 +871,37 @@
 
   function today() {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  function monthStart(dateValue = today()) {
+    return `${dateValue.slice(0, 7)}-01`;
+  }
+
+  function monthKey(dateValue) {
+    return dateValue ? dateValue.slice(0, 7) : "";
+  }
+
+  function monthLabel(month) {
+    if (!month) return "-";
+    return new Intl.DateTimeFormat("fr-CA", { month: "short", year: "numeric" }).format(new Date(`${month}-15T12:00:00`));
+  }
+
+  function inPeriod(dateValue, startDate, endDate) {
+    if (!dateValue) return false;
+    return (!startDate || dateValue >= startDate) && (!endDate || dateValue <= endDate);
+  }
+
+  function daysBetween(startDate, endDate) {
+    if (!startDate || !endDate) return 0;
+    const start = new Date(`${startDate}T12:00:00`);
+    const end = new Date(`${endDate}T12:00:00`);
+    return Math.max(0, Math.round((end - start) / 86400000));
+  }
+
+  function averageDays(values) {
+    const clean = values.filter((value) => Number.isFinite(value));
+    if (!clean.length) return 0;
+    return Math.round(clean.reduce((sum, value) => sum + value, 0) / clean.length);
   }
 
   function ticketNumberFromIndex(index, dateValue = today()) {
@@ -1821,26 +1865,401 @@
   }
 
   function reportsView() {
+    const context = reportContext();
     return appShell(`
-      ${renderTopbar("Rapports", "Exports CSV pour suivi client, opérations et historique technique.")}
-      <section class="report-grid">
-        <article class="report-tile">
-          <h3>Inventaire HVAC</h3>
-          <p>Liste des équipements avec client, immeuble, appartement, statut et prochaines maintenances.</p>
-          <button class="primary-button" data-action="export" data-report="equipment">Exporter CSV</button>
-        </article>
-        <article class="report-tile">
-          <h3>Historique des interventions</h3>
-          <p>Interventions terminées, technicien, type de travail, lectures et résumé.</p>
-          <button class="primary-button" data-action="export" data-report="interventions">Exporter CSV</button>
-        </article>
-        <article class="report-tile">
-          <h3>Appels et bons de travail</h3>
-          <p>Demandes ouvertes, priorités, bons planifiés et statut d'exécution.</p>
-          <button class="primary-button" data-action="export" data-report="operations">Exporter CSV</button>
-        </article>
+      ${renderTopbar("Rapports", "Tableaux exécutifs pour suivre le parc HVAC, la maintenance et les risques.", `
+        <button class="ghost-button" data-action="export" data-report="equipment">CSV inventaire</button>
+        <button class="ghost-button" data-action="export" data-report="interventions">CSV interventions</button>
+        <button class="ghost-button" data-action="export" data-report="operations">CSV opérations</button>
+      `)}
+      ${reportControls()}
+      ${selectedExecutiveReport(context)}
+    `);
+  }
+
+  function reportControls() {
+    const filters = state.reportFilters;
+    const clientOptions = currentUser().role === "client"
+      ? ""
+      : `<div class="field"><label>Client gestionnaire</label><select data-action="report-filter" data-filter="clientId"><option value="all">Tous les clients</option>${state.clients.map((client) => `<option value="${client.id}" ${filters.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("")}</select></div>`;
+    return `
+      <section class="panel report-controls">
+        <div class="panel-body filters">
+          <div class="field">
+            <label>Type de rapport</label>
+            <select data-action="report-filter" data-filter="reportType">
+              <option value="parc_mensuel" ${filters.reportType === "parc_mensuel" ? "selected" : ""}>Rapport mensuel de parc HVAC</option>
+              <option value="maintenance_preventive" ${filters.reportType === "maintenance_preventive" ? "selected" : ""}>Rapport de maintenance préventive</option>
+              <option value="appels_service" ${filters.reportType === "appels_service" ? "selected" : ""}>Rapport des appels de service</option>
+              <option value="hors_service" ${filters.reportType === "hors_service" ? "selected" : ""}>Rapport des équipements hors service</option>
+              <option value="budget_annuel" ${filters.reportType === "budget_annuel" ? "selected" : ""}>Rapport annuel pour budget</option>
+            </select>
+          </div>
+          ${clientOptions}
+          <div class="field"><label>Début</label><input type="date" data-action="report-filter" data-filter="startDate" value="${escapeHtml(filters.startDate)}"></div>
+          <div class="field"><label>Fin</label><input type="date" data-action="report-filter" data-filter="endDate" value="${escapeHtml(filters.endDate)}"></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function reportContext() {
+    const filters = state.reportFilters;
+    const clientId = currentUser().role === "client" ? currentUser().clientId : filters.clientId;
+    const buildings = scopedBuildings().filter((building) => clientId === "all" || building.clientId === clientId);
+    const buildingIds = buildings.map((building) => building.id);
+    const apartments = scopedApartments().filter((apartment) => buildingIds.includes(apartment.buildingId));
+    const apartmentIds = apartments.map((apartment) => apartment.id);
+    const equipment = scopedEquipment().filter((item) => apartmentIds.includes(item.apartmentId));
+    const equipmentIds = equipment.map((item) => item.id);
+    const tickets = scopedTickets().filter((ticket) => equipmentIds.includes(ticket.equipmentId) || buildingIds.includes(ticket.buildingId));
+    const workOrders = scopedWorkOrders().filter((order) => equipmentIds.includes(order.equipmentId) || buildingIds.includes(order.buildingId));
+    const interventions = state.interventions.filter((item) => equipmentIds.includes(item.equipmentId));
+    const reminders = scopedReminders().filter((reminder) => equipmentIds.includes(reminder.equipmentId));
+    return {
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      buildings,
+      apartments,
+      equipment,
+      tickets,
+      workOrders,
+      interventions,
+      reminders
+    };
+  }
+
+  function selectedExecutiveReport(context) {
+    return {
+      parc_mensuel: monthlyParkReport,
+      maintenance_preventive: preventiveMaintenanceReport,
+      appels_service: serviceCallsReport,
+      hors_service: outOfServiceReport,
+      budget_annuel: annualBudgetReport
+    }[state.reportFilters.reportType]?.(context) || monthlyParkReport(context);
+  }
+
+  function monthlyParkReport(context) {
+    const equipment = context.equipment;
+    const statusCounts = countBy(equipment, (item) => item.status || "actif");
+    const openTickets = context.tickets.filter((ticket) => ticket.status !== "ferme");
+    const closedTickets = context.tickets.filter((ticket) => ticket.status === "ferme" && inPeriod(ticket.closedAt || ticket.createdAt, context.startDate, context.endDate));
+    const completedOrders = context.workOrders.filter((order) => order.status === "termine" && inPeriod(order.scheduledDate, context.startDate, context.endDate));
+    const upcomingServices = equipment
+      .filter((item) => item.nextService && item.nextService >= today())
+      .sort((a, b) => a.nextService.localeCompare(b.nextService))
+      .slice(0, 8);
+    const byBuilding = context.buildings.map((building) => {
+      const apartments = context.apartments.filter((apartment) => apartment.buildingId === building.id).map((apartment) => apartment.id);
+      return [building.name, equipment.filter((item) => apartments.includes(item.apartmentId)).length];
+    });
+    return reportShell("Rapport mensuel de parc HVAC", "État général du parc et signaux à surveiller.", `
+      ${reportKpis([
+        ["Immeubles", context.buildings.length],
+        ["Appartements", context.apartments.length],
+        ["Équipements", equipment.length],
+        ["Appels ouverts", openTickets.length],
+        ["BT conclus", completedOrders.length],
+        ["Alertes", context.reminders.filter((reminder) => reminderIsDue(reminder)).length]
+      ])}
+      <section class="report-layout">
+        ${donutChart("Équipements par statut", [
+          ["Actif", statusCounts.actif || 0, "ok"],
+          ["Surveillance", statusCounts.surveillance || 0, "warn"],
+          ["À planifier", statusCounts.a_planifier || 0, "info"],
+          ["Hors service", statusCounts.hors_service || 0, "danger"]
+        ])}
+        ${barChart("Équipements par immeuble", byBuilding)}
+      </section>
+      <section class="report-layout">
+        ${timelinePanel("Prochains services préventifs", upcomingServices.map((item) => {
+          const { apartment, building } = equipmentContext(item.id);
+          return [item.nextService, `${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${item.type}`];
+        }))}
+        ${summaryPanel("Synthèse client", [
+          `${equipment.filter((item) => item.status === "actif").length} équipements actifs.`,
+          `${equipment.filter((item) => item.status === "hors_service").length} équipements hors service.`,
+          `${equipment.filter((item) => item.status === "a_planifier").length} équipements à planifier.`,
+          `${closedTickets.length} appels fermés dans la période.`
+        ])}
       </section>
     `);
+  }
+
+  function preventiveMaintenanceReport(context) {
+    const preventiveTypes = new Set(state.interventionTypes.filter((type) => /nettoyage|prevent|prévent|entretien/i.test(type.name)).map((type) => type.id));
+    const preventiveInterventions = context.interventions.filter((item) => inPeriod(item.date, context.startDate, context.endDate) && (preventiveTypes.has(item.typeId) || /nettoyage|prevent|prévent|entretien/i.test(item.summary || "")));
+    const attendedEquipment = new Set(preventiveInterventions.map((item) => item.equipmentId));
+    const pendingEquipment = context.equipment.filter((item) => item.status !== "hors_service" && !attendedEquipment.has(item.id));
+    const completionRate = context.equipment.length ? Math.round((attendedEquipment.size / context.equipment.length) * 100) : 0;
+    const byMonth = monthsBetween(context.startDate, context.endDate).map((month) => [monthLabel(month), preventiveInterventions.filter((item) => monthKey(item.date) === month).length]);
+    return reportShell("Rapport de maintenance préventive", "Preuve d'exécution du plan préventif et unités à suivre.", `
+      ${reportKpis([
+        ["Préventives réalisées", preventiveInterventions.length],
+        ["Équipements couverts", attendedEquipment.size],
+        ["Taux à jour", `${completionRate}%`],
+        ["Unités pendantes", pendingEquipment.length],
+        ["Prochains rappels", context.reminders.filter((reminder) => reminder.status === "active").length]
+      ])}
+      <section class="report-layout">
+        ${barChart("Préventives réalisées par mois", byMonth)}
+        ${progressPanel("Taux de completion du plan", completionRate, `${completionRate}% des équipements avec maintenance préventive en période.`)}
+      </section>
+      <section class="report-layout">
+        ${tablePanel("Services réalisés", ["Date", "Appartement", "Équipement", "Technicien"], preventiveInterventions.slice(0, 8).map((item) => {
+          const { apartment, equipment } = equipmentContext(item.equipmentId);
+          const tech = state.users.find((user) => user.id === item.technicianId);
+          return [formatDate(item.date), apartment?.number || "-", equipment?.type || "-", tech?.name || "-"];
+        }))}
+        ${tablePanel("Unités pendantes", ["Appartement", "Équipement", "Prochain service"], pendingEquipment.slice(0, 8).map((item) => {
+          const { apartment } = equipmentContext(item.id);
+          return [apartment?.number || "-", item.type, formatDate(item.nextService)];
+        }))}
+      </section>
+    `);
+  }
+
+  function serviceCallsReport(context) {
+    const periodTickets = context.tickets.filter((ticket) => inPeriod(ticket.createdAt, context.startDate, context.endDate));
+    const closedInPeriod = context.tickets.filter((ticket) => ticket.status === "ferme" && inPeriod(ticket.closedAt || ticket.createdAt, context.startDate, context.endDate));
+    const averageResolutionDays = averageDays(closedInPeriod.map((ticket) => daysBetween(ticket.createdAt, ticket.closedAt || ticket.createdAt)));
+    const byType = state.serviceTypes.map((type) => [type.name, periodTickets.filter((ticket) => ticket.serviceTypeId === type.id).length]).filter(([, value]) => value);
+    const byPriority = ["urgente", "normale", "basse"].map((priority) => [statusText(priority), periodTickets.filter((ticket) => ticket.priority === priority).length]);
+    const byBuilding = context.buildings.map((building) => [building.name, periodTickets.filter((ticket) => ticket.buildingId === building.id).length]).filter(([, value]) => value);
+    const equipmentRanking = Object.entries(countBy(periodTickets, (ticket) => ticket.equipmentId))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([equipmentId, count]) => {
+        const { equipment, apartment, building } = equipmentContext(equipmentId);
+        return [`${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, count];
+      });
+    return reportShell("Rapport des appels de service", "Demandes ouvertes, priorités et récurrences opérationnelles.", `
+      ${reportKpis([
+        ["Ouverts", context.tickets.filter((ticket) => ticket.status === "ouvert").length],
+        ["En cours", context.tickets.filter((ticket) => ticket.status === "en_cours").length],
+        ["Fermés", closedInPeriod.length],
+        ["Urgents", periodTickets.filter((ticket) => ticket.priority === "urgente").length],
+        ["Délai moyen", closedInPeriod.length ? `${averageResolutionDays} j` : "N/D"],
+        ["Total période", periodTickets.length]
+      ])}
+      <section class="report-layout">
+        ${barChart("Appels par type", byType)}
+        ${donutChart("Appels par priorité", [["Urgente", byPriority[0][1], "danger"], ["Normale", byPriority[1][1], "info"], ["Basse", byPriority[2][1], "neutral"]])}
+      </section>
+      <section class="report-layout">
+        ${barChart("Appels par immeuble", byBuilding)}
+        ${barChart("Équipements les plus sollicités", equipmentRanking)}
+      </section>
+    `);
+  }
+
+  function outOfServiceReport(context) {
+    const out = context.equipment.filter((item) => item.status === "hors_service");
+    const byBuilding = context.buildings.map((building) => {
+      const apartments = context.apartments.filter((apartment) => apartment.buildingId === building.id).map((apartment) => apartment.id);
+      return [building.name, out.filter((item) => apartments.includes(item.apartmentId)).length];
+    }).filter(([, value]) => value);
+    return reportShell("Rapport des équipements hors service", "Risques opérationnels, urgence et suivi de résolution.", `
+      ${reportKpis([
+        ["Hors service", out.length],
+        ["Immeubles touchés", byBuilding.length],
+        ["Appels actifs", context.tickets.filter((ticket) => ticket.status !== "ferme").length],
+        ["BT planifiés", context.workOrders.filter((order) => order.status === "planifie").length]
+      ], "danger")}
+      <section class="report-layout">
+        ${barChart("Hors service par immeuble", byBuilding)}
+        ${summaryPanel("Lecture exécutive", [
+          out.length ? "Des actions correctives doivent être suivies jusqu'à résolution." : "Aucun équipement hors service dans le périmètre.",
+          "Les machines listées ci-dessous représentent le risque prioritaire.",
+          "Les notes de machine servent de première base pour la cause ou l'action recommandée."
+        ], "danger")}
+      </section>
+      ${tablePanel("Table critique", ["Immeuble", "Appartement", "Équipement", "Motif / note", "Prochain service"], out.map((item) => {
+        const { apartment, building } = equipmentContext(item.id);
+        return [building?.name || "-", apartment?.number || "-", `${item.type} ${item.brand || ""}`, item.notes || "-", formatDate(item.nextService)];
+      }))}
+    `);
+  }
+
+  function annualBudgetReport(context) {
+    const yearStart = `${(context.endDate || today()).slice(0, 4)}-01-01`;
+    const yearEnd = `${(context.endDate || today()).slice(0, 4)}-12-31`;
+    const yearlyInterventions = context.interventions.filter((item) => inPeriod(item.date, yearStart, yearEnd));
+    const correctiveTickets = context.tickets.filter((ticket) => inPeriod(ticket.createdAt, yearStart, yearEnd) && ticket.serviceTypeId !== "entretien");
+    const olderEquipment = context.equipment.filter((item) => item.installDate && Number((context.endDate || today()).slice(0, 4)) - Number(item.installDate.slice(0, 4)) >= 8);
+    const interventionRanking = Object.entries(countBy(yearlyInterventions, (item) => item.equipmentId))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([equipmentId, count]) => {
+        const { equipment, apartment, building } = equipmentContext(equipmentId);
+        return [`${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, count];
+      });
+    const callsByMonth = monthsBetween(yearStart, yearEnd).map((month) => [monthLabel(month), correctiveTickets.filter((ticket) => monthKey(ticket.createdAt) === month).length]);
+    return reportShell("Rapport annuel pour budget", "Indicateurs pour prévoir investissements, contrats et remplacements.", `
+      ${reportKpis([
+        ["Maintenances", yearlyInterventions.length],
+        ["Correctifs", correctiveTickets.length],
+        ["Machines anciennes", olderEquipment.length],
+        ["Hors service", context.equipment.filter((item) => item.status === "hors_service").length],
+        ["À planifier", context.equipment.filter((item) => item.status === "a_planifier").length]
+      ])}
+      <section class="report-layout">
+        ${barChart("Top machines avec interventions", interventionRanking)}
+        ${barChart("Évolution mensuelle des correctifs", callsByMonth)}
+      </section>
+      ${tablePanel("Recommandations de remplacement à surveiller", ["Immeuble", "Appartement", "Équipement", "Installation", "Signal"], olderEquipment.slice(0, 10).map((item) => {
+        const { apartment, building } = equipmentContext(item.id);
+        const calls = context.tickets.filter((ticket) => ticket.equipmentId === item.id).length;
+        return [building?.name || "-", apartment?.number || "-", `${item.type} ${item.brand || ""}`, formatDate(item.installDate), `${calls} appel(s)`];
+      }))}
+    `);
+  }
+
+  function reportShell(title, subtitle, content) {
+    return `
+      <section class="executive-report">
+        <div class="report-cover">
+          <div>
+            <span class="badge neutral">Rapport client</span>
+            <h2>${escapeHtml(title)}</h2>
+            <p>${escapeHtml(subtitle)}</p>
+          </div>
+          <div class="report-period">
+            <span>Période</span>
+            <strong>${formatDate(state.reportFilters.startDate)} - ${formatDate(state.reportFilters.endDate)}</strong>
+          </div>
+        </div>
+        ${content}
+      </section>
+    `;
+  }
+
+  function reportKpis(items, tone = "") {
+    return `
+      <section class="report-kpi-grid ${tone ? `report-kpi-${tone}` : ""}">
+        ${items.map(([label, value]) => `
+          <article class="report-kpi">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </article>
+        `).join("")}
+      </section>
+    `;
+  }
+
+  function donutChart(title, entries) {
+    const total = entries.reduce((sum, [, value]) => sum + value, 0);
+    let angle = 0;
+    const colors = { ok: "#2f7d4f", warn: "#d99a35", info: "#315f96", danger: "#b23b3b", neutral: "#8a989c" };
+    const segments = entries.map(([, value, tone]) => {
+      const start = angle;
+      const degrees = total ? (value / total) * 360 : 0;
+      angle += degrees;
+      return `${colors[tone] || colors.neutral} ${start}deg ${angle}deg`;
+    }).join(", ");
+    return `
+      <article class="report-card">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="donut-wrap">
+          <div class="donut-chart" style="background: conic-gradient(${segments || "#edf3f4 0deg 360deg"});"><span>${total}</span></div>
+          <div class="chart-legend">
+            ${entries.map(([label, value, tone]) => `<div><i class="legend-${tone}"></i><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`).join("")}
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  function barChart(title, entries) {
+    const cleanEntries = entries.filter(([, value]) => value !== undefined && value !== null);
+    const max = Math.max(1, ...cleanEntries.map(([, value]) => Number(value) || 0));
+    return `
+      <article class="report-card">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="bar-list">
+          ${cleanEntries.length ? cleanEntries.map(([label, value]) => `
+            <div class="bar-row">
+              <div class="bar-row-head"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>
+              <div class="bar-track"><i style="width:${Math.max(4, Math.round((Number(value) || 0) / max * 100))}%"></i></div>
+            </div>
+          `).join("") : `<div class="empty compact-empty">Aucune donnée pour la période.</div>`}
+        </div>
+      </article>
+    `;
+  }
+
+  function timelinePanel(title, entries) {
+    return `
+      <article class="report-card">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="report-timeline">
+          ${entries.length ? entries.map(([date, label]) => `
+            <div>
+              <time>${formatDate(date)}</time>
+              <span>${escapeHtml(label)}</span>
+            </div>
+          `).join("") : `<div class="empty compact-empty">Aucun service planifié.</div>`}
+        </div>
+      </article>
+    `;
+  }
+
+  function summaryPanel(title, lines, tone = "") {
+    return `
+      <article class="report-card ${tone ? `report-card-${tone}` : ""}">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="executive-summary">
+          ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+        </div>
+      </article>
+    `;
+  }
+
+  function progressPanel(title, percent, note) {
+    return `
+      <article class="report-card">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="progress-report">
+          <strong>${percent}%</strong>
+          <div class="progress-track"><i style="width:${Math.max(0, Math.min(100, percent))}%"></i></div>
+          <p>${escapeHtml(note)}</p>
+        </div>
+      </article>
+    `;
+  }
+
+  function tablePanel(title, headers, rows) {
+    return `
+      <article class="report-card report-card-table">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+            <tbody>
+              ${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}">Aucune donnée pour la période.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    `;
+  }
+
+  function countBy(items, keyFn) {
+    return items.reduce((acc, item) => {
+      const key = keyFn(item) || "Non défini";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
+  function monthsBetween(startDate, endDate) {
+    const start = new Date(`${monthStart(startDate || today())}T12:00:00`);
+    const end = new Date(`${monthStart(endDate || today())}T12:00:00`);
+    const months = [];
+    for (let cursor = start; cursor <= end; cursor.setMonth(cursor.getMonth() + 1)) {
+      months.push(cursor.toISOString().slice(0, 7));
+    }
+    return months;
   }
 
   function usersView() {
@@ -2966,6 +3385,7 @@
     const serviceType = state.serviceTypes.find((item) => item.id === values.serviceTypeId) || state.serviceTypes[0];
     const existing = state.tickets.find((item) => item.id === values.id);
     if (existing) {
+      const closedAt = values.status === "ferme" ? existing.closedAt || today() : "";
       Object.assign(existing, {
         serviceTypeId: values.serviceTypeId,
         buildingId: building.id,
@@ -2974,7 +3394,8 @@
         title: values.title,
         description: values.description,
         priority: values.priority,
-        status: values.status
+        status: values.status,
+        closedAt
       });
       setState({ modal: null, activeView: "appels", toast: "Appel de service modifié." });
       return;
@@ -2992,6 +3413,7 @@
       priority: values.priority || serviceType?.defaultPriority || "normale",
       status: values.status || "ouvert",
       createdAt: today(),
+      closedAt: values.status === "ferme" ? today() : "",
       createdBy: currentUser().id
     };
     state.tickets.unshift(ticket);
@@ -3763,7 +4185,10 @@
       }
       if (action === "ticket-status") {
         const ticket = state.tickets.find((item) => item.id === target.dataset.id);
-        if (ticket) ticket.status = target.dataset.status;
+        if (ticket) {
+          ticket.status = target.dataset.status;
+          ticket.closedAt = target.dataset.status === "ferme" ? ticket.closedAt || today() : "";
+        }
         setState({ toast: "Statut de l'appel mis à jour." });
       }
       if (action === "order-status") {
@@ -3796,6 +4221,7 @@
     });
     app.addEventListener("change", (event) => {
       handleFilter(event);
+      handleReportFilter(event);
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
@@ -4069,6 +4495,14 @@
     const nextFilters = { ...state.filters, [target.dataset.filter]: target.value };
     if (target.dataset.filter === "buildingId") nextFilters.apartmentId = "all";
     state.filters = nextFilters;
+    saveState();
+    render();
+  }
+
+  function handleReportFilter(event) {
+    const target = event.target.closest("[data-action='report-filter']");
+    if (!target) return;
+    state.reportFilters = { ...state.reportFilters, [target.dataset.filter]: target.value };
     saveState();
     render();
   }

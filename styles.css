@@ -1440,6 +1440,256 @@ td button.link-button {
   line-height: 1.5;
 }
 
+.report-controls {
+  margin-bottom: 18px;
+}
+
+.executive-report {
+  display: grid;
+  gap: 16px;
+}
+
+.report-cover {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.report-cover h2 {
+  margin: 12px 0 8px;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+
+.report-cover p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.report-period {
+  min-width: 240px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.report-period span,
+.report-kpi span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.report-period strong {
+  font-size: 1rem;
+}
+
+.report-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.report-kpi {
+  display: grid;
+  gap: 8px;
+  min-height: 104px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.report-kpi strong {
+  font-size: 1.85rem;
+}
+
+.report-kpi-danger .report-kpi {
+  border-color: rgba(178, 59, 59, 0.28);
+  background: #fffafa;
+}
+
+.report-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.report-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.report-card-danger {
+  border-color: rgba(178, 59, 59, 0.28);
+  background: #fffafa;
+}
+
+.report-card h3 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+}
+
+.donut-wrap {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.donut-chart {
+  width: 170px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  position: relative;
+}
+
+.donut-chart::after {
+  content: "";
+  position: absolute;
+  inset: 34px;
+  border-radius: 50%;
+  background: white;
+}
+
+.donut-chart span {
+  position: relative;
+  z-index: 1;
+  font-size: 1.8rem;
+  font-weight: 900;
+}
+
+.chart-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.chart-legend div {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.chart-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.legend-ok {
+  background: var(--ok);
+}
+
+.legend-warn {
+  background: var(--warn);
+}
+
+.legend-info {
+  background: var(--info);
+}
+
+.legend-danger {
+  background: var(--danger);
+}
+
+.legend-neutral {
+  background: var(--muted);
+}
+
+.bar-list,
+.report-timeline,
+.executive-summary,
+.progress-report {
+  display: grid;
+  gap: 12px;
+}
+
+.bar-row {
+  display: grid;
+  gap: 7px;
+}
+
+.bar-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.bar-row-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track,
+.progress-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.bar-track i,
+.progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.report-timeline div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.report-timeline time {
+  color: var(--brand-dark);
+  font-weight: 900;
+}
+
+.report-timeline span,
+.executive-summary p,
+.progress-report p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.progress-report strong {
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.report-card-table table {
+  min-width: 620px;
+}
+
+.compact-empty {
+  min-height: 90px;
+}
+
 .toast {
   position: fixed;
   right: 20px;
@@ -1581,6 +1831,7 @@ td button.link-button {
 
   .stats-grid,
   .cards-grid,
+  .report-layout,
   .report-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1685,7 +1936,27 @@ td button.link-button {
   .split,
   .branching-box,
   .dynamic-form-grid,
+  .report-layout,
+  .report-cover,
+  .donut-wrap,
   .report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-cover {
+    display: grid;
+  }
+
+  .report-period {
+    min-width: 0;
+  }
+
+  .donut-chart {
+    width: min(180px, 100%);
+    justify-self: center;
+  }
+
+  .report-timeline div {
     grid-template-columns: 1fr;
   }
 

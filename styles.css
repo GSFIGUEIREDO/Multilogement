@@ -23,6 +23,9 @@
 html,
 body {
   min-height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -191,6 +194,9 @@ textarea:focus {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 258px minmax(0, 1fr);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .mobile-appbar,
@@ -414,6 +420,8 @@ textarea:focus {
 
 .main {
   min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   padding: 24px;
 }
 
@@ -642,6 +650,17 @@ textarea:focus {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.grid > *,
+.detail-layout > *,
+.execution-layout > *,
+.stack,
+.panel {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .panel,
@@ -678,7 +697,10 @@ textarea:focus {
 }
 
 .table-wrap {
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -1450,17 +1472,24 @@ td button.link-button {
 
   .app-shell {
     display: block;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
 
   .mobile-appbar {
     position: sticky;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 35;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 14px;
     padding: 12px 14px;
+    width: 100%;
+    max-width: 100vw;
     color: white;
     background: #0d292d;
   }
@@ -1559,6 +1588,7 @@ td button.link-button {
   .global-search {
     top: 70px;
     width: 100%;
+    max-width: 100%;
   }
 }
 
@@ -1580,6 +1610,8 @@ td button.link-button {
   .login-visual,
   .main {
     padding: 14px;
+    width: 100%;
+    max-width: 100vw;
   }
 
   .login-shell {
@@ -1616,6 +1648,8 @@ td button.link-button {
 
   .global-search {
     margin-bottom: 14px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .search-result {
@@ -1676,8 +1710,15 @@ td button.link-button {
   }
 
   .table-wrap {
-    margin-inline: -12px;
-    padding-inline: 12px;
+    width: 100%;
+    max-width: 100%;
+    margin-inline: 0;
+    padding-inline: 0;
+    overflow-x: auto;
+  }
+
+  table {
+    min-width: 640px;
   }
 
   .modal-backdrop {

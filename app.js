@@ -6,7 +6,7 @@
 
   const seed = {
     sessionUserId: null,
-    activeView: "lieux",
+    activeView: "tableau",
     selectedBuildingId: "b-verdun",
     selectedEquipmentId: "eq-101",
     selectedTicketId: null,
@@ -15,6 +15,8 @@
     modal: null,
     toast: "",
     resetToken: "",
+    sidebarMode: "fixed",
+    navOrder: ["tableau", "lieux", "equipements", "appels", "bons", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
       apartmentId: "all",
@@ -370,6 +372,8 @@
   function normalizeState(data) {
     const next = { ...JSON.parse(JSON.stringify(seed)), ...data };
     next.filters = { ...seed.filters, ...(data.filters || {}) };
+    next.sidebarMode = data.sidebarMode || seed.sidebarMode;
+    next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
       id: template.id,
@@ -469,6 +473,11 @@
     ]));
   }
 
+  function mergeNavOrder(order = []) {
+    const defaults = seed.navOrder;
+    return [...order.filter((item) => defaults.includes(item)), ...defaults.filter((item) => !order.includes(item))];
+  }
+
   function saveState() {
     if (!SERVER_ENABLED) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -495,7 +504,7 @@
       sessionUserId: null,
       modal: null,
       toast: "",
-      activeView: "lieux",
+      activeView: "tableau",
       filters: { ...seed.filters }
     };
   }
@@ -675,27 +684,22 @@
 
   function appShell(content) {
     const user = currentUser();
-    const nav = [
-      ["tableau", "TB", "Tableau de bord", true],
-      ["lieux", "LI", "Lieux", can("lieux") || can("portal")],
-      ["equipements", "EQ", "Équipements", can("equipment") || can("portal")],
-      ["appels", "CH", "Appels de service", can("tickets")],
-      ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
-      ["rapports", "RP", "Rapports", can("reports")],
-      ["utilisateurs", "UT", "Utilisateurs", can("users")],
-      ["parametres", "PR", "Paramètres", can("settings") || can("users")]
-    ].filter((item) => item[3]);
+    const nav = orderedNavItems().filter((item) => item[3]);
 
     return `
-      <div class="app-shell">
+      <div class="app-shell sidebar-${state.sidebarMode}">
         <aside class="sidebar">
-          <div class="brand-mark"><span class="logo">CP</span><span>ClimaParc</span></div>
-          <nav class="nav">
+          <div class="brand-mark"><span class="logo">CP</span><span class="brand-name">ClimaParc</span></div>
+          <div class="sidebar-controls">
+            <button class="ghost-button" data-action="toggle-sidebar-mode">${state.sidebarMode === "fixed" ? "Menu fixe" : "Menu auto"}</button>
+          </div>
+          <nav class="nav" data-nav-list>
             ${nav
               .map(([view, icon, label]) => `
-                <button class="${state.activeView === view ? "active" : ""}" data-action="view" data-view="${view}">
+                <button class="${state.activeView === view ? "active" : ""}" data-action="view" data-view="${view}" data-nav-item draggable="true">
+                  <span class="nav-drag">☰</span>
                   <span class="nav-icon">${icon}</span>
-                  <span>${label}</span>
+                  <span class="nav-label">${label}</span>
                 </button>
               `)
               .join("")}
@@ -713,6 +717,24 @@
       ${state.modal ? renderModal() : ""}
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     `;
+  }
+
+  function baseNavItems() {
+    return [
+      ["tableau", "TB", "Tableau de bord", true],
+      ["lieux", "LI", "Lieux", can("lieux") || can("portal")],
+      ["equipements", "EQ", "Équipements", can("equipment") || can("portal")],
+      ["appels", "CH", "Appels de service", can("tickets")],
+      ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
+      ["rapports", "RP", "Rapports", can("reports")],
+      ["utilisateurs", "UT", "Utilisateurs", can("users")],
+      ["parametres", "PR", "Paramètres", can("settings") || can("users")]
+    ];
+  }
+
+  function orderedNavItems() {
+    const byId = Object.fromEntries(baseNavItems().map((item) => [item[0], item]));
+    return mergeNavOrder(state.navOrder).map((id) => byId[id]).filter(Boolean);
   }
 
   function renderLogin() {
@@ -1175,6 +1197,7 @@
   function ticketItem(ticket, expanded = false) {
     const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
+    const attachments = equipment?.attachments || [];
     const actions = expanded && can("workorders")
       ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
       : "";
@@ -1187,8 +1210,23 @@
         <div class="meta">Type: ${escapeHtml(serviceType?.name || "-")}</div>
         <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "-")}</div>
         <div class="meta">${escapeHtml(ticket.description)}</div>
+        ${expanded ? `
+          <div class="mini-list">
+            <strong>Photos et documents de la machine</strong>
+            ${attachments.map((file) => compactAttachmentItem(file)).join("") || `<div class="meta">Aucun fichier lié à cette machine.</div>`}
+          </div>
+        ` : ""}
         <div class="actions">${expanded ? `<button class="ghost-button" data-action="open-modal" data-modal="ticket" data-id="${ticket.id}">Modifier</button>` : ""}${actions}${expanded ? ticketStatusButtons(ticket) : ""}</div>
       </article>
+    `;
+  }
+
+  function compactAttachmentItem(file) {
+    return `
+      <div class="mini-row attachment-mini-row" data-action="preview-attachment" data-id="${file.id}">
+        <strong>${escapeHtml(file.name)}</strong>
+        <span>${attachmentTypeLabel(file)} | ${formatDate(file.uploadedAt)}</span>
+      </div>
     `;
   }
 
@@ -2093,7 +2131,7 @@
         const payload = await response.json();
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
-        state.activeView = state.activeView === "tableau" ? "lieux" : state.activeView || "lieux";
+        state.activeView = state.activeView || "tableau";
         state.modal = null;
         state.toast = "";
         render();
@@ -2131,7 +2169,7 @@
         }
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
-        state.activeView = "lieux";
+        state.activeView = "tableau";
         state.modal = null;
         state.toast = "Compte créé.";
         saveState();
@@ -2158,7 +2196,7 @@
     };
     state.clients.push(client);
     state.users.push(user);
-    setState({ sessionUserId: user.id, activeView: "lieux", modal: null, toast: "Compte créé." });
+    setState({ sessionUserId: user.id, activeView: "tableau", modal: null, toast: "Compte créé." });
   }
 
   async function requestPasswordReset(values) {
@@ -2235,7 +2273,7 @@
         }
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
-        state.activeView = "lieux";
+        state.activeView = "tableau";
         state.modal = null;
         state.toast = "";
         saveState();
@@ -2250,14 +2288,14 @@
       showToast("Courriel ou mot de passe invalide.");
       return;
     }
-    setState({ sessionUserId: user.id, activeView: "lieux", toast: "" });
+    setState({ sessionUserId: user.id, activeView: "tableau", toast: "" });
   }
 
   async function logout() {
     if (SERVER_ENABLED) {
       await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
     }
-    setState({ sessionUserId: null, activeView: "lieux", modal: null });
+    setState({ sessionUserId: null, activeView: "tableau", modal: null });
   }
 
   function saveBuilding(values) {
@@ -2942,6 +2980,13 @@
       if (action === "close-modal" && modalCard && target.classList.contains("modal-backdrop")) return;
       if (action === "logout") logout();
       if (action === "view") setState({ activeView: target.dataset.view, modal: null });
+      if (action === "toggle-sidebar-mode") {
+        setState({
+          sidebarMode: state.sidebarMode === "fixed" ? "auto" : "fixed",
+          toast: state.sidebarMode === "fixed" ? "Menu automatique activé." : "Menu fixe activé."
+        });
+        return;
+      }
       if (action === "select-building") setState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
       if (action === "select-equipment") setState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
       if (action === "open-modal") {
@@ -3029,6 +3074,11 @@
     app.addEventListener("dragstart", handleQuestionDragStart);
     app.addEventListener("dragover", handleQuestionDragOver);
     app.addEventListener("drop", handleQuestionDrop);
+    app.addEventListener("dragend", () => {
+      draggedNavItem = null;
+      draggedQuestion = null;
+      draggedOption = null;
+    });
   }
 
   function updateNewApartmentVisibility(form) {
@@ -3164,10 +3214,17 @@
     });
   }
 
+  let draggedNavItem = null;
   let draggedQuestion = null;
   let draggedOption = null;
 
   function handleQuestionDragStart(event) {
+    const navItem = event.target.closest("[data-nav-item]");
+    if (navItem) {
+      draggedNavItem = navItem;
+      event.dataTransfer.effectAllowed = "move";
+      return;
+    }
     const optionRow = event.target.closest("[data-option-row]");
     if (optionRow) {
       draggedOption = optionRow;
@@ -3181,6 +3238,11 @@
   }
 
   function handleQuestionDragOver(event) {
+    const navItem = event.target.closest("[data-nav-item]");
+    if (navItem && draggedNavItem && navItem !== draggedNavItem) {
+      event.preventDefault();
+      return;
+    }
     const optionRow = event.target.closest("[data-option-row]");
     if (optionRow && draggedOption && optionRow !== draggedOption) {
       event.preventDefault();
@@ -3192,6 +3254,20 @@
   }
 
   function handleQuestionDrop(event) {
+    const navItem = event.target.closest("[data-nav-item]");
+    if (navItem && draggedNavItem && navItem !== draggedNavItem) {
+      event.preventDefault();
+      const items = Array.from(navItem.parentElement.querySelectorAll("[data-nav-item]"));
+      const from = items.indexOf(draggedNavItem);
+      const to = items.indexOf(navItem);
+      if (from < to) navItem.after(draggedNavItem);
+      else navItem.before(draggedNavItem);
+      state.navOrder = Array.from(navItem.parentElement.querySelectorAll("[data-nav-item]")).map((item) => item.dataset.view);
+      draggedNavItem = null;
+      saveState();
+      render();
+      return;
+    }
     const optionRow = event.target.closest("[data-option-row]");
     if (optionRow && draggedOption && optionRow !== draggedOption) {
       event.preventDefault();

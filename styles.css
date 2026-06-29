@@ -193,6 +193,10 @@ textarea:focus {
   grid-template-columns: 258px minmax(0, 1fr);
 }
 
+.app-shell.sidebar-auto {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
 .sidebar {
   background: #10272b;
   color: white;
@@ -200,11 +204,20 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 22px;
+  width: 258px;
+  z-index: 12;
+  transition: width 0.18s ease, box-shadow 0.18s ease;
+}
+
+.sidebar-controls {
+  display: grid;
+  gap: 8px;
 }
 
 .sidebar .brand-mark {
   color: white;
   margin: 0;
+  white-space: nowrap;
 }
 
 .nav {
@@ -234,6 +247,14 @@ textarea:focus {
   text-align: left;
 }
 
+.nav-drag {
+  display: grid;
+  width: 16px;
+  color: rgba(255, 255, 255, 0.46);
+  font-weight: 900;
+  cursor: grab;
+}
+
 .nav button.active,
 .nav button:hover {
   color: white;
@@ -241,6 +262,7 @@ textarea:focus {
 }
 
 .nav-icon {
+  flex: 0 0 24px;
   width: 24px;
   height: 24px;
   display: grid;
@@ -249,6 +271,71 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.12);
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+.nav-label,
+.brand-name,
+.sidebar-controls,
+.user-card {
+  transition: opacity 0.16s ease;
+}
+
+.app-shell.sidebar-auto .sidebar {
+  width: 72px;
+  overflow: hidden;
+  padding-left: 15px;
+  padding-right: 15px;
+}
+
+.app-shell.sidebar-auto .sidebar:hover,
+.app-shell.sidebar-auto .sidebar:focus-within {
+  width: 258px;
+  box-shadow: var(--shadow);
+}
+
+.app-shell.sidebar-auto .brand-name,
+.app-shell.sidebar-auto .nav-label,
+.app-shell.sidebar-auto .nav-drag,
+.app-shell.sidebar-auto .sidebar-controls,
+.app-shell.sidebar-auto .user-card {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-shell.sidebar-auto .sidebar:hover .brand-name,
+.app-shell.sidebar-auto .sidebar:hover .nav-label,
+.app-shell.sidebar-auto .sidebar:hover .nav-drag,
+.app-shell.sidebar-auto .sidebar:hover .sidebar-controls,
+.app-shell.sidebar-auto .sidebar:hover .user-card,
+.app-shell.sidebar-auto .sidebar:focus-within .brand-name,
+.app-shell.sidebar-auto .sidebar:focus-within .nav-label,
+.app-shell.sidebar-auto .sidebar:focus-within .nav-drag,
+.app-shell.sidebar-auto .sidebar:focus-within .sidebar-controls,
+.app-shell.sidebar-auto .sidebar:focus-within .user-card {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-shell.sidebar-auto .nav button {
+  gap: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.app-shell.sidebar-auto .sidebar:hover .nav button,
+.app-shell.sidebar-auto .sidebar:focus-within .nav button {
+  gap: 10px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.app-shell.sidebar-auto .nav-drag {
+  display: none;
+}
+
+.app-shell.sidebar-auto .sidebar:hover .nav-drag,
+.app-shell.sidebar-auto .sidebar:focus-within .nav-drag {
+  display: grid;
 }
 
 .user-card {
@@ -591,6 +678,15 @@ td button.link-button {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.attachment-mini-row {
+  cursor: pointer;
+}
+
+.attachment-mini-row:hover {
+  border-color: var(--brand);
+  background: #f7fbfb;
 }
 
 .attachment-preview-modal {
@@ -1062,27 +1158,71 @@ td button.link-button {
     grid-template-columns: 1fr;
   }
 
+  .app-shell.sidebar-auto {
+    grid-template-columns: 1fr;
+  }
+
   .sidebar {
     position: sticky;
     top: 0;
     z-index: 10;
+    width: 100%;
+    padding: 10px;
     display: grid;
-    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
-  .nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .app-shell.sidebar-auto .sidebar {
+    width: 100%;
+    padding: 10px;
+    overflow: visible;
   }
 
-  .nav button {
-    justify-content: center;
+  .app-shell.sidebar-auto .brand-name,
+  .app-shell.sidebar-auto .nav-label,
+  .app-shell.sidebar-auto .nav-drag,
+  .app-shell.sidebar-auto .sidebar-controls,
+  .app-shell.sidebar-auto .user-card {
+    opacity: 1;
+    pointer-events: auto;
   }
 
-  .nav button span:last-child {
+  .app-shell.sidebar-auto .nav-drag {
     display: none;
   }
 
+  .app-shell.sidebar-auto .sidebar:hover .nav-drag,
+  .app-shell.sidebar-auto .sidebar:focus-within .nav-drag {
+    display: none;
+  }
+
+  .sidebar .brand-mark {
+    margin: 0;
+  }
+
+  .sidebar-controls,
   .user-card {
+    display: none;
+  }
+
+  .nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .nav button {
+    flex: 0 0 64px;
+    min-height: 48px;
+    justify-content: center;
+    gap: 0;
+    padding: 9px;
+  }
+
+  .nav-label,
+  .nav-drag {
     display: none;
   }
 
@@ -1101,7 +1241,33 @@ td button.link-button {
   .login-panel,
   .login-visual,
   .main {
-    padding: 18px;
+    padding: 14px;
+  }
+
+  .login-shell {
+    min-height: 100dvh;
+  }
+
+  .login-visual {
+    display: none;
+  }
+
+  .brand-mark {
+    margin-bottom: 16px;
+  }
+
+  .topbar {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .topbar h1 {
+    font-size: 1.45rem;
+    line-height: 1.12;
+  }
+
+  .topbar p {
+    font-size: 0.92rem;
   }
 
   .topbar,
@@ -1112,6 +1278,18 @@ td button.link-button {
 
   .actions {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .actions .primary-button,
+  .actions .ghost-button,
+  .actions .danger-button {
+    flex: 1 1 150px;
+  }
+
+  .panel-body,
+  .panel-header {
+    padding: 12px;
   }
 
   .stats-grid,
@@ -1128,8 +1306,73 @@ td button.link-button {
     grid-column: 1 / -1;
   }
 
+  .stat {
+    padding: 13px;
+  }
+
+  .stat strong {
+    font-size: 1.55rem;
+  }
+
+  .place-card {
+    min-height: auto;
+  }
+
+  .place-metrics,
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  .table-wrap {
+    margin-inline: -12px;
+    padding-inline: 12px;
+  }
+
+  .modal-backdrop {
+    align-items: stretch;
+    justify-items: stretch;
+    padding: 0;
+  }
+
+  .modal-card,
+  .modal-card-wide,
+  .attachment-preview-modal {
+    width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .modal-card .panel-header {
+    top: 0;
+  }
+
+  .attachment-preview {
+    min-height: 300px;
+  }
+
+  .attachment-preview-image,
+  .attachment-preview-video {
+    max-height: 64vh;
+  }
+
+  .attachment-preview-frame {
+    height: 64vh;
+  }
+
+  .question-card,
+  .form-template-modal .question-card {
+    padding: 12px;
+  }
+
+  .question-card-head,
+  .activity-field-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .option-row {
     grid-template-columns: 24px minmax(0, 1fr) 40px;
+    gap: 8px;
   }
 
   .option-row .inline-check,

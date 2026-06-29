@@ -15,7 +15,8 @@
     modal: null,
     toast: "",
     resetToken: "",
-    sidebarMode: "fixed",
+    sidebarMode: "auto",
+    navEditing: false,
     navOrder: ["tableau", "lieux", "equipements", "appels", "bons", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
@@ -373,6 +374,7 @@
     const next = { ...JSON.parse(JSON.stringify(seed)), ...data };
     next.filters = { ...seed.filters, ...(data.filters || {}) };
     next.sidebarMode = data.sidebarMode || seed.sidebarMode;
+    next.navEditing = false;
     next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
@@ -682,25 +684,47 @@
       .replace(/'/g, "&#039;");
   }
 
+  function iconSvg(name) {
+    const icons = {
+      pin: '<path d="M15 4.5 19.5 9l-3.1 3.1.5 4.1-1.4 1.4-4.2-4.2L7 17.7 6.3 17l4.3-4.3-4.2-4.2 1.4-1.4 4.1.5L15 4.5Z"/><path d="m9.5 14.5-4 4"/>',
+      pencil: '<path d="m14.6 4.4 3 3"/><path d="M5 16.9 6 13l8.7-8.7a2.1 2.1 0 0 1 3 3L9 16l-4 .9Z"/>',
+      grip: '<path d="M8 6h8M8 10h8M8 14h8"/>',
+      chevronUp: '<path d="m7 13 5-5 5 5"/>',
+      chevronDown: '<path d="m7 11 5 5 5-5"/>'
+    };
+    return `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[name] || ""}</svg>`;
+  }
+
   function appShell(content) {
     const user = currentUser();
     const nav = orderedNavItems().filter((item) => item[3]);
+    const isPinned = state.sidebarMode === "fixed";
+    const isNavEditing = Boolean(state.navEditing);
 
     return `
-      <div class="app-shell sidebar-${state.sidebarMode}">
+      <div class="app-shell sidebar-${state.sidebarMode} ${isNavEditing ? "nav-editing" : ""}">
         <aside class="sidebar">
-          <div class="brand-mark"><span class="logo">CP</span><span class="brand-name">ClimaParc</span></div>
-          <div class="sidebar-controls">
-            <button class="ghost-button" data-action="toggle-sidebar-mode">${state.sidebarMode === "fixed" ? "Menu fixe" : "Menu auto"}</button>
+          <div class="sidebar-header">
+            <div class="brand-mark"><span class="logo">CP</span><span class="brand-name">ClimaParc</span></div>
+            <div class="sidebar-controls" aria-label="Options du menu">
+              <button class="sidebar-tool ${isPinned ? "active" : ""}" type="button" data-action="toggle-sidebar-pin" aria-label="${isPinned ? "Replier le menu" : "Épingler le menu"}" aria-pressed="${isPinned}" title="${isPinned ? "Replier le menu" : "Épingler le menu"}">${iconSvg("pin")}</button>
+              <button class="sidebar-tool ${isNavEditing ? "active" : ""}" type="button" data-action="toggle-nav-edit" aria-label="${isNavEditing ? "Enregistrer l'ordre" : "Modifier l'ordre"}" aria-pressed="${isNavEditing}" title="${isNavEditing ? "Enregistrer l'ordre" : "Modifier l'ordre"}">${iconSvg("pencil")}</button>
+            </div>
           </div>
           <nav class="nav" data-nav-list>
             ${nav
-              .map(([view, icon, label]) => `
-                <button class="${state.activeView === view ? "active" : ""}" data-action="view" data-view="${view}" data-nav-item draggable="true">
-                  <span class="nav-drag">☰</span>
-                  <span class="nav-icon">${icon}</span>
-                  <span class="nav-label">${label}</span>
-                </button>
+              .map(([view, icon, label], index) => `
+                <div class="nav-item ${state.activeView === view ? "active" : ""}" data-nav-item data-view="${view}" draggable="${isNavEditing}">
+                  <button class="nav-link" type="button" data-action="view" data-view="${view}">
+                    <span class="nav-drag">${iconSvg("grip")}</span>
+                    <span class="nav-icon">${icon}</span>
+                    <span class="nav-label">${label}</span>
+                  </button>
+                  <div class="nav-move-actions" aria-label="Déplacer ${escapeHtml(label)}">
+                    <button class="nav-move" type="button" data-action="move-nav" data-view="${view}" data-direction="up" ${index === 0 ? "disabled" : ""} aria-label="Monter">${iconSvg("chevronUp")}</button>
+                    <button class="nav-move" type="button" data-action="move-nav" data-view="${view}" data-direction="down" ${index === nav.length - 1 ? "disabled" : ""} aria-label="Descendre">${iconSvg("chevronDown")}</button>
+                  </div>
+                </div>
               `)
               .join("")}
           </nav>
@@ -735,6 +759,19 @@
   function orderedNavItems() {
     const byId = Object.fromEntries(baseNavItems().map((item) => [item[0], item]));
     return mergeNavOrder(state.navOrder).map((id) => byId[id]).filter(Boolean);
+  }
+
+  function moveNavItem(view, direction) {
+    if (!state.navEditing) return;
+    const visibleOrder = orderedNavItems().filter((item) => item[3]).map((item) => item[0]);
+    const index = visibleOrder.indexOf(view);
+    if (index < 0) return;
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= visibleOrder.length) return;
+    const [item] = visibleOrder.splice(index, 1);
+    visibleOrder.splice(targetIndex, 0, item);
+    state.navOrder = visibleOrder;
+    render();
   }
 
   function renderLogin() {
@@ -2980,11 +3017,22 @@
       if (action === "close-modal" && modalCard && target.classList.contains("modal-backdrop")) return;
       if (action === "logout") logout();
       if (action === "view") setState({ activeView: target.dataset.view, modal: null });
-      if (action === "toggle-sidebar-mode") {
+      if (action === "toggle-sidebar-pin") {
         setState({
           sidebarMode: state.sidebarMode === "fixed" ? "auto" : "fixed",
-          toast: state.sidebarMode === "fixed" ? "Menu automatique activé." : "Menu fixe activé."
+          toast: state.sidebarMode === "fixed" ? "Menu replié par défaut." : "Menu épinglé."
         });
+        return;
+      }
+      if (action === "toggle-nav-edit") {
+        setState({
+          navEditing: !state.navEditing,
+          toast: state.navEditing ? "Ordre du menu enregistré." : "Réorganisation activée."
+        });
+        return;
+      }
+      if (action === "move-nav") {
+        moveNavItem(target.dataset.view, target.dataset.direction);
         return;
       }
       if (action === "select-building") setState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
@@ -3221,6 +3269,10 @@
   function handleQuestionDragStart(event) {
     const navItem = event.target.closest("[data-nav-item]");
     if (navItem) {
+      if (!state.navEditing) {
+        event.preventDefault();
+        return;
+      }
       draggedNavItem = navItem;
       event.dataTransfer.effectAllowed = "move";
       return;
@@ -3239,6 +3291,7 @@
 
   function handleQuestionDragOver(event) {
     const navItem = event.target.closest("[data-nav-item]");
+    if (navItem && !state.navEditing) return;
     if (navItem && draggedNavItem && navItem !== draggedNavItem) {
       event.preventDefault();
       return;
@@ -3255,6 +3308,7 @@
 
   function handleQuestionDrop(event) {
     const navItem = event.target.closest("[data-nav-item]");
+    if (navItem && !state.navEditing) return;
     if (navItem && draggedNavItem && navItem !== draggedNavItem) {
       event.preventDefault();
       const items = Array.from(navItem.parentElement.querySelectorAll("[data-nav-item]"));
@@ -3264,7 +3318,6 @@
       else navItem.before(draggedNavItem);
       state.navOrder = Array.from(navItem.parentElement.querySelectorAll("[data-nav-item]")).map((item) => item.dataset.view);
       draggedNavItem = null;
-      saveState();
       render();
       return;
     }

@@ -213,11 +213,17 @@ textarea:focus {
 }
 
 .sidebar-pin {
+  appearance: none;
+  padding: 0;
   position: absolute;
   top: 34px;
   right: -14px;
   width: 28px;
   height: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  min-height: 28px;
+  max-height: 28px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -229,8 +235,14 @@ textarea:focus {
 }
 
 .sidebar-pin svg {
+  display: block;
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
+}
+
+.sidebar-pin * {
+  pointer-events: none;
 }
 
 .sidebar-pin:hover {
@@ -1216,7 +1228,7 @@ td button.link-button {
   }
 
   .sidebar-pin {
-    display: none;
+    display: none !important;
   }
 
   .sidebar .brand-mark {
@@ -1271,6 +1283,19 @@ td button.link-button {
   .cards-grid,
   .report-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .sidebar-pin {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
   }
 }
 

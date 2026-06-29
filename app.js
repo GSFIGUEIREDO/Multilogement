@@ -705,18 +705,24 @@
       chevronUp: '<path d="m7 13 5-5 5 5"/>',
       chevronDown: '<path d="m7 11 5 5 5-5"/>'
     };
-    return `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[name] || ""}</svg>`;
+    return `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;width:16px;height:16px;flex:0 0 16px">${icons[name] || ""}</svg>`;
+  }
+
+  function canPinSidebar() {
+    if (typeof window === "undefined" || !window.matchMedia) return true;
+    return window.matchMedia("(min-width: 1101px) and (hover: hover) and (pointer: fine)").matches;
   }
 
   function appShell(content) {
     const user = currentUser();
     const nav = orderedNavItems().filter((item) => item[3]);
     const isPinned = state.sidebarMode === "fixed";
+    const showSidebarPin = canPinSidebar();
 
     return `
       <div class="app-shell sidebar-${state.sidebarMode}">
         <aside class="sidebar">
-          <button class="sidebar-pin" type="button" data-action="toggle-sidebar-pin" aria-label="${isPinned ? "Replier le menu" : "Épingler le menu"}" aria-pressed="${isPinned}" title="${isPinned ? "Replier le menu" : "Épingler le menu"}">${iconSvg(isPinned ? "chevronLeft" : "chevronRight")}</button>
+          ${showSidebarPin ? `<button class="sidebar-pin" type="button" data-action="toggle-sidebar-pin" aria-label="${isPinned ? "Replier le menu" : "Épingler le menu"}" aria-pressed="${isPinned}" title="${isPinned ? "Replier le menu" : "Épingler le menu"}">${iconSvg(isPinned ? "chevronLeft" : "chevronRight")}</button>` : ""}
           <div class="sidebar-header">
             <div class="brand-mark"><span class="logo">CP</span><span class="brand-name">ClimaParc</span></div>
           </div>

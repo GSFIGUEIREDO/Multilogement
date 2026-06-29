@@ -16,6 +16,7 @@
     modal: null,
     toast: "",
     resetToken: "",
+    globalSearch: "",
     sidebarMode: "auto",
     mobileMenuOpen: false,
     navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "rapports", "utilisateurs", "parametres"],
@@ -355,6 +356,7 @@
     tickets: [
       {
         id: "tk-1",
+        number: "AS-2026-001",
         clientId: "client-azur",
         buildingId: "b-laval",
         apartmentId: "apt-504",
@@ -368,6 +370,7 @@
       },
       {
         id: "tk-2",
+        number: "AS-2026-002",
         clientId: "client-nord",
         buildingId: "b-nord",
         apartmentId: "apt-12",
@@ -483,9 +486,10 @@
       notes: "",
       ...building
     }));
-    next.tickets = (data.tickets || seed.tickets).map((ticket) => ({
+    next.tickets = (data.tickets || seed.tickets).map((ticket, index) => ({
       serviceTypeId: next.serviceTypes[0]?.id || "",
-      ...ticket
+      ...ticket,
+      number: ticket.number || ticketNumberFromIndex(index + 1, ticket.createdAt)
     }));
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
@@ -625,6 +629,7 @@
       mobileMenuOpen: false,
       toast: "",
       activeView: "tableau",
+      globalSearch: "",
       filters: { ...seed.filters }
     };
   }
@@ -634,6 +639,31 @@
     saveState();
     render();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
+  }
+
+  function updateGlobalSearch(input) {
+    state = { ...state, globalSearch: input.value };
+    render();
+    const nextInput = document.querySelector("[data-action='global-search']");
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.setSelectionRange(nextInput.value.length, nextInput.value.length);
+    }
+  }
+
+  function openSearchResult(target) {
+    const { type, id, equipment } = target.dataset;
+    const patch = { globalSearch: "", modal: null, mobileMenuOpen: false };
+    if (type === "building") Object.assign(patch, { selectedBuildingId: id, activeView: "lieu_detail" });
+    else if (type === "apartment") {
+      const apartment = state.apartments.find((item) => item.id === id);
+      Object.assign(patch, { selectedBuildingId: apartment?.buildingId || state.selectedBuildingId, activeView: "lieu_detail" });
+    } else if (type === "equipment") Object.assign(patch, { selectedEquipmentId: id, activeView: "detail" });
+    else if (type === "ticket") Object.assign(patch, { activeView: "appels", modal: { type: "ticket", id } });
+    else if (type === "workorder") Object.assign(patch, { activeView: "bons", modal: can("workorders") ? { type: "workorder", id } : null });
+    else if (type === "intervention") Object.assign(patch, { selectedEquipmentId: equipment, activeView: "detail" });
+    else if (type === "reminder") Object.assign(patch, { activeView: "alertes", modal: { type: "reminder", id } });
+    setState(patch);
   }
 
   function scheduleToastClear() {
@@ -830,6 +860,21 @@
     return new Date().toISOString().slice(0, 10);
   }
 
+  function ticketNumberFromIndex(index, dateValue = today()) {
+    const year = (dateValue || today()).slice(0, 4) || new Date().getFullYear();
+    return `AS-${year}-${String(index).padStart(3, "0")}`;
+  }
+
+  function nextTicketNumber() {
+    const year = today().slice(0, 4);
+    const numbers = state.tickets
+      .map((ticket) => ticket.number || "")
+      .filter((number) => number.startsWith(`AS-${year}-`))
+      .map((number) => Number(number.split("-").pop()))
+      .filter(Number.isFinite);
+    return `AS-${year}-${String((Math.max(0, ...numbers) || 0) + 1).padStart(3, "0")}`;
+  }
+
   function addDateInterval(dateValue, amount, unit) {
     const date = new Date(`${dateValue || today()}T12:00:00`);
     if (unit === "months") date.setMonth(date.getMonth() + Number(amount || 1));
@@ -839,6 +884,145 @@
 
   function uid(prefix) {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function normalizeSearch(value) {
+    return String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, " ")
+      .toLowerCase()
+      .trim();
+  }
+
+  function searchText(...values) {
+    return normalizeSearch(values.flat().filter(Boolean).join(" "));
+  }
+
+  function dateSearchParts(...dates) {
+    return dates.filter(Boolean).flatMap((date) => {
+      const year = date.slice(0, 4);
+      const month = date.slice(5, 7);
+      const day = date.slice(8, 10);
+      return [date, formatDate(date), year, `${year}-${month}`, `${day}/${month}/${year}`, `${day} ${month} ${year}`, `${month} ${year}`];
+    });
+  }
+
+  function globalSearchResults() {
+    const query = normalizeSearch(state.globalSearch);
+    if (!query) return [];
+    const rows = [];
+    scopedBuildings().forEach((building) => {
+      const client = state.clients.find((item) => item.id === building.clientId);
+      rows.push({
+        type: "building",
+        id: building.id,
+        label: "Lieu",
+        title: building.name,
+        detail: `${building.address} | ${client?.name || ""}`,
+        text: searchText(building.name, building.address, building.onsiteContactName, building.onsiteContactPhone, building.onsiteContactEmail, building.billingContactName, building.billingContactPhone, building.billingContactEmail, building.notes, client?.name)
+      });
+    });
+    scopedApartments().forEach((apartment) => {
+      const building = buildingForApartment(apartment.id);
+      rows.push({
+        type: "apartment",
+        id: apartment.id,
+        label: "Appartement",
+        title: `Appartement ${apartment.number}`,
+        detail: `${building?.name || "-"} | ${apartment.occupant || ""}`,
+        text: searchText(apartment.number, apartment.occupant, building?.name, building?.address)
+      });
+    });
+    scopedEquipment().forEach((equipment) => {
+      const { apartment, building } = equipmentContext(equipment.id);
+      rows.push({
+        type: "equipment",
+        id: equipment.id,
+        label: "Équipement",
+        title: `${equipment.type} | ${equipment.serial || "-"}`,
+        detail: `${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment.brand || ""} ${equipment.model || ""}`,
+        text: searchText(equipment.type, equipment.brand, equipment.model, equipment.serial, equipment.location, equipment.status, statusText(equipment.status), equipment.notes, building?.name, building?.address, apartment?.number, apartment?.occupant, dateSearchParts(equipment.installDate, equipment.lastService, equipment.nextService))
+      });
+    });
+    scopedTickets().forEach((ticket) => {
+      const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
+      const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
+      rows.push({
+        type: "ticket",
+        id: ticket.id,
+        label: "Appel",
+        title: `${ticket.number || ticket.id} | ${ticket.title}`,
+        detail: `${serviceType?.name || "-"} | ${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${statusText(ticket.status)}`,
+        text: searchText(ticket.number, ticket.id, ticket.title, ticket.description, ticket.priority, statusText(ticket.priority), ticket.status, statusText(ticket.status), serviceType?.name, building?.name, building?.address, apartment?.number, apartment?.occupant, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(ticket.createdAt))
+      });
+    });
+    scopedWorkOrders().forEach((order) => {
+      const { equipment, apartment, building } = workOrderContext(order);
+      const type = state.interventionTypes.find((item) => item.id === order.typeId);
+      const tech = state.users.find((item) => item.id === order.technicianId);
+      rows.push({
+        type: "workorder",
+        id: order.id,
+        label: "Bon de travail",
+        title: `${order.number} | ${type?.name || ""}`,
+        detail: `${building?.name || "-"} ${apartment ? `| Apt ${apartment.number}` : "| Bloc complet"} | ${statusText(order.status)}`,
+        text: searchText(order.number, order.id, type?.name, tech?.name, order.status, statusText(order.status), order.notes, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(order.scheduledDate))
+      });
+    });
+    state.interventions
+      .filter((intervention) => scopedEquipment().some((equipment) => equipment.id === intervention.equipmentId))
+      .forEach((intervention) => {
+        const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
+        const type = state.interventionTypes.find((item) => item.id === intervention.typeId);
+        const tech = state.users.find((item) => item.id === intervention.technicianId);
+        rows.push({
+          type: "intervention",
+          id: intervention.id,
+          equipmentId: intervention.equipmentId,
+          label: "Intervention",
+          title: `${type?.name || "Intervention"} | ${formatDate(intervention.date)}`,
+          detail: `${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`,
+          text: searchText(type?.name, intervention.status, statusText(intervention.status), intervention.summary, Object.entries(intervention.readings || {}).flat(), tech?.name, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(intervention.date))
+        });
+      });
+    scopedReminders().forEach((reminder) => {
+      const { equipment, apartment, building } = equipmentContext(reminder.equipmentId);
+      rows.push({
+        type: "reminder",
+        id: reminder.id,
+        label: "Rappel",
+        title: reminder.title,
+        detail: `${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${formatDate(reminder.nextDueDate)} | ${statusText(reminderStatus(reminder))}`,
+        text: searchText(reminder.title, reminder.status, statusText(reminderStatus(reminder)), reminder.notes, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(reminder.startDate, reminder.nextDueDate, reminder.createdAt))
+      });
+    });
+    return rows.filter((row) => row.text.includes(query)).slice(0, 12);
+  }
+
+  function globalSearchBox() {
+    const query = state.globalSearch || "";
+    const results = globalSearchResults();
+    return `
+      <section class="global-search">
+        <div class="global-search-input-wrap">
+          <span class="search-icon" aria-hidden="true">${iconSvg("search")}</span>
+          <input data-action="global-search" value="${escapeHtml(query)}" placeholder="Rechercher dans ClimaParc" autocomplete="off">
+          ${query ? `<button class="icon-button search-clear" type="button" data-action="clear-global-search" aria-label="Effacer">X</button>` : ""}
+        </div>
+        ${query ? `
+          <div class="global-search-results">
+            ${results.map((result) => `
+              <button class="search-result" type="button" data-action="open-search-result" data-type="${escapeHtml(result.type)}" data-id="${escapeHtml(result.id)}" data-equipment="${escapeHtml(result.equipmentId || "")}">
+                <span>${escapeHtml(result.label)}</span>
+                <strong>${escapeHtml(result.title)}</strong>
+                <small>${escapeHtml(result.detail)}</small>
+              </button>
+            `).join("") || `<div class="empty search-empty">Aucun résultat trouvé.</div>`}
+          </div>
+        ` : ""}
+      </section>
+    `;
   }
 
   function escapeHtml(value) {
@@ -855,6 +1039,7 @@
       pin: '<path d="M15 4.5 19.5 9l-3.1 3.1.5 4.1-1.4 1.4-4.2-4.2L7 17.7 6.3 17l4.3-4.3-4.2-4.2 1.4-1.4 4.1.5L15 4.5Z"/><path d="m9.5 14.5-4 4"/>',
       pencil: '<path d="m14.6 4.4 3 3"/><path d="M5 16.9 6 13l8.7-8.7a2.1 2.1 0 0 1 3 3L9 16l-4 .9Z"/>',
       grip: '<path d="M8 6h8M8 10h8M8 14h8"/>',
+      search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
       chevronLeft: '<path d="m15 18-6-6 6-6"/>',
       chevronRight: '<path d="m9 18 6-6-6-6"/>',
       chevronUp: '<path d="m7 13 5-5 5 5"/>',
@@ -905,7 +1090,7 @@
             <button class="ghost-button" data-action="logout">Déconnexion</button>
           </div>
         </aside>
-        <main class="main">${content}</main>
+        <main class="main">${globalSearchBox()}${content}</main>
       </div>
       ${state.modal ? renderModal() : ""}
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
@@ -1466,7 +1651,7 @@
     return `
       <article class="list-item">
         <div class="actions" style="justify-content:space-between">
-          <h3>${escapeHtml(ticket.title)}</h3>
+          <h3>${escapeHtml(ticket.number || ticket.id)} - ${escapeHtml(ticket.title)}</h3>
           <span>${statusBadge(ticket.priority)} ${statusBadge(ticket.status)}</span>
         </div>
         <div class="meta">Type: ${escapeHtml(serviceType?.name || "-")}</div>
@@ -1947,6 +2132,7 @@
     return modalShell(ticket.id ? "Modifier l'appel de service" : "Nouvel appel de service", `
       <form class="form-grid" data-form="ticket">
         <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
+        ${ticket.id ? `<div class="field"><label>Numéro d'appel</label><input value="${escapeHtml(ticket.number || ticket.id)}" readonly></div>` : ""}
         <div class="field"><label>Équipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
         <div class="field"><label>Type d'appel</label><select name="serviceTypeId">${serviceOptions}</select></div>
         <div class="split">
@@ -2795,6 +2981,7 @@
     }
     const ticket = {
       id: uid("tk"),
+      number: nextTicketNumber(),
       clientId: currentUser().role === "client" ? currentUser().clientId : clientForBuilding(building.id)?.id,
       buildingId: building.id,
       apartmentId: apartment.id,
@@ -3405,7 +3592,7 @@
           const { apartment, building, equipment } = equipmentContext(ticket.equipmentId);
           return {
             nature: "Appel de service",
-            reference: ticket.id,
+            reference: ticket.number || ticket.id,
             date: ticket.createdAt,
             immeuble: building?.name,
             appartement: apartment?.number,
@@ -3434,6 +3621,7 @@
   }
 
   function statusText(status) {
+    if (!status) return "";
     const html = statusBadge(status);
     return html.replace(/<[^>]+>/g, "");
   }
@@ -3485,6 +3673,14 @@
       if (action === "logout") logout();
       if (action === "combo-option") {
         chooseComboOption(target);
+        return;
+      }
+      if (action === "clear-global-search") {
+        setState({ globalSearch: "" });
+        return;
+      }
+      if (action === "open-search-result") {
+        openSearchResult(target);
         return;
       }
       if (action === "view") setState({ activeView: target.dataset.view, modal: null, mobileMenuOpen: false });
@@ -3606,6 +3802,10 @@
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
     });
     app.addEventListener("input", (event) => {
+      if (event.target.dataset.action === "global-search") {
+        updateGlobalSearch(event.target);
+        return;
+      }
       updateDynamicVisibility(event.target.closest("form"));
       if (event.target.matches("[data-combo-input]")) updateComboOptions(event.target);
       if (event.target.name === "q-label") refreshFormBranching(event.target.closest("form"));

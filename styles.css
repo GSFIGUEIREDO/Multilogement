@@ -417,6 +417,118 @@ textarea:focus {
   padding: 24px;
 }
 
+.global-search {
+  position: sticky;
+  top: 14px;
+  z-index: 9;
+  width: min(560px, 100%);
+  margin: 0 0 18px;
+}
+
+.global-search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 8px 22px rgba(25, 46, 50, 0.08);
+}
+
+.global-search-input-wrap input {
+  min-height: 42px;
+  padding: 10px 46px 10px 46px;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+  background: transparent;
+}
+
+.global-search-input-wrap input:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.search-icon {
+  position: absolute;
+  left: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search-clear {
+  position: absolute;
+  right: 4px;
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  border-radius: 999px;
+}
+
+.global-search-results {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 6px;
+  max-height: min(520px, calc(100vh - 150px));
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.search-result {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.search-result:hover,
+.search-result:focus {
+  background: var(--surface-soft);
+}
+
+.search-result span {
+  grid-row: span 2;
+  align-self: start;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--brand-dark);
+  background: #e8f2f3;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.search-result strong,
+.search-result small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.search-empty {
+  min-height: 90px;
+}
+
 .topbar {
   display: flex;
   gap: 18px;
@@ -1443,6 +1555,11 @@ td button.link-button {
   .report-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .global-search {
+    top: 70px;
+    width: 100%;
+  }
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -1495,6 +1612,19 @@ td button.link-button {
   .panel-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .global-search {
+    margin-bottom: 14px;
+  }
+
+  .search-result {
+    grid-template-columns: 1fr;
+  }
+
+  .search-result span {
+    grid-row: auto;
+    width: max-content;
   }
 
   .actions {

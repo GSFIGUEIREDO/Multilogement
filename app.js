@@ -17,6 +17,7 @@
     toast: "",
     resetToken: "",
     sidebarMode: "auto",
+    mobileMenuOpen: false,
     navOrder: ["tableau", "lieux", "equipements", "appels", "bons", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
@@ -374,6 +375,7 @@
     const next = { ...JSON.parse(JSON.stringify(seed)), ...data };
     next.filters = { ...seed.filters, ...(data.filters || {}) };
     next.sidebarMode = data.sidebarMode || seed.sidebarMode;
+    next.mobileMenuOpen = false;
     next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
@@ -505,6 +507,7 @@
       ...state,
       sessionUserId: null,
       modal: null,
+      mobileMenuOpen: false,
       toast: "",
       activeView: "tableau",
       filters: { ...seed.filters }
@@ -720,7 +723,12 @@
     const showSidebarPin = canPinSidebar();
 
     return `
-      <div class="app-shell sidebar-${state.sidebarMode}">
+      <div class="app-shell sidebar-${state.sidebarMode} ${state.mobileMenuOpen ? "mobile-menu-open" : ""}">
+        <header class="mobile-appbar">
+          <div class="brand-mark"><span class="logo">CP</span><span class="brand-name">ClimaParc</span></div>
+          <button class="mobile-menu-button" type="button" data-action="toggle-mobile-menu" aria-expanded="${state.mobileMenuOpen}" aria-label="${state.mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}">${state.mobileMenuOpen ? "Fermer" : "Menu"}</button>
+        </header>
+        <button class="mobile-menu-backdrop" type="button" data-action="close-mobile-menu" aria-label="Fermer le menu"></button>
         <aside class="sidebar">
           ${showSidebarPin ? `<button class="sidebar-pin" type="button" data-action="toggle-sidebar-pin" aria-label="${isPinned ? "Replier le menu" : "Épingler le menu"}" aria-pressed="${isPinned}" title="${isPinned ? "Replier le menu" : "Épingler le menu"}">${iconSvg(isPinned ? "chevronLeft" : "chevronRight")}</button>` : ""}
           <div class="sidebar-header">
@@ -3005,7 +3013,15 @@
       const action = target.dataset.action;
       if (action === "close-modal" && modalCard && target.classList.contains("modal-backdrop")) return;
       if (action === "logout") logout();
-      if (action === "view") setState({ activeView: target.dataset.view, modal: null });
+      if (action === "view") setState({ activeView: target.dataset.view, modal: null, mobileMenuOpen: false });
+      if (action === "toggle-mobile-menu") {
+        setState({ mobileMenuOpen: !state.mobileMenuOpen });
+        return;
+      }
+      if (action === "close-mobile-menu") {
+        setState({ mobileMenuOpen: false });
+        return;
+      }
       if (action === "toggle-sidebar-pin") {
         setState({
           sidebarMode: state.sidebarMode === "fixed" ? "auto" : "fixed",

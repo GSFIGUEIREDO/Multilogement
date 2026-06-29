@@ -2274,15 +2274,19 @@
     `;
   }
 
-  function activityOptions(name, config) {
-    const centralOptions = dataFieldOptionsForConfig(config).map((option) => option.value);
+  function activityOptions(name, config = {}) {
+    const localOptions = config.options || [];
+    if (config.dataFieldId) {
+      const centralOptions = dataFieldOptionsForConfig(config).map((option) => option.value);
+      return Array.from(new Set([...centralOptions, ...localOptions])).sort((a, b) => a.localeCompare(b, "fr"));
+    }
     const fromInventory = state.equipment.map((item) => ({
       type: item.type,
       location: item.location,
       brand: item.brand,
       model: item.model
     }[name])).filter(Boolean);
-    return Array.from(new Set([...centralOptions, ...(config.options || []), ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
+    return Array.from(new Set([...localOptions, ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
   }
 
   function dataFieldOptionsForConfig(config = {}) {

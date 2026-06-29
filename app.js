@@ -189,6 +189,53 @@
       { id: "panne", name: "Panne ou arrêt complet", defaultPriority: "urgente", linkedInterventionTypeId: "reparation" },
       { id: "entretien", name: "Demande d'entretien", defaultPriority: "normale", linkedInterventionTypeId: "nettoyage" }
     ],
+    dataFields: [
+      {
+        id: "equipment_type",
+        name: "Type",
+        group: "Machine",
+        type: "single",
+        appliesTo: ["activity", "equipment"],
+        options: ["Thermopompe murale", "Fan coil", "Unité PTAC", "Échangeur d'air"]
+      },
+      {
+        id: "equipment_location",
+        name: "Localisation",
+        group: "Machine",
+        type: "single",
+        appliesTo: ["activity", "equipment"],
+        options: ["Salon", "Chambre principale", "Pièce principale", "Salle mécanique", "Placard technique"]
+      },
+      {
+        id: "equipment_brand",
+        name: "Marque",
+        group: "Machine",
+        type: "single",
+        appliesTo: ["activity", "equipment"],
+        options: ["Carrier", "ADP", "Gree", "DirectAir", "Ecobee", "Sinopé", "Applied Comfort", "LG", "GE", "Payne", "Bosch", "Rheem", "Fujitsu", "Toshiba", "Mitsubishi", "Daikin", "Venmar"]
+      },
+      {
+        id: "equipment_model",
+        name: "Modèle",
+        group: "Machine",
+        type: "single",
+        appliesTo: ["activity", "equipment"],
+        options: ["MSZ-FS09", "42C", "PZE12K", "DZ14SA", "AVS N Series", "EAC15"]
+      },
+      {
+        id: "equipment_status",
+        name: "Statut",
+        group: "Machine",
+        type: "single",
+        appliesTo: ["activity", "equipment"],
+        options: [
+          { id: "actif", label: "Actif", value: "actif" },
+          { id: "surveillance", label: "Surveillance", value: "surveillance" },
+          { id: "a_planifier", label: "À planifier", value: "a_planifier" },
+          { id: "hors_service", label: "Hors service", value: "hors_service" }
+        ]
+      }
+    ],
     formTemplates: [
       {
         id: "form-nettoyage-bloc",
@@ -378,6 +425,7 @@
     next.mobileMenuOpen = false;
     next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
+    next.dataFields = normalizeDataFields(data.dataFields || seed.dataFields);
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
       id: template.id,
       name: template.name,
@@ -458,12 +506,12 @@
 
   function normalizeActivityFields(config = {}) {
     const defaults = {
-      type: { label: "Type", required: true, options: [] },
-      location: { label: "Localisation", required: true, options: [] },
-      brand: { label: "Marque", required: false, options: [] },
-      model: { label: "Modèle", required: false, options: [] },
+      type: { label: "Type", required: true, options: [], dataFieldId: "equipment_type", optionIds: [] },
+      location: { label: "Localisation", required: true, options: [], dataFieldId: "equipment_location", optionIds: [] },
+      brand: { label: "Marque", required: false, options: [], dataFieldId: "equipment_brand", optionIds: [] },
+      model: { label: "Modèle", required: false, options: [], dataFieldId: "equipment_model", optionIds: [] },
       serial: { label: "Numéro de série", required: false, options: [] },
-      status: { label: "Statut", required: true, options: [] },
+      status: { label: "Statut", required: true, options: [], dataFieldId: "equipment_status", optionIds: [] },
       notes: { label: "Notes machine", required: false, options: [] }
     };
     return Object.fromEntries(Object.entries(defaults).map(([key, value]) => [
@@ -471,9 +519,35 @@
       {
         ...value,
         ...(config[key] || {}),
-        options: config[key]?.options || value.options
+        options: config[key]?.options || value.options,
+        optionIds: config[key]?.optionIds || []
       }
     ]));
+  }
+
+  function normalizeDataFields(fields = []) {
+    return fields.map((field) => ({
+      id: field.id || uid("datafield"),
+      name: field.name || field.label || "Champ",
+      group: field.group || "Non groupé",
+      type: field.type || "single",
+      appliesTo: field.appliesTo?.length ? field.appliesTo : ["activity"],
+      options: normalizeDataOptions(field.options || [])
+    }));
+  }
+
+  function normalizeDataOptions(options = []) {
+    return options.map((option) => {
+      if (typeof option === "string") {
+        return { id: slugify(option), label: option, value: option, active: true };
+      }
+      return {
+        id: option.id || slugify(option.label || option.value),
+        label: option.label || option.value || "",
+        value: option.value || option.label || "",
+        active: option.active !== false
+      };
+    }).filter((option) => option.label);
   }
 
   function mergeNavOrder(order = []) {
@@ -1486,12 +1560,32 @@
   function settingsView() {
     return appShell(`
       ${renderTopbar("Paramètres", "Types d'appels, checklists et droits d'accès.", `
+        <button class="primary-button" data-action="open-modal" data-modal="dataField">Champ de données</button>
         <button class="primary-button" data-action="open-modal" data-modal="serviceType">Type d'appel</button>
         <button class="ghost-button" data-action="open-modal" data-modal="interventionType">Type de checklist</button>
         <button class="ghost-button" data-action="open-modal" data-modal="formTemplate">Formulaire terrain</button>
       `)}
       <section class="grid">
         <div class="stack">
+          <div class="panel">
+            <div class="panel-header"><h2>Champs de données</h2></div>
+            <div class="panel-body cards-list">
+              ${dataFieldGroups().map(([group, fields]) => `
+                <div class="data-field-group">
+                  <div class="data-field-group-title">${escapeHtml(group)} <span>${fields.length}</span></div>
+                  ${fields.map((field) => `
+                    <article class="list-item data-field-item">
+                      <div>
+                        <h3>${escapeHtml(field.name)}</h3>
+                        <div class="meta">${dataFieldTypeLabel(field.type)} | ${field.options.length} option${field.options.length > 1 ? "s" : ""} | ${field.appliesTo.map((item) => item === "activity" ? "Activité" : "Machine").join(", ")}</div>
+                      </div>
+                      <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="dataField" data-id="${field.id}">Modifier</button></div>
+                    </article>
+                  `).join("")}
+                </div>
+              `).join("")}
+            </div>
+          </div>
           <div class="panel">
             <div class="panel-header"><h2>Types d'appel de service</h2></div>
             <div class="panel-body cards-list">
@@ -1553,6 +1647,28 @@
     `);
   }
 
+  function dataFieldGroups() {
+    const groups = new Map();
+    state.dataFields.forEach((field) => {
+      const group = field.group || "Non groupé";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(field);
+    });
+    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
+  }
+
+  function dataFieldTypeLabel(type) {
+    return {
+      text: "Texte",
+      long: "Texte long",
+      single: "Option unique",
+      multiple: "Options multiples",
+      number: "Numérique",
+      date: "Date",
+      phone: "Téléphone"
+    }[type] || type;
+  }
+
   function renderModal() {
     const modal = state.modal;
     if (modal.type === "ticket") return ticketModal(modal);
@@ -1562,6 +1678,7 @@
     if (modal.type === "equipment") return equipmentModal(modal);
     if (modal.type === "user") return userModal(modal);
     if (modal.type === "serviceType") return serviceTypeModal(modal);
+    if (modal.type === "dataField") return dataFieldModal(modal);
     if (modal.type === "interventionType") return interventionTypeModal(modal);
     if (modal.type === "formTemplate") return formTemplateModal(modal);
     if (modal.type === "role") return roleModal(modal);
@@ -1735,6 +1852,8 @@
 
   function equipmentModal(modal) {
     const equipment = state.equipment.find((item) => item.id === modal.id) || { apartmentId: modal.apartmentId };
+    const equipmentFields = normalizeActivityFields({});
+    const statusOptions = dataFieldOptionsForSelect(equipmentFields.status);
     const apartmentOptions = scopedApartments().map((apartment) => {
       const building = buildingForApartment(apartment.id);
       return `<option value="${apartment.id}" ${equipment.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment.number)}</option>`;
@@ -1744,12 +1863,12 @@
         <input type="hidden" name="id" value="${escapeHtml(equipment.id || "")}">
         <div class="field"><label>Appartement</label><select name="apartmentId">${apartmentOptions}</select></div>
         <div class="split">
-          <div class="field"><label>Type</label><input name="type" value="${escapeHtml(equipment.type || "")}" required></div>
-          <div class="field"><label>Localisation</label><input name="location" value="${escapeHtml(equipment.location || "")}" required></div>
+          <div class="field combo-field"><label>Type</label>${comboInput("type", equipment.type || "", activityOptions("type", equipmentFields.type), true)}</div>
+          <div class="field combo-field"><label>Localisation</label>${comboInput("location", equipment.location || "", activityOptions("location", equipmentFields.location), true)}</div>
         </div>
         <div class="split">
-          <div class="field"><label>Marque</label><input name="brand" value="${escapeHtml(equipment.brand || "")}" required></div>
-          <div class="field"><label>Modèle</label><input name="model" value="${escapeHtml(equipment.model || "")}" required></div>
+          <div class="field combo-field"><label>Marque</label>${comboInput("brand", equipment.brand || "", activityOptions("brand", equipmentFields.brand), true)}</div>
+          <div class="field combo-field"><label>Modèle</label>${comboInput("model", equipment.model || "", activityOptions("model", equipmentFields.model), true)}</div>
         </div>
         <div class="split">
           <div class="field"><label>Numéro de série</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div>
@@ -1759,7 +1878,7 @@
           <div class="field"><label>Dernier service</label><input name="lastService" type="date" value="${escapeHtml(equipment.lastService || "")}"></div>
           <div class="field"><label>Prochain service</label><input name="nextService" type="date" value="${escapeHtml(equipment.nextService || "")}"></div>
         </div>
-        <div class="field"><label>Statut</label><select name="status"><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>À planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+        <div class="field"><label>Statut</label><select name="status">${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${equipment.status === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(equipment.notes || "")}</textarea></div>
         <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
       </form>
@@ -1785,6 +1904,44 @@
         <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
       </form>
     `);
+  }
+
+  function dataFieldModal(modal) {
+    const field = state.dataFields.find((item) => item.id === modal.id) || { type: "single", group: "Machine", appliesTo: ["activity", "equipment"], options: [] };
+    return modalShell(field.id ? "Modifier le champ de données" : "Nouveau champ de données", `
+      <form class="form-grid" data-form="dataField">
+        <input type="hidden" name="id" value="${escapeHtml(field.id || "")}">
+        <div class="split">
+          <div class="field"><label>Nom du champ</label><input name="name" value="${escapeHtml(field.name || "")}" required placeholder="Ex.: Marque"></div>
+          <div class="field"><label>Groupe de champs</label><input name="group" value="${escapeHtml(field.group || "Machine")}" required placeholder="Ex.: Machine"></div>
+        </div>
+        <div class="split">
+          <div class="field">
+            <label>Type de champ</label>
+            <select name="type">
+              ${["text", "long", "single", "multiple", "number", "date", "phone"].map((type) => `<option value="${type}" ${field.type === type ? "selected" : ""}>${dataFieldTypeLabel(type)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>Appliquer à</label>
+            <div class="choice-list">
+              <label><input type="checkbox" name="appliesTo" value="activity" ${field.appliesTo?.includes("activity") ? "checked" : ""}> Activités terrain</label>
+              <label><input type="checkbox" name="appliesTo" value="equipment" ${field.appliesTo?.includes("equipment") ? "checked" : ""}> Dossier machine</label>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Options</label>
+          <p class="meta">Une option par ligne. Pour une valeur interne différente, utilisez: Étiquette | valeur</p>
+          <textarea name="options" rows="12" placeholder="Carrier&#10;Gree&#10;Actif | actif">${escapeHtml(dataFieldOptionLines(field))}</textarea>
+        </div>
+        <button class="primary-button" type="submit">${field.id ? "Enregistrer" : "Créer le champ"}</button>
+      </form>
+    `);
+  }
+
+  function dataFieldOptionLines(field) {
+    return (field.options || []).map((option) => option.value && option.value !== option.label ? `${option.label} | ${option.value}` : option.label).join("\n");
   }
 
   function serviceTypeModal(modal) {
@@ -1854,14 +2011,35 @@
   }
 
   function formActivityFieldRow(key, label, config = {}) {
-    const supportsOptions = ["type", "location", "brand", "model"].includes(key);
+    const supportsOptions = ["type", "location", "brand", "model", "status"].includes(key);
+    const availableFields = state.dataFields.filter((field) => field.appliesTo.includes("activity"));
+    const selectedField = config.dataFieldId ? state.dataFields.find((field) => field.id === config.dataFieldId) : null;
+    const selectedIds = config.optionIds || [];
     return `
       <article class="activity-field-card" data-activity-field="${key}">
         <div class="activity-field-head">
           <strong>${escapeHtml(label)}</strong>
           <label class="inline-check"><input type="checkbox" name="activity-required-${key}" ${config.required ? "checked" : ""}><span>Obligatoire</span></label>
         </div>
-        ${supportsOptions ? `<div class="field"><label>Options suggérées</label><textarea name="activity-options-${key}" placeholder="Une option par ligne">${escapeHtml((config.options || []).join("\n"))}</textarea></div>` : ""}
+        ${supportsOptions ? `
+          <div class="field">
+            <label>Champ de données central</label>
+            <select name="activity-datafield-${key}">
+              <option value="">Aucun champ central</option>
+              ${availableFields.map((field) => `<option value="${escapeHtml(field.id)}" ${selectedField?.id === field.id ? "selected" : ""}>${escapeHtml(field.group)} - ${escapeHtml(field.name)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field data-option-picker">
+            <label>Options visibles</label>
+            <div class="meta">Laissez tout décoché pour afficher toutes les options du champ.</div>
+            <div class="choice-list option-chip-list">
+              ${(selectedField?.options || []).map((option) => `
+                <label><input type="checkbox" name="activity-option-${key}" value="${escapeHtml(option.id)}" ${selectedIds.includes(option.id) ? "checked" : ""}> ${escapeHtml(option.label)}</label>
+              `).join("") || `<span class="meta">Aucune option dans ce champ.</span>`}
+            </div>
+          </div>
+          <div class="field"><label>Options supplémentaires locales</label><textarea name="activity-options-${key}" placeholder="Une option par ligne">${escapeHtml((config.options || []).join("\n"))}</textarea></div>
+        ` : ""}
       </article>
     `;
   }
@@ -2046,6 +2224,7 @@
     const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}${item.occupant ? ` - ${escapeHtml(item.occupant)}` : ""}</option>`).join("");
     const template = formTemplateForOrder(order);
     const activityFields = normalizeActivityFields(template?.activityFields);
+    const statusOptions = dataFieldOptionsForSelect(activityFields.status);
     const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
     return modalShell(`Nouvelle activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
       <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(equipment.id || "")}">
@@ -2066,7 +2245,7 @@
         </div>
         <div class="split">
           <div class="field"><label>${activityFields.serial.label}${activityFields.serial.required ? " *" : ""}</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" ${activityFields.serial.required ? "required" : ""}></div>
-          <div class="field"><label>${activityFields.status.label}${activityFields.status.required ? " *" : ""}</label><select name="status" ${activityFields.status.required ? "required" : ""}><option value="actif" ${equipment.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${equipment.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${equipment.status === "a_planifier" ? "selected" : ""}>A planifier</option><option value="hors_service" ${equipment.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+          <div class="field"><label>${activityFields.status.label}${activityFields.status.required ? " *" : ""}</label><select name="status" ${activityFields.status.required ? "required" : ""}>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${equipment.status === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
         </div>
         <div class="field"><label>${activityFields.notes.label}${activityFields.notes.required ? " *" : ""}</label><textarea name="equipmentNotes" ${activityFields.notes.required ? "required" : ""}>${escapeHtml(equipment.notes || "")}</textarea></div>
         <div class="form-section-title">${escapeHtml(template?.name || "Formulaire")}</div>
@@ -2096,13 +2275,28 @@
   }
 
   function activityOptions(name, config) {
+    const centralOptions = dataFieldOptionsForConfig(config).map((option) => option.value);
     const fromInventory = state.equipment.map((item) => ({
       type: item.type,
       location: item.location,
       brand: item.brand,
       model: item.model
     }[name])).filter(Boolean);
-    return Array.from(new Set([...(config.options || []), ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
+    return Array.from(new Set([...centralOptions, ...(config.options || []), ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
+  }
+
+  function dataFieldOptionsForConfig(config = {}) {
+    const dataField = state.dataFields.find((field) => field.id === config.dataFieldId);
+    if (!dataField) return normalizeDataOptions(config.options || []);
+    const selected = config.optionIds || [];
+    return dataField.options.filter((option) => option.active !== false && (!selected.length || selected.includes(option.id)));
+  }
+
+  function dataFieldOptionsForSelect(config = {}) {
+    return dataFieldOptionsForConfig(config).map((option) => ({
+      value: option.value,
+      label: option.label
+    }));
   }
 
   function comboInput(name, value, options, required = false) {
@@ -2159,6 +2353,7 @@
     if (formType === "workorder") createWorkOrder(values);
     if (formType === "equipment") createEquipment(values);
     if (formType === "user") createUser(values);
+    if (formType === "dataField") saveDataField(form, values);
     if (formType === "serviceType") saveServiceType(values);
     if (formType === "interventionType") saveInterventionType(values);
     if (formType === "formTemplate") saveFormTemplate(form, values);
@@ -2550,6 +2745,33 @@
     setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Checklist modifiée." : "Checklist créée." });
   }
 
+  function saveDataField(form, values) {
+    const appliesTo = Array.from(form.querySelectorAll('[name="appliesTo"]:checked')).map((input) => input.value);
+    const payload = {
+      id: values.id || uid("datafield"),
+      name: values.name.trim(),
+      group: values.group.trim() || "Non groupé",
+      type: values.type || "single",
+      appliesTo: appliesTo.length ? appliesTo : ["activity"],
+      options: parseDataFieldOptions(values.options || "")
+    };
+    const index = state.dataFields.findIndex((item) => item.id === payload.id);
+    if (index >= 0) state.dataFields[index] = payload;
+    else state.dataFields.push(payload);
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Champ de données modifié." : "Champ de données créé." });
+  }
+
+  function parseDataFieldOptions(value) {
+    return value.split(/\r?\n/).map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return null;
+      const [labelPart, valuePart] = trimmed.split("|").map((part) => part.trim());
+      const label = labelPart || valuePart;
+      const optionValue = valuePart || labelPart;
+      return { id: slugify(optionValue || label), label, value: optionValue, active: true };
+    }).filter(Boolean);
+  }
+
   function saveFormTemplate(form, values) {
     const fields = Array.from(form.querySelectorAll("[data-question]")).map((card) => {
       const label = card.querySelector('[name="q-label"]')?.value.trim();
@@ -2620,6 +2842,8 @@
       {
         label,
         required: Boolean(form.querySelector(`[name="activity-required-${key}"]`)?.checked),
+        dataFieldId: form.querySelector(`[name="activity-datafield-${key}"]`)?.value || "",
+        optionIds: Array.from(form.querySelectorAll(`[name="activity-option-${key}"]:checked`)).map((input) => input.value),
         options: parseOptions(form.querySelector(`[name="activity-options-${key}"]`)?.value || "")
       }
     ]));
@@ -3119,6 +3343,7 @@
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
+      if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
     });
     app.addEventListener("input", (event) => {
       updateDynamicVisibility(event.target.closest("form"));
@@ -3195,6 +3420,17 @@
     if (show && list && !list.querySelector("[data-option-row]")) {
       addFormOption(card);
     }
+  }
+
+  function updateActivityOptionPicker(select) {
+    const key = select.name.replace("activity-datafield-", "");
+    const card = select.closest("[data-activity-field]");
+    const list = card?.querySelector(".option-chip-list");
+    const field = state.dataFields.find((item) => item.id === select.value);
+    if (!list) return;
+    list.innerHTML = (field?.options || []).map((option) => `
+      <label><input type="checkbox" name="activity-option-${key}" value="${escapeHtml(option.id)}"> ${escapeHtml(option.label)}</label>
+    `).join("") || `<span class="meta">Aucune option dans ce champ.</span>`;
   }
 
   function removeFormOption(row) {

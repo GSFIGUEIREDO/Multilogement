@@ -857,6 +857,33 @@ td button.link-button {
   background: #e9f5f6;
 }
 
+.data-field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.data-field-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--brand-dark);
+  font-weight: 900;
+}
+
+.data-field-group-title span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.data-field-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .progress-panel {
   margin-bottom: 16px;
 }
@@ -1098,6 +1125,12 @@ td button.link-button {
 .choice-list input {
   width: 18px;
   height: 18px;
+}
+
+.option-chip-list {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .timeline {
@@ -1448,7 +1481,8 @@ td button.link-button {
   }
 
   .place-metrics,
-  .split {
+  .split,
+  .data-field-item {
     grid-template-columns: 1fr;
   }
 

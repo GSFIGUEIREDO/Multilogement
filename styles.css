@@ -576,6 +576,58 @@ td button.link-button {
   font-size: 0.98rem;
 }
 
+.attachment-open {
+  display: grid;
+  gap: 3px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.attachment-open span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.attachment-preview-modal {
+  width: min(1080px, calc(100vw - 28px));
+}
+
+.attachment-preview {
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.attachment-preview-image,
+.attachment-preview-video,
+.attachment-preview-frame {
+  max-width: 100%;
+  width: 100%;
+}
+
+.attachment-preview-image {
+  max-height: 72vh;
+  object-fit: contain;
+}
+
+.attachment-preview-video {
+  max-height: 72vh;
+}
+
+.attachment-preview-frame {
+  height: 72vh;
+  border: 0;
+}
+
 .meta {
   color: var(--muted);
   font-size: 0.85rem;

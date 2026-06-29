@@ -404,6 +404,10 @@
       serviceTypeId: next.serviceTypes[0]?.id || "",
       ...ticket
     }));
+    next.equipment = (data.equipment || seed.equipment).map((item) => ({
+      attachments: [],
+      ...item
+    }));
     next.workOrders = (data.workOrders || seed.workOrders).map((order) => ({
       scope: order.buildingId ? "building" : "equipment",
       buildingId: "",
@@ -417,7 +421,32 @@
       formResponses: {},
       ...intervention
     }));
+    migrateInterventionAttachments(next);
     return next;
+  }
+
+  function migrateInterventionAttachments(next) {
+    next.interventions.forEach((intervention) => {
+      if (!intervention.attachments?.length) return;
+      const equipment = next.equipment.find((item) => item.id === intervention.equipmentId);
+      if (!equipment) return;
+      equipment.attachments = equipment.attachments || [];
+      intervention.attachments.forEach((file) => {
+        if (equipment.attachments.some((item) => item.id === file.id)) return;
+        const apartmentId = file.sourceApartmentId || intervention.apartmentId || equipment.apartmentId;
+        const apartment = next.apartments.find((item) => item.id === apartmentId);
+        equipment.attachments.push({
+          ...file,
+          equipmentId: equipment.id,
+          sourceEquipmentId: equipment.id,
+          interventionId: intervention.id,
+          workOrderId: file.workOrderId || intervention.workOrderId,
+          sourceApartmentId: apartmentId,
+          sourceBuildingId: file.sourceBuildingId || apartment?.buildingId || "",
+          uploadedAt: file.uploadedAt || intervention.date || today()
+        });
+      });
+    });
   }
 
   function normalizeActivityFields(config = {}) {
@@ -1009,6 +1038,7 @@
       .sort((a, b) => b.date.localeCompare(a.date));
     const orders = state.workOrders.filter((item) => item.equipmentId === equipment.id);
     const tickets = state.tickets.filter((item) => item.equipmentId === equipment.id);
+    const attachments = equipment.attachments || [];
     const actionButtons = `
       <button class="ghost-button" data-action="view" data-view="equipements">Retour</button>
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
@@ -1048,9 +1078,74 @@
               <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order)).join("") || `<div class="empty">Aucun bon.</div>`}</div>
             </div>
           </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Photos et documents</h2></div>
+            <div class="panel-body cards-list">
+              ${attachments.map((file) => attachmentItem(file)).join("") || `<div class="empty">Aucune photo ou document dans ce dossier machine.</div>`}
+            </div>
+          </div>
         </div>
       </section>
     `);
+  }
+
+  function attachmentItem(file) {
+    const order = state.workOrders.find((item) => item.id === file.workOrderId);
+    const apartment = state.apartments.find((item) => item.id === file.sourceApartmentId || item.id === file.apartmentId);
+    const building = state.buildings.find((item) => item.id === file.sourceBuildingId || item.id === apartment?.buildingId);
+    const canPreview = Boolean(file.dataUrl);
+    return `
+      <article class="list-item">
+        <div class="actions" style="justify-content:space-between">
+          <button class="attachment-open" ${canPreview ? `data-action="preview-attachment" data-id="${file.id}"` : ""}>
+            <strong>${escapeHtml(file.name)}</strong>
+            <span>${attachmentTypeLabel(file)}</span>
+          </button>
+          <div class="actions">
+            ${canPreview ? `<button class="ghost-button" data-action="preview-attachment" data-id="${file.id}">Ouvrir</button>` : ""}
+            ${file.dataUrl ? `<a class="ghost-button" href="${escapeHtml(file.dataUrl)}" download="${escapeHtml(file.name)}">Télécharger</a>` : ""}
+          </div>
+        </div>
+        <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
+        <div class="meta">Appartement source: ${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")}</div>
+      </article>
+    `;
+  }
+
+  function attachmentTypeLabel(file) {
+    if (file.type?.startsWith("image/")) return "Image";
+    if (file.type === "application/pdf") return "PDF";
+    if (file.type?.startsWith("video/")) return "Vidéo";
+    if (file.type?.startsWith("audio/")) return "Audio";
+    return file.type || "Fichier";
+  }
+
+  function findAttachment(fileId) {
+    return state.equipment.flatMap((item) => item.attachments || []).find((file) => file.id === fileId);
+  }
+
+  function attachmentPreviewModal(fileId) {
+    const file = findAttachment(fileId);
+    if (!file) return "";
+    const order = state.workOrders.find((item) => item.id === file.workOrderId);
+    const preview = file.type?.startsWith("image/")
+      ? `<img class="attachment-preview-image" src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(file.name)}">`
+      : file.type === "application/pdf"
+        ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(file.name)}"></iframe>`
+        : file.type?.startsWith("video/")
+          ? `<video class="attachment-preview-video" controls src="${escapeHtml(file.dataUrl)}"></video>`
+          : file.type?.startsWith("audio/")
+            ? `<audio controls src="${escapeHtml(file.dataUrl)}"></audio>`
+            : `<div class="empty">Prévisualisation non disponible pour ce type de fichier.</div>`;
+    return modalShell(file.name, `
+      <div class="stack">
+        <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
+        <div class="attachment-preview">${preview}</div>
+        <div class="actions">
+          <a class="primary-button" href="${escapeHtml(file.dataUrl)}" download="${escapeHtml(file.name)}">Télécharger</a>
+        </div>
+      </div>
+    `, "modal-card-wide attachment-preview-modal");
   }
 
   function interventionItem(item) {
@@ -1231,7 +1326,10 @@
       <article class="list-item">
         <h3>${escapeHtml(equipment?.type || "Machine")}</h3>
         <div class="definition compact">${responses || `<div><span>Formulaire</span><strong>Aucune reponse</strong></div>`}</div>
-        ${intervention.attachments?.length ? `<div class="mini-list">${intervention.attachments.map((file) => `<div class="meta">Pièce jointe: ${escapeHtml(file.name)}</div>`).join("")}</div>` : ""}
+        ${intervention.attachments?.length ? `<div class="mini-list">${intervention.attachments.map((file) => {
+          const order = state.workOrders.find((item) => item.id === file.workOrderId || item.id === intervention.workOrderId);
+          return `<div class="meta">Pièce jointe: ${escapeHtml(file.name)} | Origine: ${escapeHtml(order?.number || "-")}</div>`;
+        }).join("")}</div>` : ""}
         <div class="meta">${escapeHtml(intervention.summary || "")}</div>
       </article>
     `;
@@ -1393,6 +1491,7 @@
     if (modal.type === "resetPassword") return resetPasswordModal();
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
+    if (modal.type === "attachmentPreview") return attachmentPreviewModal(modal.fileId);
     return "";
   }
 
@@ -2573,18 +2672,36 @@
     intervention.formTemplateId = template?.id || "";
     intervention.formResponses = responses;
     intervention.summary = values.summary;
-    let attachments = [];
+    let pendingAttachments = [];
     try {
-      attachments = await collectAttachments(form, apartmentId, equipment.id);
+      pendingAttachments = await collectAttachments(form, apartmentId, equipment.id);
     } catch (error) {
       showToast("Impossible de lire les fichiers joints.");
       return;
     }
-    if (!attachments) return;
-    if (attachments.length) {
-      intervention.attachments = [...(intervention.attachments || []), ...attachments];
-    }
+    if (pendingAttachments === null) return;
     if (!existing) state.interventions.unshift(intervention);
+    if (pendingAttachments.length) {
+      const completedAttachments = pendingAttachments.map((file) => ({
+        ...file,
+        interventionId: intervention.id,
+        workOrderId: order.id,
+        sourceApartmentId: apartmentId,
+        sourceBuildingId: state.apartments.find((item) => item.id === apartmentId)?.buildingId || "",
+        sourceEquipmentId: equipment.id
+      }));
+      equipment.attachments = [...(equipment.attachments || []), ...completedAttachments];
+      intervention.attachmentIds = [...(intervention.attachmentIds || []), ...completedAttachments.map((file) => file.id)];
+      intervention.attachments = [...(intervention.attachments || []), ...completedAttachments.map((file) => ({
+        id: file.id,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        workOrderId: file.workOrderId,
+        sourceApartmentId: file.sourceApartmentId,
+        sourceBuildingId: file.sourceBuildingId
+      }))];
+    }
     equipment.lastService = today();
     if (!equipment.nextService) {
       const next = new Date();
@@ -2850,6 +2967,10 @@
       }
       if (action === "select-execution-apartment") {
         setState({ selectedExecutionApartmentId: target.dataset.id });
+      }
+      if (action === "preview-attachment") {
+        setState({ modal: { type: "attachmentPreview", fileId: target.dataset.id } });
+        return;
       }
       if (action === "add-form-question") {
         addFormQuestion(target.closest("form"));

@@ -870,6 +870,40 @@ td button.link-button {
   font-size: 0.98rem;
 }
 
+.clickable-card {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.clickable-card:hover {
+  border-color: rgba(14, 120, 126, 0.38);
+  box-shadow: 0 8px 18px rgba(15, 26, 30, 0.08);
+  transform: translateY(-1px);
+}
+
+.client-message-panel {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(14, 120, 126, 0.25);
+  border-left: 4px solid var(--brand);
+  border-radius: 8px;
+  background: #f2fbfc;
+}
+
+.client-message-panel p {
+  margin: 0;
+}
+
+.client-message-panel span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.client-message-panel.compact {
+  margin-top: 4px;
+}
+
 .reminder-item.is-due {
   border-color: rgba(178, 59, 59, 0.45);
   background: #fffafa;

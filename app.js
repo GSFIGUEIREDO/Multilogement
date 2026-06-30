@@ -19,7 +19,7 @@
     globalSearch: "",
     sidebarMode: "auto",
     mobileMenuOpen: false,
-    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "recommandations", "rapports", "utilisateurs", "parametres"],
+    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "recommandations", "documents", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
       apartmentId: "all",
@@ -35,6 +35,7 @@
       activityStatus: "all"
     },
     passwordResetRequests: [],
+    clientDocuments: [],
     users: [
       {
         id: "u-admin",
@@ -465,9 +466,9 @@
     ],
     roleDefinitions: [
       { id: "administrateur", name: "Administrateur", rights: ["all"] },
-      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "alerts", "tickets", "workorders", "recommendations", "reports", "users", "settings"] },
+      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "alerts", "tickets", "workorders", "recommendations", "documents", "reports", "users", "settings"] },
       { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "alerts", "workorders", "interventions", "reports"] },
-      { id: "client", name: "Client", rights: ["portal", "lieux", "alerts", "tickets", "recommendations", "reports"] }
+      { id: "client", name: "Client", rights: ["portal", "lieux", "alerts", "tickets", "recommendations", "documents", "reports"] }
     ]
   };
 
@@ -532,12 +533,39 @@
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
     next.roleDefinitions = next.roleDefinitions.map((role) => {
       if (role.id === "technicien" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports"] };
-      if (role.id === "equipe_interne" && !role.rights.includes("recommendations")) return { ...role, rights: [...role.rights, "recommendations"] };
-      if (role.id === "client" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports", "recommendations"] };
-      if (role.id === "client" && !role.rights.includes("recommendations")) return { ...role, rights: [...role.rights, "recommendations"] };
+      if (role.id === "equipe_interne") {
+        const rights = new Set(role.rights);
+        rights.add("recommendations");
+        rights.add("documents");
+        return { ...role, rights: Array.from(rights) };
+      }
+      if (role.id === "client") {
+        const rights = new Set(role.rights);
+        rights.add("reports");
+        rights.add("recommendations");
+        rights.add("documents");
+        return { ...role, rights: Array.from(rights) };
+      }
       return role;
     });
     next.passwordResetRequests = data.passwordResetRequests || [];
+    next.clientDocuments = (data.clientDocuments || []).map((doc) => ({
+      id: doc.id || uid("doc"),
+      clientId: doc.clientId || "",
+      buildingId: doc.buildingId || "",
+      apartmentId: doc.apartmentId || "",
+      equipmentId: doc.equipmentId || "",
+      type: doc.type || "Contrat",
+      name: doc.name || "Document",
+      notes: doc.notes || "",
+      visibleToClient: doc.visibleToClient !== false,
+      uploadedAt: doc.uploadedAt || today(),
+      dataUrl: doc.dataUrl || "",
+      fileName: doc.fileName || doc.name || "document",
+      fileType: doc.fileType || "",
+      fileSize: doc.fileSize || 0,
+      uploadedBy: doc.uploadedBy || ""
+    }));
     next.selectedBuildingId = data.selectedBuildingId || next.buildings[0]?.id || null;
     next.buildings = (data.buildings || seed.buildings).map((building) => ({
       onsiteContactName: "",
@@ -554,6 +582,8 @@
     next.tickets = (data.tickets || seed.tickets).map((ticket, index) => ({
       serviceTypeId: next.serviceTypes[0]?.id || "",
       closedAt: "",
+      assignedTechnicianIds: [],
+      assignedTeam: "",
       ...ticket,
       number: ticket.number || ticketNumberFromIndex(index + 1, ticket.createdAt)
     }));
@@ -877,6 +907,14 @@
     return (state.reminders || []).filter((reminder) => equipmentIds.includes(reminder.equipmentId));
   }
 
+  function scopedClientDocuments() {
+    const user = currentUser();
+    if (user?.role === "client") {
+      return (state.clientDocuments || []).filter((doc) => doc.clientId === user.clientId && doc.visibleToClient !== false);
+    }
+    return state.clientDocuments || [];
+  }
+
   function scopedRecommendations() {
     const equipmentIds = scopedEquipment().map((item) => item.id);
     return state.interventions
@@ -1003,6 +1041,8 @@
       approuvee: ["Approuvée", "ok"],
       refusee: ["Refusée", "danger"],
       information_demandee: ["Info demandée", "warn"],
+      equipe_interne: ["Équipe interne", "neutral"],
+      techniciens: ["Équipe techniciens", "neutral"],
       en_cours: ["En cours", "warn"],
       ferme: ["Fermé", "neutral"],
       planifie: ["Planifié", "info"],
@@ -1325,6 +1365,7 @@
       ["appels", "CH", "Appels de service", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
       ["recommandations", "RC", "Recommandations", can("recommendations") || can("portal")],
+      ["documents", "DC", "Documents", can("documents") || can("portal")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
       ["parametres", "PR", "Paramètres", can("settings") || can("users")]
@@ -1509,13 +1550,13 @@
       .slice()
       .sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))
       .slice(0, 5)
-      .map((order) => workOrderItem(order))
+      .map((order) => workOrderItem(order, false, true))
       .join("");
 
     const urgentTickets = tickets
       .filter((ticket) => ticket.status !== "ferme")
       .slice(0, 5)
-      .map((ticket) => ticketItem(ticket))
+      .map((ticket) => ticketItem(ticket, false, true))
       .join("");
 
     const actions = `
@@ -1749,36 +1790,40 @@
   }
 
   function attachmentTypeLabel(file) {
-    if (file.type?.startsWith("image/")) return "Image";
-    if (file.type === "application/pdf") return "PDF";
-    if (file.type?.startsWith("video/")) return "Vidéo";
-    if (file.type?.startsWith("audio/")) return "Audio";
-    return file.type || "Fichier";
+    const type = file.type || file.fileType || "";
+    if (type.startsWith("image/")) return "Image";
+    if (type === "application/pdf") return "PDF";
+    if (type.startsWith("video/")) return "Vidéo";
+    if (type.startsWith("audio/")) return "Audio";
+    return type || "Fichier";
   }
 
   function findAttachment(fileId) {
-    return state.equipment.flatMap((item) => item.attachments || []).find((file) => file.id === fileId);
+    return state.equipment.flatMap((item) => item.attachments || []).find((file) => file.id === fileId)
+      || (state.clientDocuments || []).find((doc) => doc.id === fileId);
   }
 
   function attachmentPreviewModal(fileId) {
     const file = findAttachment(fileId);
     if (!file) return "";
     const order = state.workOrders.find((item) => item.id === file.workOrderId);
-    const preview = file.type?.startsWith("image/")
-      ? `<img class="attachment-preview-image" src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(file.name)}">`
-      : file.type === "application/pdf"
-        ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(file.name)}"></iframe>`
-        : file.type?.startsWith("video/")
+    const type = file.type || file.fileType || "";
+    const name = file.name || file.fileName || "Document";
+    const preview = type.startsWith("image/")
+      ? `<img class="attachment-preview-image" src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(name)}">`
+      : type === "application/pdf"
+        ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(name)}"></iframe>`
+        : type.startsWith("video/")
           ? `<video class="attachment-preview-video" controls src="${escapeHtml(file.dataUrl)}"></video>`
-          : file.type?.startsWith("audio/")
+          : type.startsWith("audio/")
             ? `<audio controls src="${escapeHtml(file.dataUrl)}"></audio>`
             : `<div class="empty">Prévisualisation non disponible pour ce type de fichier.</div>`;
-    return modalShell(file.name, `
+    return modalShell(name, `
       <div class="stack">
         <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
         <div class="attachment-preview">${preview}</div>
         <div class="actions">
-          <a class="primary-button" href="${escapeHtml(file.dataUrl)}" download="${escapeHtml(file.name)}">Télécharger</a>
+          <a class="primary-button" href="${escapeHtml(file.dataUrl)}" download="${escapeHtml(file.fileName || name)}">Télécharger</a>
         </div>
       </div>
     `, "modal-card-wide attachment-preview-modal");
@@ -1899,7 +1944,7 @@
           <div><span>Origine</span><strong>${escapeHtml(order?.number || "-")}</strong></div>
         </div>
         <div class="meta">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</div>
-        ${recommendation.clientComment ? `<div class="meta"><strong>Message client:</strong> ${escapeHtml(recommendation.clientComment)}</div>` : ""}
+        ${recommendation.clientComment ? `<div class="client-message-panel compact"><strong>Message du client</strong><p>${escapeHtml(recommendation.clientComment)}</p></div>` : ""}
         ${!isClient ? `<div class="meta">Technicien: ${escapeHtml(technician?.name || "-")} | Intervention: ${formatDate(intervention.date)}</div>` : ""}
         <div class="actions">
           <button class="link-button" data-action="select-equipment" data-id="${escapeHtml(equipment?.id || "")}">Dossier machine</button>
@@ -1922,8 +1967,46 @@
     if (status !== "envoyee") return "";
     return `
       <button class="primary-button" data-action="client-recommendation" data-status="approuvee" data-id="${escapeHtml(interventionId)}">Approuver</button>
-      <button class="ghost-button" data-action="client-recommendation" data-status="information_demandee" data-id="${escapeHtml(interventionId)}">Demander plus d'informations</button>
-      <button class="danger-button" data-action="client-recommendation" data-status="refusee" data-id="${escapeHtml(interventionId)}">Refuser</button>
+      <button class="ghost-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="information_demandee">Demander plus d'informations</button>
+      <button class="danger-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="refusee">Refuser</button>
+    `;
+  }
+
+  function documentsView() {
+    const docs = scopedClientDocuments().slice().sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
+    const title = currentUser()?.role === "client" ? "Mes documents" : "Documents client";
+    const subtitle = currentUser()?.role === "client"
+      ? "Contrats, propositions et documents partagés par ClimaParc."
+      : "Ajouter et partager des documents avec les comptes clients.";
+    return appShell(`
+      ${renderTopbar(title, subtitle, currentUser()?.role !== "client" && can("documents") ? `<button class="primary-button" data-action="open-modal" data-modal="clientDocument">Nouveau document</button>` : "")}
+      <section class="panel">
+        <div class="panel-body cards-list">
+          ${docs.map((doc) => clientDocumentItem(doc)).join("") || `<div class="empty">Aucun document disponible.</div>`}
+        </div>
+      </section>
+    `);
+  }
+
+  function clientDocumentItem(doc) {
+    const client = state.clients.find((item) => item.id === doc.clientId);
+    const building = state.buildings.find((item) => item.id === doc.buildingId);
+    const apartment = state.apartments.find((item) => item.id === doc.apartmentId);
+    const equipment = state.equipment.find((item) => item.id === doc.equipmentId);
+    return `
+      <article class="list-item">
+        <div class="actions" style="justify-content:space-between">
+          <h3>${escapeHtml(doc.name)}</h3>
+          ${doc.visibleToClient ? statusBadge("active") : statusBadge("inactive")}
+        </div>
+        <div class="meta">${escapeHtml(doc.type)} | ${formatDate(doc.uploadedAt)} | ${escapeHtml(client?.name || "-")}</div>
+        <div class="meta">${[building?.name, apartment ? `Apt ${apartment.number}` : "", equipment?.type].filter(Boolean).map(escapeHtml).join(" - ")}</div>
+        ${doc.notes ? `<div class="meta">${escapeHtml(doc.notes)}</div>` : ""}
+        <div class="actions">
+          ${doc.dataUrl ? `<button class="ghost-button" data-action="preview-attachment" data-id="${escapeHtml(doc.id)}">Ouvrir</button><a class="ghost-button" href="${escapeHtml(doc.dataUrl)}" download="${escapeHtml(doc.fileName || doc.name)}">Télécharger</a>` : ""}
+          ${currentUser()?.role !== "client" && can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="clientDocument" data-id="${escapeHtml(doc.id)}">Modifier</button>` : ""}
+        </div>
+      </article>
     `;
   }
 
@@ -1937,20 +2020,23 @@
     `);
   }
 
-  function ticketItem(ticket, expanded = false) {
+  function ticketItem(ticket, expanded = false, dashboardLink = false) {
     const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
     const attachments = equipment?.attachments || [];
+    const assignedTechs = (ticket.assignedTechnicianIds || []).map((id) => state.users.find((user) => user.id === id)?.name).filter(Boolean).join(", ");
+    const assignedLabel = [ticket.assignedTeam ? statusText(ticket.assignedTeam) || ticket.assignedTeam : "", assignedTechs].filter(Boolean).join(" | ");
     const actions = expanded && can("workorders")
       ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
       : "";
     return `
-      <article class="list-item">
+      <article class="list-item ${dashboardLink ? "clickable-card" : ""}" ${dashboardLink ? `data-action="dashboard-ticket" data-id="${escapeHtml(ticket.id)}"` : ""}>
         <div class="actions" style="justify-content:space-between">
           <h3>${escapeHtml(ticket.number || ticket.id)} - ${escapeHtml(ticket.title)}</h3>
           <span>${statusBadge(ticket.priority)} ${statusBadge(ticket.status)}</span>
         </div>
         <div class="meta">Type: ${escapeHtml(serviceType?.name || "-")}</div>
+        ${assignedLabel ? `<div class="meta">Assigné: ${escapeHtml(assignedLabel)}</div>` : ""}
         <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "-")}</div>
         <div class="meta">${escapeHtml(ticket.description)}</div>
         ${expanded ? `
@@ -1991,14 +2077,14 @@
     `);
   }
 
-  function workOrderItem(order, expanded = false) {
+  function workOrderItem(order, expanded = false, dashboardLink = false) {
     const { equipment, apartment, building } = workOrderContext(order);
     const type = state.interventionTypes.find((item) => item.id === order.typeId);
     const tech = state.users.find((item) => item.id === order.technicianId);
     const progress = workOrderProgress(order);
     const scopeLabel = order.buildingId ? "Bloc complet" : `Apt ${apartment?.number || "-"} - ${equipment?.type || "-"}`;
     return `
-      <article class="list-item">
+      <article class="list-item ${dashboardLink ? "clickable-card" : ""}" ${dashboardLink ? `data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"` : ""}>
         <div class="actions" style="justify-content:space-between">
           <h3>${escapeHtml(order.number)} - ${escapeHtml(type?.name || "")}</h3>
           ${statusBadge(order.status)}
@@ -3085,6 +3171,7 @@
       ["workorders", "Bons de travail"],
       ["interventions", "Interventions"],
       ["recommendations", "Recommandations"],
+      ["documents", "Documents client"],
       ["reports", "Rapports"],
       ["users", "Utilisateurs"],
       ["settings", "Paramètres"],
@@ -3224,6 +3311,8 @@
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
+    if (modal.type === "clientRecommendationMessage") return clientRecommendationMessageModal(modal.id, modal.decisionStatus);
+    if (modal.type === "clientDocument") return clientDocumentModal(modal.id);
     if (modal.type === "attachmentPreview") return attachmentPreviewModal(modal.fileId);
     return "";
   }
@@ -3342,6 +3431,10 @@
       return `<option value="${item.id}" ${selectedEquipmentId === item.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment?.number || "")} - ${escapeHtml(item.type)}</option>`;
     }).join("");
     const serviceOptions = state.serviceTypes.map((type) => `<option value="${type.id}" ${ticket.serviceTypeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
+    const assignedIds = ticket.assignedTechnicianIds || [];
+    const technicianChecks = state.users.filter((user) => user.role === "technicien").map((user) => `
+      <label><input type="checkbox" name="assignedTechnicianIds" value="${escapeHtml(user.id)}" ${assignedIds.includes(user.id) ? "checked" : ""}> ${escapeHtml(user.name)}</label>
+    `).join("") || `<span class="meta">Aucun technicien créé.</span>`;
     return modalShell(ticket.id ? "Modifier l'appel de service" : "Nouvel appel de service", `
       <form class="form-grid" data-form="ticket">
         <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
@@ -3353,6 +3446,12 @@
           <div class="field"><label>Priorité</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
         </div>
         <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>Fermé</option></select></div>
+        ${currentUser().role !== "client" ? `
+          <div class="split">
+            <div class="field"><label>Équipe assignée</label><select name="assignedTeam"><option value="" ${!ticket.assignedTeam ? "selected" : ""}>Aucune</option><option value="equipe_interne" ${ticket.assignedTeam === "equipe_interne" ? "selected" : ""}>Équipe interne</option><option value="techniciens" ${ticket.assignedTeam === "techniciens" ? "selected" : ""}>Équipe techniciens</option></select></div>
+            <div class="field"><label>Techniciens assignés</label><div class="choice-list">${technicianChecks}</div></div>
+          </div>
+        ` : ""}
         <div class="field"><label>Description</label><textarea name="description" required>${escapeHtml(ticket.description || "")}</textarea></div>
         <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer l'appel"}</button>
       </form>
@@ -3919,6 +4018,13 @@
           <div><span>Machine</span><strong>${escapeHtml(equipment?.type || "-")}</strong></div>
           <div><span>Type</span><strong>${escapeHtml(dataFieldLabelByValue("recommendation_type", recommendation.type))}</strong></div>
         </div>
+        ${recommendation.clientComment ? `
+          <div class="client-message-panel">
+            <strong>Message du client</strong>
+            <p>${escapeHtml(recommendation.clientComment)}</p>
+            <span>${recommendation.decisionAt ? `Reçu le ${formatDate(recommendation.decisionAt)}` : ""}</span>
+          </div>
+        ` : ""}
         <div class="field"><label>Description technique</label><textarea name="description">${escapeHtml(recommendation.description || "")}</textarea></div>
         <div class="split">
           <div class="field"><label>Prix proposé</label><input name="price" value="${escapeHtml(recommendation.price || "")}" inputmode="decimal" placeholder="Ex.: 450.00"></div>
@@ -3929,10 +4035,58 @@
           <div class="field"><label>Pièce nécessaire</label><input name="part" value="${escapeHtml(recommendation.part || "")}"></div>
         </div>
         <div class="field"><label>Temps prévu pour la réparation</label><input name="time" value="${escapeHtml(recommendation.time || "")}" placeholder="Ex.: 2 h"></div>
-        <div class="field"><label>Message visible par le client</label><textarea name="clientMessage" placeholder="Texte commercial clair pour le client">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</textarea></div>
+        <div class="field"><label>Message visible par le client / réponse</label><textarea name="clientMessage" placeholder="Réponse ou texte commercial clair pour le client">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</textarea></div>
         <div class="field"><label>Note interne</label><textarea name="internalNote">${escapeHtml(recommendation.internalNote || "")}</textarea></div>
         <div class="field"><label>Statut</label><select name="status"><option value="a_valider" ${recommendation.status === "a_valider" ? "selected" : ""}>À valider</option><option value="envoyee" ${recommendation.status === "envoyee" ? "selected" : ""}>Envoyée au client</option><option value="information_demandee" ${recommendation.status === "information_demandee" ? "selected" : ""}>Information demandée</option><option value="approuvee" ${recommendation.status === "approuvee" ? "selected" : ""}>Approuvée</option><option value="refusee" ${recommendation.status === "refusee" ? "selected" : ""}>Refusée</option></select></div>
         <button class="primary-button" type="submit">Enregistrer la recommandation</button>
+      </form>
+    `, "modal-card-wide");
+  }
+
+  function clientRecommendationMessageModal(interventionId, status) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    if (!intervention?.recommendation) return modalShell("Message", `<div class="empty">Recommandation introuvable.</div>`);
+    const isRefusal = status === "refusee";
+    return modalShell(isRefusal ? "Refuser la recommandation" : "Demander plus d'informations", `
+      <form class="form-grid" data-form="clientRecommendationMessage">
+        <input type="hidden" name="interventionId" value="${escapeHtml(interventionId)}">
+        <input type="hidden" name="status" value="${escapeHtml(status || "information_demandee")}">
+        <p class="meta">${isRefusal ? "Expliquez la raison du refus si vous le souhaitez." : "Écrivez votre question. L'équipe interne pourra vous répondre et renvoyer la recommandation."}</p>
+        <div class="field"><label>${isRefusal ? "Raison du refus" : "Question / information demandée"}</label><textarea name="clientComment" required>${escapeHtml(intervention.recommendation.clientComment || "")}</textarea></div>
+        <button class="${isRefusal ? "danger-button" : "primary-button"}" type="submit">${isRefusal ? "Refuser" : "Envoyer la demande"}</button>
+      </form>
+    `);
+  }
+
+  function clientDocumentModal(id) {
+    const doc = state.clientDocuments.find((item) => item.id === id) || { visibleToClient: true };
+    const clientOptions = state.clients.map((client) => `<option value="${client.id}" ${doc.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
+    const buildingOptions = state.buildings.map((building) => `<option value="${building.id}" ${doc.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("");
+    const apartmentOptions = state.apartments.map((apartment) => {
+      const building = state.buildings.find((item) => item.id === apartment.buildingId);
+      return `<option value="${apartment.id}" ${doc.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment.number)}</option>`;
+    }).join("");
+    const equipmentOptions = state.equipment.map((equipment) => {
+      const { apartment, building } = equipmentContext(equipment.id);
+      return `<option value="${equipment.id}" ${doc.equipmentId === equipment.id ? "selected" : ""}>${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment.type)}</option>`;
+    }).join("");
+    return modalShell(doc.id ? "Modifier le document" : "Nouveau document client", `
+      <form class="form-grid" data-form="clientDocument">
+        <input type="hidden" name="id" value="${escapeHtml(doc.id || "")}">
+        <div class="split">
+          <div class="field"><label>Nom du document</label><input name="name" value="${escapeHtml(doc.name || "")}" required placeholder="Ex.: Contrat signé"></div>
+          <div class="field"><label>Type</label><input name="type" value="${escapeHtml(doc.type || "Contrat")}" required placeholder="Contrat, proposition, rapport"></div>
+        </div>
+        <div class="field"><label>Client</label><select name="clientId" required>${clientOptions}</select></div>
+        <div class="split">
+          <div class="field"><label>Immeuble optionnel</label><select name="buildingId"><option value="">Aucun</option>${buildingOptions}</select></div>
+          <div class="field"><label>Appartement optionnel</label><select name="apartmentId"><option value="">Aucun</option>${apartmentOptions}</select></div>
+        </div>
+        <div class="field"><label>Machine optionnelle</label><select name="equipmentId"><option value="">Aucune</option>${equipmentOptions}</select></div>
+        <label class="inline-check"><input type="checkbox" name="visibleToClient" ${doc.visibleToClient !== false ? "checked" : ""}><span>Visible dans le portail client</span></label>
+        <div class="field"><label>Fichier${doc.id ? " (laisser vide pour conserver)" : ""}</label><input name="documentFile" type="file" ${doc.id ? "" : "required"} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"></div>
+        <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(doc.notes || "")}</textarea></div>
+        <button class="primary-button" type="submit">${doc.id ? "Enregistrer" : "Ajouter le document"}</button>
       </form>
     `, "modal-card-wide");
   }
@@ -4030,7 +4184,7 @@
     if (formType === "resetPassword") resetPassword(values);
     if (formType === "building") saveBuilding(values);
     if (formType === "apartment") saveApartment(values);
-    if (formType === "ticket") createTicket(values);
+    if (formType === "ticket") createTicket(form, values);
     if (formType === "workorder") createWorkOrder(values);
     if (formType === "equipment") createEquipment(values);
     if (formType === "reminder") saveReminder(form, values);
@@ -4043,6 +4197,8 @@
     if (formType === "checklist") saveChecklist(form, values);
     if (formType === "fieldIntervention") saveFieldIntervention(form, values);
     if (formType === "recommendationReview") saveRecommendationReview(values);
+    if (formType === "clientRecommendationMessage") saveClientRecommendationMessage(values);
+    if (formType === "clientDocument") saveClientDocument(form, values);
   }
 
   async function restoreSession() {
@@ -4279,10 +4435,11 @@
     });
   }
 
-  function createTicket(values) {
+  function createTicket(form, values) {
     const { building, apartment } = equipmentContext(values.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === values.serviceTypeId) || state.serviceTypes[0];
     const existing = state.tickets.find((item) => item.id === values.id);
+    const assignedTechnicianIds = Array.from(form.querySelectorAll('[name="assignedTechnicianIds"]:checked')).map((input) => input.value);
     if (existing) {
       const closedAt = values.status === "ferme" ? existing.closedAt || today() : "";
       Object.assign(existing, {
@@ -4294,6 +4451,8 @@
         description: values.description,
         priority: values.priority,
         status: values.status,
+        assignedTeam: values.assignedTeam || "",
+        assignedTechnicianIds,
         closedAt
       });
       setState({ modal: null, activeView: "appels", toast: "Appel de service modifié." });
@@ -4311,6 +4470,8 @@
       description: values.description,
       priority: values.priority || serviceType?.defaultPriority || "normale",
       status: values.status || "ouvert",
+      assignedTeam: values.assignedTeam || "",
+      assignedTechnicianIds,
       createdAt: today(),
       closedAt: values.status === "ferme" ? today() : "",
       createdBy: currentUser().id
@@ -4846,23 +5007,78 @@
     const intervention = state.interventions.find((item) => item.id === interventionId);
     const recommendation = intervention?.recommendation;
     if (!recommendation || recommendation.status !== "envoyee") return;
-    let comment = "";
     if (status === "approuvee" && !confirm("Approuver cette recommandation?")) return;
-    if (status === "refusee") {
-      comment = prompt("Raison du refus (optionnel)") || "";
-    }
-    if (status === "information_demandee") {
-      comment = prompt("Quelle information souhaitez-vous demander?") || "";
-      if (!comment.trim()) {
-        showToast("Ajoutez votre question pour demander plus d'informations.");
-        return;
-      }
-    }
     recommendation.status = status;
-    recommendation.clientComment = comment;
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     setState({ activeView: "recommandations", toast: status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée." });
+  }
+
+  function saveClientRecommendationMessage(values) {
+    const intervention = state.interventions.find((item) => item.id === values.interventionId);
+    const recommendation = intervention?.recommendation;
+    if (!recommendation || recommendation.status !== "envoyee") return;
+    recommendation.status = values.status === "refusee" ? "refusee" : "information_demandee";
+    recommendation.clientComment = values.clientComment || "";
+    recommendation.decisionAt = today();
+    recommendation.decidedBy = currentUser()?.id || "";
+    setState({
+      modal: null,
+      activeView: "recommandations",
+      toast: recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée."
+    });
+  }
+
+  async function saveClientDocument(form, values) {
+    const existing = state.clientDocuments.find((item) => item.id === values.id);
+    const file = form.querySelector('[name="documentFile"]')?.files?.[0];
+    if (!existing && !file) {
+      showToast("Ajoutez un fichier.");
+      return;
+    }
+    let fileData = {};
+    if (file) {
+      if (file.size > 15 * 1024 * 1024) {
+        showToast(`${file.name} dépasse 15 MB.`);
+        return;
+      }
+      fileData = await readGenericFile(file);
+    }
+    const payload = {
+      id: existing?.id || uid("doc"),
+      clientId: values.clientId,
+      buildingId: values.buildingId || "",
+      apartmentId: values.apartmentId || "",
+      equipmentId: values.equipmentId || "",
+      type: values.type || "Document",
+      name: values.name,
+      notes: values.notes || "",
+      visibleToClient: Boolean(values.visibleToClient),
+      uploadedAt: existing?.uploadedAt || today(),
+      uploadedBy: existing?.uploadedBy || currentUser()?.id || "",
+      dataUrl: fileData.dataUrl || existing?.dataUrl || "",
+      fileName: fileData.fileName || existing?.fileName || values.name,
+      fileType: fileData.fileType || existing?.fileType || "",
+      fileSize: fileData.fileSize || existing?.fileSize || 0
+    };
+    const index = state.clientDocuments.findIndex((item) => item.id === payload.id);
+    if (index >= 0) state.clientDocuments[index] = payload;
+    else state.clientDocuments.unshift(payload);
+    setState({ modal: null, activeView: "documents", toast: index >= 0 ? "Document modifié." : "Document ajouté." });
+  }
+
+  function readGenericFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({
+        dataUrl: reader.result,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      });
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   }
 
   function createWorkOrderFromRecommendation(interventionId) {
@@ -5151,6 +5367,22 @@
       }
       if (action === "select-building") setState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
       if (action === "select-equipment") setState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
+      if (action === "dashboard-ticket") {
+        if (event.target.closest("button, a, input, select, textarea")) return;
+        setState({ activeView: "appels", modal: currentUser()?.role === "client" ? null : { type: "ticket", id: target.dataset.id } });
+        return;
+      }
+      if (action === "dashboard-workorder") {
+        if (event.target.closest("button, a, input, select, textarea")) return;
+        const order = state.workOrders.find((item) => item.id === target.dataset.id);
+        if ((can("workorders") || currentUser()?.role === "technicien") && order) {
+          const firstApartment = workOrderApartments(order)[0];
+          setState({ selectedWorkOrderId: order.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
+          return;
+        }
+        setState({ activeView: "bons", modal: null });
+        return;
+      }
       if (action === "open-modal") {
         setState({ modal: {
           type: target.dataset.modal,
@@ -5160,6 +5392,7 @@
           buildingId: target.dataset.building || null,
           apartmentId: target.dataset.apartment || null,
           unitKind: target.dataset.unitKind || null,
+          decisionStatus: target.dataset.status || null,
           orderId: target.dataset.order || null
         } });
       }
@@ -5662,6 +5895,7 @@
     else if (state.activeView === "appels") app.innerHTML = ticketsView();
     else if (state.activeView === "bons") app.innerHTML = workOrdersView();
     else if (state.activeView === "recommandations" && (can("recommendations") || can("portal"))) app.innerHTML = recommendationsView();
+    else if (state.activeView === "documents" && (can("documents") || can("portal"))) app.innerHTML = documentsView();
     else if (state.activeView === "execution") app.innerHTML = workOrderExecutionView();
     else if (state.activeView === "rapports" && can("reports")) app.innerHTML = reportsView();
     else if (state.activeView === "utilisateurs" && can("users")) app.innerHTML = usersView();

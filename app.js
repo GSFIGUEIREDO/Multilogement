@@ -19,7 +19,7 @@
     globalSearch: "",
     sidebarMode: "auto",
     mobileMenuOpen: false,
-    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "rapports", "utilisateurs", "parametres"],
+    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "recommandations", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
       apartmentId: "all",
@@ -465,9 +465,9 @@
     ],
     roleDefinitions: [
       { id: "administrateur", name: "Administrateur", rights: ["all"] },
-      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "alerts", "tickets", "workorders", "reports", "users", "settings"] },
+      { id: "equipe_interne", name: "Équipe interne", rights: ["lieux", "equipment", "alerts", "tickets", "workorders", "recommendations", "reports", "users", "settings"] },
       { id: "technicien", name: "Technicien", rights: ["lieux", "equipment", "alerts", "workorders", "interventions", "reports"] },
-      { id: "client", name: "Client", rights: ["portal", "lieux", "alerts", "tickets", "reports"] }
+      { id: "client", name: "Client", rights: ["portal", "lieux", "alerts", "tickets", "recommendations", "reports"] }
     ]
   };
 
@@ -532,7 +532,9 @@
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
     next.roleDefinitions = next.roleDefinitions.map((role) => {
       if (role.id === "technicien" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports"] };
-      if (role.id === "client" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports"] };
+      if (role.id === "equipe_interne" && !role.rights.includes("recommendations")) return { ...role, rights: [...role.rights, "recommendations"] };
+      if (role.id === "client" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports", "recommendations"] };
+      if (role.id === "client" && !role.rights.includes("recommendations")) return { ...role, rights: [...role.rights, "recommendations"] };
       return role;
     });
     next.passwordResetRequests = data.passwordResetRequests || [];
@@ -589,7 +591,8 @@
       unitKind: "interieure",
       equipmentNotes: "",
       recommendation: null,
-      ...intervention
+      ...intervention,
+      recommendation: normalizeRecommendation(intervention.recommendation)
     }));
     migrateInterventionAttachments(next);
     return next;
@@ -663,6 +666,29 @@
     ];
     const existing = new Set(options.map((option) => option.value));
     return [...options, ...required.filter((option) => !existing.has(option.value))];
+  }
+
+  function normalizeRecommendation(recommendation) {
+    if (!recommendation?.type) return null;
+    return {
+      type: recommendation.type,
+      description: recommendation.description || "",
+      priority: recommendation.priority || "normale",
+      part: recommendation.part || "",
+      time: recommendation.time || "",
+      status: recommendation.status || "a_valider",
+      price: recommendation.price || "",
+      delay: recommendation.delay || "",
+      clientMessage: recommendation.clientMessage || "",
+      internalNote: recommendation.internalNote || "",
+      clientComment: recommendation.clientComment || "",
+      createdAt: recommendation.createdAt || today(),
+      sentAt: recommendation.sentAt || "",
+      decisionAt: recommendation.decisionAt || "",
+      reviewedBy: recommendation.reviewedBy || "",
+      decidedBy: recommendation.decidedBy || "",
+      workOrderId: recommendation.workOrderId || ""
+    };
   }
 
   function ensureCoreDataFields(fields) {
@@ -849,6 +875,37 @@
   function scopedReminders() {
     const equipmentIds = scopedEquipment().map((item) => item.id);
     return (state.reminders || []).filter((reminder) => equipmentIds.includes(reminder.equipmentId));
+  }
+
+  function scopedRecommendations() {
+    const equipmentIds = scopedEquipment().map((item) => item.id);
+    return state.interventions
+      .filter((intervention) => intervention.recommendation?.type && equipmentIds.includes(intervention.equipmentId))
+      .map((intervention) => recommendationContext(intervention))
+      .filter((item) => currentUser()?.role !== "client" || ["envoyee", "approuvee", "refusee", "information_demandee"].includes(item.recommendation.status));
+  }
+
+  function recommendationContext(intervention) {
+    const { equipment, apartment, building, client } = equipmentContext(intervention.equipmentId);
+    const order = state.workOrders.find((item) => item.id === intervention.workOrderId);
+    const technician = state.users.find((user) => user.id === intervention.technicianId);
+    return {
+      intervention,
+      recommendation: intervention.recommendation,
+      equipment,
+      apartment,
+      building,
+      client,
+      order,
+      technician
+    };
+  }
+
+  function recommendationAttentionCount() {
+    return scopedRecommendations().filter(({ recommendation }) => {
+      if (currentUser()?.role === "client") return recommendation.status === "envoyee";
+      return ["a_valider", "information_demandee"].includes(recommendation.status);
+    }).length;
   }
 
   function reminderIsDue(reminder) {
@@ -1238,7 +1295,7 @@
             ${nav
               .map(([view, icon, label]) => `
                 <button class="nav-link ${state.activeView === view ? "active" : ""}" type="button" data-action="view" data-view="${view}" title="${escapeHtml(label)}">
-                  <span class="nav-icon">${icon}${view === "alertes" && unseenReminderCount() ? `<span class="alert-dot" aria-label="${unseenReminderCount()} nouveau rappel"></span>` : ""}</span>
+                  <span class="nav-icon">${icon}${view === "alertes" && unseenReminderCount() ? `<span class="alert-dot" aria-label="${unseenReminderCount()} nouveau rappel"></span>` : ""}${view === "recommandations" && recommendationAttentionCount() ? `<span class="alert-dot" aria-label="${recommendationAttentionCount()} recommandation en attente"></span>` : ""}</span>
                   <span class="nav-label">${label}</span>
                 </button>
               `)
@@ -1267,6 +1324,7 @@
       ["alertes", "AL", "Alertes", canManageReminders()],
       ["appels", "CH", "Appels de service", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
+      ["recommandations", "RC", "Recommandations", can("recommendations") || can("portal")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
       ["parametres", "PR", "Paramètres", can("settings") || can("users")]
@@ -1790,6 +1848,82 @@
           </div>
         ` : ""}
       </article>
+    `;
+  }
+
+  function recommendationsView() {
+    const items = scopedRecommendations().sort((a, b) => {
+      const order = { a_valider: 0, information_demandee: 1, envoyee: 2, approuvee: 3, refusee: 4 };
+      return (order[a.recommendation.status] ?? 9) - (order[b.recommendation.status] ?? 9) || (b.recommendation.createdAt || "").localeCompare(a.recommendation.createdAt || "");
+    });
+    const pending = items.filter((item) => ["a_valider", "information_demandee", "envoyee"].includes(item.recommendation.status));
+    const approved = items.filter((item) => item.recommendation.status === "approuvee");
+    const refused = items.filter((item) => item.recommendation.status === "refusee");
+    const title = currentUser()?.role === "client" ? "Recommandations à approuver" : "Recommandations client";
+    const subtitle = currentUser()?.role === "client"
+      ? "Demandes envoyées par ClimaParc pour approbation."
+      : "Réviser, chiffrer et envoyer les recommandations issues des formulaires terrain.";
+    return appShell(`
+      ${renderTopbar(title, subtitle, "")}
+      <section class="stats-grid">
+        <div class="stat"><span>En attente</span><strong>${pending.length}</strong></div>
+        <div class="stat"><span>Approuvées</span><strong>${approved.length}</strong></div>
+        <div class="stat"><span>Refusées</span><strong>${refused.length}</strong></div>
+      </section>
+      <section class="panel">
+        <div class="panel-body cards-list">
+          ${items.map((item) => recommendationCard(item)).join("") || `<div class="empty">Aucune recommandation disponible.</div>`}
+        </div>
+      </section>
+    `);
+  }
+
+  function recommendationCard(item) {
+    const { recommendation, intervention, equipment, apartment, building, order, technician } = item;
+    const isClient = currentUser()?.role === "client";
+    const price = recommendation.price ? `${recommendation.price} $` : "-";
+    const delay = recommendation.delay || "-";
+    return `
+      <article class="list-item recommendation-card">
+        <div class="actions" style="justify-content:space-between">
+          <h3>${escapeHtml(dataFieldLabelByValue("recommendation_type", recommendation.type))}</h3>
+          ${statusBadge(recommendation.status)}
+        </div>
+        <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "Machine")} ${equipment?.serial ? `| ${escapeHtml(equipment.serial)}` : ""}</div>
+        <div class="definition compact">
+          <div><span>Prix</span><strong>${escapeHtml(price)}</strong></div>
+          <div><span>Délai</span><strong>${escapeHtml(delay)}</strong></div>
+          <div><span>Priorité</span><strong>${escapeHtml(statusText(recommendation.priority) || "-")}</strong></div>
+          <div><span>Pièce</span><strong>${escapeHtml(recommendation.part || "-")}</strong></div>
+          <div><span>Temps prévu</span><strong>${escapeHtml(recommendation.time || "-")}</strong></div>
+          <div><span>Origine</span><strong>${escapeHtml(order?.number || "-")}</strong></div>
+        </div>
+        <div class="meta">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</div>
+        ${recommendation.clientComment ? `<div class="meta"><strong>Message client:</strong> ${escapeHtml(recommendation.clientComment)}</div>` : ""}
+        ${!isClient ? `<div class="meta">Technicien: ${escapeHtml(technician?.name || "-")} | Intervention: ${formatDate(intervention.date)}</div>` : ""}
+        <div class="actions">
+          <button class="link-button" data-action="select-equipment" data-id="${escapeHtml(equipment?.id || "")}">Dossier machine</button>
+          ${isClient ? clientRecommendationActions(intervention.id, recommendation.status) : internalRecommendationActions(intervention.id, recommendation)}
+        </div>
+      </article>
+    `;
+  }
+
+  function internalRecommendationActions(interventionId, recommendation) {
+    return `
+      <button class="ghost-button" data-action="open-modal" data-modal="recommendationReview" data-id="${escapeHtml(interventionId)}">Réviser</button>
+      ${["a_valider", "information_demandee"].includes(recommendation.status) ? `<button class="primary-button" data-action="send-recommendation" data-id="${escapeHtml(interventionId)}">Envoyer au client</button>` : ""}
+      ${recommendation.status === "approuvee" && !recommendation.workOrderId ? `<button class="ghost-button" data-action="create-bt-from-recommendation" data-id="${escapeHtml(interventionId)}">Créer un BT</button>` : ""}
+      ${recommendation.workOrderId ? `<span class="meta">BT créé</span>` : ""}
+    `;
+  }
+
+  function clientRecommendationActions(interventionId, status) {
+    if (status !== "envoyee") return "";
+    return `
+      <button class="primary-button" data-action="client-recommendation" data-status="approuvee" data-id="${escapeHtml(interventionId)}">Approuver</button>
+      <button class="ghost-button" data-action="client-recommendation" data-status="information_demandee" data-id="${escapeHtml(interventionId)}">Demander plus d'informations</button>
+      <button class="danger-button" data-action="client-recommendation" data-status="refusee" data-id="${escapeHtml(interventionId)}">Refuser</button>
     `;
   }
 
@@ -2950,6 +3084,7 @@
       ["tickets", "Appels de service"],
       ["workorders", "Bons de travail"],
       ["interventions", "Interventions"],
+      ["recommendations", "Recommandations"],
       ["reports", "Rapports"],
       ["users", "Utilisateurs"],
       ["settings", "Paramètres"],
@@ -3088,6 +3223,7 @@
     if (modal.type === "resetPassword") return resetPasswordModal();
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
+    if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
     if (modal.type === "attachmentPreview") return attachmentPreviewModal(modal.fileId);
     return "";
   }
@@ -3769,6 +3905,38 @@
     `);
   }
 
+  function recommendationReviewModal(interventionId) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    if (!intervention?.recommendation) return modalShell("Recommandation", `<div class="empty">Recommandation introuvable.</div>`);
+    const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
+    const recommendation = intervention.recommendation;
+    return modalShell("Réviser la recommandation", `
+      <form class="form-grid" data-form="recommendationReview">
+        <input type="hidden" name="interventionId" value="${escapeHtml(intervention.id)}">
+        <div class="definition compact">
+          <div><span>Lieu</span><strong>${escapeHtml(building?.name || "-")}</strong></div>
+          <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")}</strong></div>
+          <div><span>Machine</span><strong>${escapeHtml(equipment?.type || "-")}</strong></div>
+          <div><span>Type</span><strong>${escapeHtml(dataFieldLabelByValue("recommendation_type", recommendation.type))}</strong></div>
+        </div>
+        <div class="field"><label>Description technique</label><textarea name="description">${escapeHtml(recommendation.description || "")}</textarea></div>
+        <div class="split">
+          <div class="field"><label>Prix proposé</label><input name="price" value="${escapeHtml(recommendation.price || "")}" inputmode="decimal" placeholder="Ex.: 450.00"></div>
+          <div class="field"><label>Délai proposé</label><input name="delay" value="${escapeHtml(recommendation.delay || "")}" placeholder="Ex.: 5 jours ouvrables"></div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Priorité</label><select name="priority"><option value="basse" ${recommendation.priority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${!recommendation.priority || recommendation.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${recommendation.priority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
+          <div class="field"><label>Pièce nécessaire</label><input name="part" value="${escapeHtml(recommendation.part || "")}"></div>
+        </div>
+        <div class="field"><label>Temps prévu pour la réparation</label><input name="time" value="${escapeHtml(recommendation.time || "")}" placeholder="Ex.: 2 h"></div>
+        <div class="field"><label>Message visible par le client</label><textarea name="clientMessage" placeholder="Texte commercial clair pour le client">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</textarea></div>
+        <div class="field"><label>Note interne</label><textarea name="internalNote">${escapeHtml(recommendation.internalNote || "")}</textarea></div>
+        <div class="field"><label>Statut</label><select name="status"><option value="a_valider" ${recommendation.status === "a_valider" ? "selected" : ""}>À valider</option><option value="envoyee" ${recommendation.status === "envoyee" ? "selected" : ""}>Envoyée au client</option><option value="information_demandee" ${recommendation.status === "information_demandee" ? "selected" : ""}>Information demandée</option><option value="approuvee" ${recommendation.status === "approuvee" ? "selected" : ""}>Approuvée</option><option value="refusee" ${recommendation.status === "refusee" ? "selected" : ""}>Refusée</option></select></div>
+        <button class="primary-button" type="submit">Enregistrer la recommandation</button>
+      </form>
+    `, "modal-card-wide");
+  }
+
   function activityTextInput(name, config, value) {
     const options = activityOptions(name, config);
     return `
@@ -3874,6 +4042,7 @@
     if (formType === "role") saveRole(form, values);
     if (formType === "checklist") saveChecklist(form, values);
     if (formType === "fieldIntervention") saveFieldIntervention(form, values);
+    if (formType === "recommendationReview") saveRecommendationReview(values);
   }
 
   async function restoreSession() {
@@ -4632,6 +4801,96 @@
     setState({ modal: null, activeView: "execution", selectedWorkOrderId: order.id, selectedExecutionApartmentId: apartmentId, toast: "Formulaire terrain enregistre." });
   }
 
+  function saveRecommendationReview(values) {
+    const intervention = state.interventions.find((item) => item.id === values.interventionId);
+    if (!intervention?.recommendation) return;
+    if (values.status === "envoyee" && (!values.price || !values.delay)) {
+      showToast("Ajoutez un prix et un délai avant d'envoyer au client.");
+      return;
+    }
+    const previousStatus = intervention.recommendation.status;
+    Object.assign(intervention.recommendation, {
+      description: values.description || "",
+      priority: values.priority || "normale",
+      part: values.part || "",
+      time: values.time || "",
+      price: values.price || "",
+      delay: values.delay || "",
+      clientMessage: values.clientMessage || "",
+      internalNote: values.internalNote || "",
+      status: values.status || "a_valider",
+      reviewedBy: currentUser()?.id || intervention.recommendation.reviewedBy || ""
+    });
+    if (intervention.recommendation.status === "envoyee" && previousStatus !== "envoyee") {
+      intervention.recommendation.sentAt = today();
+    }
+    setState({ modal: null, activeView: "recommandations", toast: "Recommandation enregistrée." });
+  }
+
+  function sendRecommendationToClient(interventionId) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    const recommendation = intervention?.recommendation;
+    if (!recommendation) return;
+    if (!recommendation.price || !recommendation.delay) {
+      showToast("Ajoutez un prix et un délai avant d'envoyer au client.");
+      setState({ modal: { type: "recommendationReview", id: interventionId }, activeView: "recommandations" });
+      return;
+    }
+    recommendation.status = "envoyee";
+    recommendation.sentAt = today();
+    recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
+    setState({ activeView: "recommandations", toast: "Recommandation envoyée au client." });
+  }
+
+  function clientRecommendationDecision(interventionId, status) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    const recommendation = intervention?.recommendation;
+    if (!recommendation || recommendation.status !== "envoyee") return;
+    let comment = "";
+    if (status === "approuvee" && !confirm("Approuver cette recommandation?")) return;
+    if (status === "refusee") {
+      comment = prompt("Raison du refus (optionnel)") || "";
+    }
+    if (status === "information_demandee") {
+      comment = prompt("Quelle information souhaitez-vous demander?") || "";
+      if (!comment.trim()) {
+        showToast("Ajoutez votre question pour demander plus d'informations.");
+        return;
+      }
+    }
+    recommendation.status = status;
+    recommendation.clientComment = comment;
+    recommendation.decisionAt = today();
+    recommendation.decidedBy = currentUser()?.id || "";
+    setState({ activeView: "recommandations", toast: status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée." });
+  }
+
+  function createWorkOrderFromRecommendation(interventionId) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    const recommendation = intervention?.recommendation;
+    if (!intervention || recommendation?.status !== "approuvee") return;
+    const repairType = state.interventionTypes.find((item) => /réparation|reparation|diagnostic/i.test(item.name)) || state.interventionTypes[0];
+    const technician = state.users.find((user) => user.role === "technicien");
+    const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
+    const order = {
+      id: uid("wo"),
+      number,
+      ticketId: null,
+      scope: "equipment",
+      buildingId: "",
+      equipmentId: intervention.equipmentId,
+      typeId: repairType?.id || "",
+      formTemplateId: state.formTemplates[0]?.id || "",
+      technicianId: technician?.id || "",
+      scheduledDate: today(),
+      status: "planifie",
+      notes: `Recommandation approuvée: ${dataFieldLabelByValue("recommendation_type", recommendation.type)}. ${recommendation.clientMessage || recommendation.description || ""}`
+    };
+    state.workOrders.unshift(order);
+    recommendation.workOrderId = order.id;
+    setState({ activeView: "bons", toast: `BT créé: ${order.number}` });
+  }
+
   function resolveActivityApartment(order, values) {
     if (values.apartmentId && values.apartmentId !== "__new") return values.apartmentId;
     if (!values.newApartmentNumber?.trim()) {
@@ -4992,6 +5251,18 @@
         if (!confirm("Supprimer ce rappel?")) return;
         state.reminders = state.reminders.filter((item) => item.id !== target.dataset.id);
         setState({ activeView: "alertes", toast: "Rappel supprimé." });
+      }
+      if (action === "send-recommendation") {
+        sendRecommendationToClient(target.dataset.id);
+        return;
+      }
+      if (action === "client-recommendation") {
+        clientRecommendationDecision(target.dataset.id, target.dataset.status);
+        return;
+      }
+      if (action === "create-bt-from-recommendation") {
+        createWorkOrderFromRecommendation(target.dataset.id);
+        return;
       }
       if (action === "export") exportReport(target.dataset.report);
     });
@@ -5390,6 +5661,7 @@
     else if (state.activeView === "alertes" && canManageReminders()) app.innerHTML = alertsView();
     else if (state.activeView === "appels") app.innerHTML = ticketsView();
     else if (state.activeView === "bons") app.innerHTML = workOrdersView();
+    else if (state.activeView === "recommandations" && (can("recommendations") || can("portal"))) app.innerHTML = recommendationsView();
     else if (state.activeView === "execution") app.innerHTML = workOrderExecutionView();
     else if (state.activeView === "rapports" && can("reports")) app.innerHTML = reportsView();
     else if (state.activeView === "utilisateurs" && can("users")) app.innerHTML = usersView();

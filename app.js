@@ -79,9 +79,11 @@
         address: "1140 rue Wellington, Montréal",
         onsiteContactName: "André Roy",
         onsiteContactPhone: "514-555-0188",
+        onsiteContactPoste: "",
         onsiteContactEmail: "concierge@verdun.ca",
         billingContactName: "Sophie Martin",
         billingContactPhone: "514-555-0112",
+        billingContactPoste: "",
         billingContactEmail: "facturation@gestionazur.ca",
         notes: "Accès par l'entrée de service."
       },
@@ -92,9 +94,11 @@
         address: "75 boulevard Cartier, Laval",
         onsiteContactName: "Mélanie Fortin",
         onsiteContactPhone: "450-555-0140",
+        onsiteContactPoste: "",
         onsiteContactEmail: "surplace@tourslaval.ca",
         billingContactName: "Sophie Martin",
         billingContactPhone: "514-555-0112",
+        billingContactPoste: "",
         billingContactEmail: "facturation@gestionazur.ca",
         notes: "Stationnement visiteur disponible."
       },
@@ -105,9 +109,11 @@
         address: "425 rue Principale, Saint-Jérôme",
         onsiteContactName: "Daniel Leduc",
         onsiteContactPhone: "450-555-0199",
+        onsiteContactPoste: "",
         onsiteContactEmail: "maintenance@rivieredunord.ca",
         billingContactName: "Laurent Gagnon",
         billingContactPhone: "450-555-0160",
+        billingContactPoste: "",
         billingContactEmail: "comptes@syndicnord.ca",
         notes: "Appeler avant toute visite technique."
       }
@@ -499,9 +505,11 @@
     next.buildings = (data.buildings || seed.buildings).map((building) => ({
       onsiteContactName: "",
       onsiteContactPhone: "",
+      onsiteContactPoste: "",
       onsiteContactEmail: "",
       billingContactName: "",
       billingContactPhone: "",
+      billingContactPoste: "",
       billingContactEmail: "",
       notes: "",
       ...building
@@ -973,7 +981,7 @@
         label: "Lieu",
         title: building.name,
         detail: `${building.address} | ${client?.name || ""}`,
-        text: searchText(building.name, building.address, building.onsiteContactName, building.onsiteContactPhone, building.onsiteContactEmail, building.billingContactName, building.billingContactPhone, building.billingContactEmail, building.notes, client?.name)
+        text: searchText(building.name, building.address, building.onsiteContactName, building.onsiteContactPhone, building.onsiteContactPoste, building.onsiteContactEmail, building.billingContactName, building.billingContactPhone, building.billingContactPoste, building.billingContactEmail, building.notes, client?.name)
       });
     });
     scopedApartments().forEach((apartment) => {
@@ -1085,6 +1093,23 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
+  }
+
+  function formatCanadianPhone(value) {
+    const digits = String(value || "").replace(/\D/g, "").slice(0, 10);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+
+  function phoneField(name, value) {
+    return `<input name="${escapeHtml(name)}" value="${escapeHtml(formatCanadianPhone(value))}" inputmode="tel" autocomplete="tel" placeholder="(514) 555-0123" data-phone-input>`;
+  }
+
+  function displayPhone(phone, poste) {
+    const formatted = formatCanadianPhone(phone);
+    if (!formatted) return "-";
+    return poste ? `${formatted} poste ${poste}` : formatted;
   }
 
   function iconSvg(name) {
@@ -1275,10 +1300,10 @@
             <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
             <div><span>Adresse</span><strong>${escapeHtml(building.address)}</strong></div>
             <div><span>Ressource sur place</span><strong>${escapeHtml(building.onsiteContactName || "-")}</strong></div>
-            <div><span>Téléphone sur place</span><strong>${escapeHtml(building.onsiteContactPhone || "-")}</strong></div>
+            <div><span>Téléphone sur place</span><strong>${escapeHtml(displayPhone(building.onsiteContactPhone, building.onsiteContactPoste))}</strong></div>
             <div><span>Email sur place</span><strong>${escapeHtml(building.onsiteContactEmail || "-")}</strong></div>
             <div><span>Ressource facturation</span><strong>${escapeHtml(building.billingContactName || "-")}</strong></div>
-            <div><span>Téléphone facturation</span><strong>${escapeHtml(building.billingContactPhone || "-")}</strong></div>
+            <div><span>Téléphone facturation</span><strong>${escapeHtml(displayPhone(building.billingContactPhone, building.billingContactPoste))}</strong></div>
             <div><span>Email facturation</span><strong>${escapeHtml(building.billingContactEmail || "-")}</strong></div>
             <div><span>Notes</span><strong>${escapeHtml(building.notes || "-")}</strong></div>
           </div>
@@ -2948,8 +2973,9 @@
         <div class="field"><label>Entreprise / gestionnaire</label><input name="companyName" required autocomplete="organization"></div>
         <div class="split">
           <div class="field"><label>Nom complet</label><input name="name" required autocomplete="name"></div>
-          <div class="field"><label>Téléphone</label><input name="phone" autocomplete="tel"></div>
+          <div class="field"><label>Téléphone</label>${phoneField("phone", "")}</div>
         </div>
+        <div class="field"><label>Poste</label><input name="phonePoste" inputmode="numeric" placeholder="Ex.: 1234"></div>
         <div class="field"><label>Courriel</label><input name="email" type="email" required autocomplete="email"></div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" type="password" required autocomplete="new-password" minlength="8"></div>
@@ -2994,14 +3020,20 @@
         <div class="field"><label>Adresse</label><input name="address" value="${escapeHtml(building.address || "")}" required></div>
         <div class="split">
           <div class="field"><label>Personne ressource sur place</label><input name="onsiteContactName" value="${escapeHtml(building.onsiteContactName || "")}"></div>
-          <div class="field"><label>Téléphone sur place</label><input name="onsiteContactPhone" value="${escapeHtml(building.onsiteContactPhone || "")}"></div>
+          <div class="field"><label>Téléphone sur place</label>${phoneField("onsiteContactPhone", building.onsiteContactPhone || "")}</div>
         </div>
-        <div class="field"><label>Email sur place</label><input name="onsiteContactEmail" type="email" value="${escapeHtml(building.onsiteContactEmail || "")}"></div>
+        <div class="split">
+          <div class="field"><label>Poste sur place</label><input name="onsiteContactPoste" value="${escapeHtml(building.onsiteContactPoste || "")}" inputmode="numeric" placeholder="Ex.: 1234"></div>
+          <div class="field"><label>Email sur place</label><input name="onsiteContactEmail" type="email" value="${escapeHtml(building.onsiteContactEmail || "")}"></div>
+        </div>
         <div class="split">
           <div class="field"><label>Personne ressource facturation</label><input name="billingContactName" value="${escapeHtml(building.billingContactName || "")}"></div>
-          <div class="field"><label>Téléphone facturation</label><input name="billingContactPhone" value="${escapeHtml(building.billingContactPhone || "")}"></div>
+          <div class="field"><label>Téléphone facturation</label>${phoneField("billingContactPhone", building.billingContactPhone || "")}</div>
         </div>
-        <div class="field"><label>Email facturation</label><input name="billingContactEmail" type="email" value="${escapeHtml(building.billingContactEmail || "")}"></div>
+        <div class="split">
+          <div class="field"><label>Poste facturation</label><input name="billingContactPoste" value="${escapeHtml(building.billingContactPoste || "")}" inputmode="numeric" placeholder="Ex.: 1234"></div>
+          <div class="field"><label>Email facturation</label><input name="billingContactEmail" type="email" value="${escapeHtml(building.billingContactEmail || "")}"></div>
+        </div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(building.notes || "")}</textarea></div>
         <button class="primary-button" type="submit">${building.id ? "Enregistrer" : "Créer le lieu"}</button>
       </form>
@@ -3019,7 +3051,10 @@
           <div class="field"><label>Numéro d'appartement</label><input name="number" value="${escapeHtml(apartment.number || "")}" required></div>
           <div class="field"><label>Occupant</label><input name="occupant" value="${escapeHtml(apartment.occupant || "")}"></div>
         </div>
-        <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "Créer l'appartement"}</button>
+        <div class="actions form-actions">
+          <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "Créer l'appartement"}</button>
+          ${apartment.id && can("lieux") && currentUser().role !== "client" ? `<button class="danger-button" type="button" data-action="delete-apartment" data-id="${escapeHtml(apartment.id)}">Supprimer</button>` : ""}
+        </div>
       </form>
     `);
   }
@@ -3624,6 +3659,9 @@
     if (field.type === "select") {
       return `<div class="field combo-field dynamic-field${layoutClass}" ${depends}><label>${label}</label>${comboInput(`field-${field.id}`, value || "", options, field.required)}</div>`;
     }
+    if (field.type === "phone") {
+      return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(formatCanadianPhone(value || ""))}" inputmode="tel" autocomplete="tel" placeholder="(514) 555-0123" data-phone-input ${required}></div>`;
+    }
     return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
   }
 
@@ -3717,7 +3755,8 @@
       name: values.companyName,
       contact: values.name,
       email: values.email,
-      phone: values.phone || ""
+      phone: formatCanadianPhone(values.phone),
+      phonePoste: values.phonePoste || ""
     };
     const user = {
       id: uid("u"),
@@ -3838,10 +3877,12 @@
       name: values.name,
       address: values.address,
       onsiteContactName: values.onsiteContactName,
-      onsiteContactPhone: values.onsiteContactPhone,
+      onsiteContactPhone: formatCanadianPhone(values.onsiteContactPhone),
+      onsiteContactPoste: values.onsiteContactPoste,
       onsiteContactEmail: values.onsiteContactEmail,
       billingContactName: values.billingContactName,
-      billingContactPhone: values.billingContactPhone,
+      billingContactPhone: formatCanadianPhone(values.billingContactPhone),
+      billingContactPoste: values.billingContactPoste,
       billingContactEmail: values.billingContactEmail,
       notes: values.notes
     };
@@ -3862,6 +3903,26 @@
     if (index >= 0) state.apartments[index] = payload;
     else state.apartments.push(payload);
     setState({ modal: null, selectedBuildingId: payload.buildingId, activeView: "lieu_detail", toast: index >= 0 ? "Appartement modifié." : "Appartement créé." });
+  }
+
+  function deleteApartment(id) {
+    const apartment = state.apartments.find((item) => item.id === id);
+    if (!apartment) return;
+    const linkedEquipment = equipmentForApartment(id);
+    if (linkedEquipment.length) {
+      showToast("Impossible de supprimer cet appartement: déplacez ou supprimez d'abord les machines associées.");
+      return;
+    }
+    if (!confirm(`Supprimer l'appartement ${apartment.number}? Cette action est définitive.`)) return;
+    state.apartments = state.apartments.filter((item) => item.id !== id);
+    state.interventions = state.interventions.filter((item) => item.apartmentId !== id);
+    setState({
+      modal: null,
+      selectedBuildingId: apartment.buildingId,
+      selectedExecutionApartmentId: state.selectedExecutionApartmentId === id ? null : state.selectedExecutionApartmentId,
+      activeView: "lieu_detail",
+      toast: "Appartement supprimé."
+    });
   }
 
   function createTicket(values) {
@@ -4622,6 +4683,10 @@
         setState({ modal: null });
         return;
       }
+      if (action === "delete-apartment") {
+        deleteApartment(target.dataset.id);
+        return;
+      }
       if (action === "open-checklist") setState({ modal: { type: "checklist", orderId: target.dataset.id } });
       if (action === "execute-workorder") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
@@ -4656,10 +4721,12 @@
         return;
       }
       if (action === "remove-form-option") {
+        if (!confirm("Supprimer cette option?")) return;
         removeFormOption(target.closest("[data-option-row]"));
         return;
       }
       if (action === "remove-form-question") {
+        if (!confirm("Supprimer cette question?")) return;
         removeFormQuestion(target.closest("[data-question]"));
         return;
       }
@@ -4715,6 +4782,9 @@
       if (event.target.dataset.action === "global-search") {
         updateGlobalSearch(event.target);
         return;
+      }
+      if (event.target.matches("[data-phone-input]")) {
+        event.target.value = formatCanadianPhone(event.target.value);
       }
       updateDynamicVisibility(event.target.closest("form"));
       if (event.target.matches("[data-combo-input]")) updateComboOptions(event.target);
@@ -4896,9 +4966,10 @@
     const input = field?.querySelector("[data-combo-input]");
     if (!input) return;
     input.value = button.dataset.value || "";
-    field.querySelector("[data-combo-options]")?.classList.add("hidden");
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    field.querySelector("[data-combo-options]")?.classList.add("hidden");
+    input.blur();
   }
 
   function hideComboOptions() {
@@ -4959,18 +5030,25 @@
 
   function updateDynamicVisibility(form) {
     if (!form || form.dataset.form !== "fieldIntervention") return;
-    form.querySelectorAll("[data-visible-field]").forEach((field) => {
-      const sourceName = `field-${field.dataset.visibleField}`;
-      const sourceInputs = Array.from(form.querySelectorAll(`[name="${sourceName}"]`));
-      const values = sourceInputs
-        .filter((input) => input.type !== "checkbox" && input.type !== "radio" || input.checked)
-        .map((input) => input.value);
-      const hidden = !values.includes(field.dataset.visibleValue);
-      field.classList.toggle("hidden", hidden);
-      field.querySelectorAll("input, select, textarea").forEach((input) => {
-        input.disabled = hidden;
+    for (let pass = 0; pass < 2; pass += 1) {
+      form.querySelectorAll("[data-visible-field]").forEach((field) => {
+        const sourceName = `field-${field.dataset.visibleField}`;
+        const sourceInputs = Array.from(form.querySelectorAll(`[name="${sourceName}"]`));
+        const values = sourceInputs
+          .filter((input) => !input.disabled)
+          .filter((input) => {
+            if (input.type === "checkbox" || input.type === "radio") return input.checked;
+            return true;
+          })
+          .map((input) => input.value)
+          .filter(Boolean);
+        const hidden = !values.includes(field.dataset.visibleValue);
+        field.classList.toggle("hidden", hidden);
+        field.querySelectorAll("input, select, textarea").forEach((input) => {
+          input.disabled = hidden;
+        });
       });
-    });
+    }
   }
 
   function handleFilter(event) {

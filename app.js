@@ -30,7 +30,9 @@
       reportType: "dashboard_operationnel",
       clientId: "all",
       startDate: "",
-      endDate: ""
+      endDate: "",
+      equipmentStatus: "all",
+      activityStatus: "all"
     },
     passwordResetRequests: [],
     users: [
@@ -243,7 +245,9 @@
         appliesTo: ["activity", "equipment"],
         options: [
           { id: "actif", label: "Actif", value: "actif" },
+          { id: "ok", label: "OK", value: "ok" },
           { id: "surveillance", label: "Surveillance", value: "surveillance" },
+          { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise" },
           { id: "a_planifier", label: "À planifier", value: "a_planifier" },
           { id: "hors_service", label: "Hors service", value: "hors_service" }
         ]
@@ -490,7 +494,9 @@
         required: Boolean(field.required),
         defaultValue: field.defaultValue ?? (field.type === "multiple" ? [] : ""),
         layout: field.layout || "full",
+        unitScope: field.unitScope || "all",
         branchRules: field.branchRules || {},
+        nextFieldId: field.nextFieldId || "",
         showWhen: field.showWhen || null
       }))
     }));
@@ -522,6 +528,7 @@
     }));
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
+      unitKind: "interieure",
       ...item
     }));
     next.reminders = (Array.isArray(data.reminders) ? data.reminders : []).map((reminder) => ({
@@ -548,6 +555,10 @@
       apartmentId: "",
       formTemplateId: "",
       formResponses: {},
+      activityStatus: "completee",
+      machineStatus: "",
+      unitKind: "interieure",
+      equipmentNotes: "",
       ...intervention
     }));
     migrateInterventionAttachments(next);
@@ -606,8 +617,22 @@
       group: field.group || "Non groupé",
       type: field.type || "single",
       appliesTo: field.appliesTo?.length ? field.appliesTo : ["activity"],
-      options: normalizeDataOptions(field.options || [])
+      options: normalizeStatusDataOptions(field.id, normalizeDataOptions(field.options || []))
     }));
+  }
+
+  function normalizeStatusDataOptions(fieldId, options) {
+    if (fieldId !== "equipment_status") return options;
+    const required = [
+      { id: "actif", label: "Actif", value: "actif", active: true },
+      { id: "ok", label: "OK", value: "ok", active: true },
+      { id: "surveillance", label: "Surveillance", value: "surveillance", active: true },
+      { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise", active: true },
+      { id: "a_planifier", label: "À planifier", value: "a_planifier", active: true },
+      { id: "hors_service", label: "Hors service", value: "hors_service", active: true }
+    ];
+    const existing = new Set(options.map((option) => option.value));
+    return [...options, ...required.filter((option) => !existing.has(option.value))];
   }
 
   function normalizeDataOptions(options = []) {
@@ -858,9 +883,15 @@
   function statusBadge(status) {
     const map = {
       actif: ["Actif", "ok"],
+      ok: ["OK", "ok"],
       surveillance: ["Surveillance", "warn"],
+      reparation_requise: ["Réparation requise", "danger"],
       a_planifier: ["À planifier", "info"],
       hors_service: ["Hors service", "danger"],
+      completee: ["Complétée", "ok"],
+      partielle: ["Partielle", "warn"],
+      a_revoir: ["À revoir", "info"],
+      client_absent: ["Client absent", "neutral"],
       ouvert: ["Ouvert", "info"],
       en_cours: ["En cours", "warn"],
       ferme: ["Fermé", "neutral"],
@@ -1044,7 +1075,7 @@
           label: "Intervention",
           title: `${type?.name || "Intervention"} | ${formatDate(intervention.date)}`,
           detail: `${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`,
-          text: searchText(type?.name, intervention.status, statusText(intervention.status), intervention.summary, Object.entries(intervention.readings || {}).flat(), tech?.name, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(intervention.date))
+          text: searchText(type?.name, intervention.status, statusText(intervention.status), intervention.activityStatus, statusText(intervention.activityStatus), intervention.machineStatus, statusText(intervention.machineStatus), intervention.unitKind, intervention.summary, Object.entries(intervention.readings || {}).flat(), tech?.name, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(intervention.date))
         });
       });
     scopedReminders().forEach((reminder) => {
@@ -1835,7 +1866,11 @@
           <div class="panel">
             <div class="panel-header">
               <h2>Appartement ${escapeHtml(selectedApartment?.number || "-")}</h2>
-              <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
+              <div class="actions">
+                <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-unit-kind="interieure">+ Unité intérieure</button>
+                <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-unit-kind="exterieure">+ Unité extérieure</button>
+                <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
+              </div>
             </div>
             <div class="panel-body cards-list">
               ${apartmentMachines.map((machine) => {
@@ -1887,7 +1922,11 @@
     }).join("");
     return `
       <article class="list-item">
-        <h3>${escapeHtml(equipment?.type || "Machine")}</h3>
+        <div class="actions" style="justify-content:space-between">
+          <h3>${escapeHtml(equipment?.type || "Machine")}</h3>
+          <span>${statusBadge(intervention.activityStatus || intervention.status)} ${statusBadge(intervention.machineStatus || equipment?.status)}</span>
+        </div>
+        <div class="meta">${intervention.unitKind === "exterieure" ? "Unité extérieure" : "Unité intérieure"} | Statut machine observé: ${statusText(intervention.machineStatus || equipment?.status)}</div>
         <div class="definition compact">${responses || `<div><span>Formulaire</span><strong>Aucune reponse</strong></div>`}</div>
         ${intervention.attachments?.length ? `<div class="mini-list">${intervention.attachments.map((file) => {
           const order = state.workOrders.find((item) => item.id === file.workOrderId || item.id === intervention.workOrderId);
@@ -1931,9 +1970,25 @@
           ${clientOptions}
           <div class="field"><label>Début</label><input type="date" data-action="report-filter" data-filter="startDate" value="${escapeHtml(filters.startDate)}"></div>
           <div class="field"><label>Fin</label><input type="date" data-action="report-filter" data-filter="endDate" value="${escapeHtml(filters.endDate)}"></div>
+          <div class="field"><label>Statut machine</label><select data-action="report-filter" data-filter="equipmentStatus"><option value="all">Tous</option>${equipmentStatusOptions().map((option) => `<option value="${escapeHtml(option.value)}" ${filters.equipmentStatus === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
+          <div class="field"><label>Statut activité</label><select data-action="report-filter" data-filter="activityStatus"><option value="all">Tous</option>${activityStatusOptions().map((option) => `<option value="${escapeHtml(option.value)}" ${filters.activityStatus === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
         </div>
       </section>
     `;
+  }
+
+  function equipmentStatusOptions() {
+    return dataFieldOptionsForSelect(normalizeActivityFields({}).status);
+  }
+
+  function activityStatusOptions() {
+    return [
+      { value: "completee", label: "Complétée" },
+      { value: "partielle", label: "Partielle" },
+      { value: "a_revoir", label: "À revoir" },
+      { value: "client_absent", label: "Client absent" },
+      { value: "reparation_requise", label: "Réparation requise" }
+    ];
   }
 
   function reportContext() {
@@ -1943,11 +1998,17 @@
     const buildingIds = buildings.map((building) => building.id);
     const apartments = scopedApartments().filter((apartment) => buildingIds.includes(apartment.buildingId));
     const apartmentIds = apartments.map((apartment) => apartment.id);
-    const equipment = scopedEquipment().filter((item) => apartmentIds.includes(item.apartmentId));
+    const equipment = scopedEquipment()
+      .filter((item) => apartmentIds.includes(item.apartmentId))
+      .filter((item) => filters.equipmentStatus === "all" || item.status === filters.equipmentStatus);
     const equipmentIds = equipment.map((item) => item.id);
     const tickets = scopedTickets().filter((ticket) => equipmentIds.includes(ticket.equipmentId) || buildingIds.includes(ticket.buildingId));
     const workOrders = scopedWorkOrders().filter((order) => equipmentIds.includes(order.equipmentId) || buildingIds.includes(order.buildingId));
-    const interventions = state.interventions.filter((item) => equipmentIds.includes(item.equipmentId));
+    const interventions = state.interventions
+      .filter((item) => equipmentIds.includes(item.equipmentId))
+      .filter((item) => inPeriod(item.date, filters.startDate, filters.endDate))
+      .filter((item) => filters.activityStatus === "all" || (item.activityStatus || item.status) === filters.activityStatus)
+      .filter((item) => filters.equipmentStatus === "all" || (item.machineStatus || state.equipment.find((eq) => eq.id === item.equipmentId)?.status) === filters.equipmentStatus);
     const reminders = scopedReminders().filter((reminder) => equipmentIds.includes(reminder.equipmentId));
     return {
       startDate: filters.startDate,
@@ -3367,10 +3428,6 @@
 
   function formBuilderQuestion(field, index, allFields) {
     if (field.type === "section") return formBuilderSection(field, index);
-    const sourceOptions = allFields
-      .filter((item) => item.id !== field.id && item.label)
-      .map((item) => `<option value="${escapeHtml(item.id)}" ${field.showWhen?.fieldId === item.id ? "selected" : ""}>${escapeHtml(item.label)}</option>`)
-      .join("");
     const targetOptions = formBranchTargets(allFields, field.id);
     return `
       <article class="question-card" data-question data-field-id="${escapeHtml(field.id || "")}" draggable="true">
@@ -3405,6 +3462,14 @@
           </div>
         </div>
         <div class="field">
+          <label>Afficher pour</label>
+          <select name="q-unit-scope">
+            <option value="all" ${field.unitScope !== "interieure" && field.unitScope !== "exterieure" ? "selected" : ""}>Toutes les unités</option>
+            <option value="interieure" ${field.unitScope === "interieure" ? "selected" : ""}>Unités intérieures</option>
+            <option value="exterieure" ${field.unitScope === "exterieure" ? "selected" : ""}>Unités extérieures</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Réponse par défaut</label>
           <input name="q-default" value="${escapeHtml(Array.isArray(field.defaultValue) ? field.defaultValue.join(", ") : field.defaultValue || "")}" placeholder="Option ou texte par défaut">
         </div>
@@ -3417,16 +3482,14 @@
         </div>
         <div class="branching-box">
           <div class="field">
-            <label>Afficher seulement si</label>
-            <select name="q-show-field">
-              <option value="">Toujours afficher</option>
-              ${sourceOptions}
+            <label>Aller à après cette question</label>
+            <select name="q-next-branch">
+              <option value="">Suivant</option>
+              <option value="__end" ${field.nextFieldId === "__end" ? "selected" : ""}>Fin du formulaire</option>
+              ${targetOptions.map((item) => `<option value="${escapeHtml(item.id)}" ${field.nextFieldId === item.id ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
             </select>
           </div>
-          <div class="field">
-            <label>Réponse égale à</label>
-            <input name="q-show-value" value="${escapeHtml(field.showWhen?.value || "")}" placeholder="Ex.: Reparation requise">
-          </div>
+          <p class="meta">Pour les choix uniques, multiples ou listes, chaque option peut aussi avoir son propre Aller à.</p>
         </div>
       </article>
     `;
@@ -3442,6 +3505,14 @@
         <input type="hidden" name="q-type" value="section">
         <input type="hidden" name="q-layout" value="full">
         <div class="field"><label>Titre de section</label><input name="q-label" value="${escapeHtml(field.label || "")}" placeholder="Ex.: Unité intérieure 1 - Inspection" required></div>
+        <div class="field">
+          <label>Afficher pour</label>
+          <select name="q-unit-scope">
+            <option value="all" ${field.unitScope !== "interieure" && field.unitScope !== "exterieure" ? "selected" : ""}>Toutes les unités</option>
+            <option value="interieure" ${field.unitScope === "interieure" ? "selected" : ""}>Unités intérieures</option>
+            <option value="exterieure" ${field.unitScope === "exterieure" ? "selected" : ""}>Unités extérieures</option>
+          </select>
+        </div>
       </article>
     `;
   }
@@ -3539,16 +3610,20 @@
   function fieldInterventionModal(modal) {
     const order = state.workOrders.find((item) => item.id === modal.orderId);
     const availableApartments = workOrderApartments(order);
-    const equipment = state.equipment.find((item) => item.id === modal.equipmentId) || { apartmentId: modal.apartmentId, status: "actif" };
+    const selectedEquipment = state.equipment.find((item) => item.id === modal.equipmentId);
+    const equipment = selectedEquipment || { apartmentId: modal.apartmentId, unitKind: modal.unitKind || "interieure" };
     const selectedApartmentId = equipment.apartmentId || modal.apartmentId || availableApartments[0]?.id || "__new";
     const apartment = state.apartments.find((item) => item.id === selectedApartmentId);
     const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}${item.occupant ? ` - ${escapeHtml(item.occupant)}` : ""}</option>`).join("");
+    const machinesForApartment = selectedApartmentId === "__new" ? [] : equipmentForApartment(selectedApartmentId);
+    const selectedActivityEquipmentId = selectedEquipment?.id || "__new";
+    const equipmentOptions = machinesForApartment.map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityEquipmentId === item.id ? "selected" : ""}>${escapeHtml(item.type)} - ${escapeHtml(item.brand || "-")} ${escapeHtml(item.model || "")} ${item.serial ? `(${escapeHtml(item.serial)})` : ""}</option>`).join("");
     const template = formTemplateForOrder(order);
     const activityFields = normalizeActivityFields(template?.activityFields);
     const statusOptions = dataFieldOptionsForSelect(activityFields.status);
     const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
     return modalShell(`Nouvelle activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
-      <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(equipment.id || "")}">
+      <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}">
         <div class="form-section-title">Appartement</div>
         <div class="split">
           <div class="field"><label>Appartement</label><select name="apartmentId"><option value="__new" ${selectedApartmentId === "__new" ? "selected" : ""}>Nouvel appartement</option>${apartmentOptions}</select></div>
@@ -3556,6 +3631,10 @@
         </div>
         <div class="field new-apartment-field"><label>Occupant du nouvel appartement</label><input name="newApartmentOccupant" placeholder="Nom ou note d'accès"></div>
         <div class="form-section-title">Machine</div>
+        <div class="split">
+          <div class="field"><label>Machine</label><select name="activityEquipmentId" data-activity-equipment-select><option value="__new">Créer une nouvelle machine</option>${equipmentOptions}</select></div>
+          <div class="field"><label>Type d'unité</label><select name="unitKind"><option value="interieure" ${equipment.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${equipment.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div>
+        </div>
         <div class="split">
           ${activityTextInput("type", activityFields.type, equipment.type)}
           ${activityTextInput("location", activityFields.location, equipment.location)}
@@ -3566,9 +3645,12 @@
         </div>
         <div class="split">
           <div class="field"><label>${activityFields.serial.label}${activityFields.serial.required ? " *" : ""}</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" ${activityFields.serial.required ? "required" : ""}></div>
-          <div class="field"><label>${activityFields.status.label}${activityFields.status.required ? " *" : ""}</label><select name="status" ${activityFields.status.required ? "required" : ""}>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${equipment.status === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
+          <div class="field"><label>Statut machine observé${activityFields.status.required ? " *" : ""}</label><select name="machineStatus" ${activityFields.status.required ? "required" : ""}><option value="">Sélectionner</option>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${existing?.machineStatus === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
         </div>
-        <div class="field"><label>${activityFields.notes.label}${activityFields.notes.required ? " *" : ""}</label><textarea name="equipmentNotes" ${activityFields.notes.required ? "required" : ""}>${escapeHtml(equipment.notes || "")}</textarea></div>
+        <div class="split">
+          <div class="field"><label>Statut de l'activité</label><select name="activityStatus"><option value="completee" ${existing?.activityStatus === "completee" ? "selected" : ""}>Complétée</option><option value="partielle" ${existing?.activityStatus === "partielle" ? "selected" : ""}>Partielle</option><option value="a_revoir" ${existing?.activityStatus === "a_revoir" ? "selected" : ""}>À revoir</option><option value="client_absent" ${existing?.activityStatus === "client_absent" ? "selected" : ""}>Client absent</option><option value="reparation_requise" ${existing?.activityStatus === "reparation_requise" ? "selected" : ""}>Réparation requise</option></select></div>
+          <div class="field"><label>${activityFields.notes.label}${activityFields.notes.required ? " *" : ""}</label><textarea name="equipmentNotes" ${activityFields.notes.required ? "required" : ""}>${escapeHtml(existing?.equipmentNotes || "")}</textarea></div>
+        </div>
         <div class="form-section-title">${escapeHtml(template?.name || "Formulaire")}</div>
         <div class="form-builder dynamic-form-grid">
           ${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}
@@ -3636,33 +3718,33 @@
 
   function renderDynamicField(field, value) {
     if (field.type === "section") {
-      return `<div class="form-runtime-section"><h3>${escapeHtml(field.label)}</h3></div>`;
+      return `<div class="form-runtime-section dynamic-field" data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scope="${escapeHtml(field.unitScope || "all")}"><h3>${escapeHtml(field.label)}</h3></div>`;
     }
-    const depends = field.showWhen ? `data-visible-field="${escapeHtml(field.showWhen.fieldId)}" data-visible-value="${escapeHtml(field.showWhen.value)}"` : "";
+    const fieldMeta = `data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scope="${escapeHtml(field.unitScope || "all")}"`;
     const options = field.options?.length ? field.options : ["Oui"];
     const required = field.required ? "required" : "";
     const label = `${escapeHtml(field.label)}${field.required ? " *" : ""}`;
     const layoutClass = field.layout === "half" ? " half-field" : "";
     if (field.type === "long") {
-      return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><textarea name="field-${field.id}" ${required}>${escapeHtml(value || "")}</textarea></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><textarea name="field-${field.id}" ${required}>${escapeHtml(value || "")}</textarea></div>`;
     }
     if (field.type === "checkbox") {
       const values = Array.isArray(value) ? value : [value].filter(Boolean);
-      return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list checkbox-choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${values.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list checkbox-choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${values.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "single") {
-      return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option, index) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""} ${field.required && index === 0 ? "required" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option, index) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""} ${field.required && index === 0 ? "required" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "multiple") {
-      return `<div class="field dynamic-field${layoutClass}" ${depends} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
     }
     if (field.type === "select") {
-      return `<div class="field combo-field dynamic-field${layoutClass}" ${depends}><label>${label}</label>${comboInput(`field-${field.id}`, value || "", options, field.required)}</div>`;
+      return `<div class="field combo-field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label>${comboInput(`field-${field.id}`, value || "", options, field.required)}</div>`;
     }
     if (field.type === "phone") {
-      return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(formatCanadianPhone(value || ""))}" inputmode="tel" autocomplete="tel" placeholder="(514) 555-0123" data-phone-input ${required}></div>`;
+      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(formatCanadianPhone(value || ""))}" inputmode="tel" autocomplete="tel" placeholder="(514) 555-0123" data-phone-input ${required}></div>`;
     }
-    return `<div class="field dynamic-field${layoutClass}" ${depends}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
+    return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
   }
 
   function handleSubmit(event) {
@@ -4180,12 +4262,13 @@
           required: false,
           defaultValue: "",
           layout: "full",
+          unitScope: card.querySelector('[name="q-unit-scope"]')?.value || "all",
           branchRules: {},
+          nextFieldId: "",
           showWhen: null
         };
       }
-      const showField = card.querySelector('[name="q-show-field"]')?.value || "";
-      const showValue = card.querySelector('[name="q-show-value"]')?.value.trim() || "";
+      const nextFieldId = card.querySelector('[name="q-next-branch"]')?.value || "";
       const options = Array.from(card.querySelectorAll('[name="q-option"]')).map((input) => input.value.trim()).filter(Boolean);
       const defaultFromOptions = Array.from(card.querySelectorAll("[data-option-row]"))
         .filter((row) => row.querySelector('[name="q-option-default"]')?.checked)
@@ -4205,8 +4288,10 @@
         required: Boolean(card.querySelector('[name="q-required"]')?.checked),
         defaultValue: ["multiple", "checkbox"].includes(type) ? defaultFromOptions : (defaultFromOptions[0] || typedDefault),
         layout: card.querySelector('[name="q-layout"]')?.value || "full",
+        unitScope: card.querySelector('[name="q-unit-scope"]')?.value || "all",
         branchRules,
-        showWhen: showField && showValue ? { fieldId: showField, value: showValue } : null
+        nextFieldId,
+        showWhen: null
       };
     }).filter(Boolean);
     if (!fields.length) {
@@ -4325,14 +4410,17 @@
     const orderId = form.dataset.orderId;
     const order = state.workOrders.find((item) => item.id === orderId);
     const template = formTemplateForOrder(order);
+    updateDynamicVisibility(form);
     if (!validateRequiredResponses(form, template)) return;
     const apartmentId = resolveActivityApartment(order, values);
     if (!apartmentId) return;
-    let equipment = state.equipment.find((item) => item.id === form.dataset.equipmentId);
+    const requestedEquipmentId = values.activityEquipmentId && values.activityEquipmentId !== "__new" ? values.activityEquipmentId : form.dataset.equipmentId;
+    let equipment = state.equipment.find((item) => item.id === requestedEquipmentId);
     if (!equipment) {
       equipment = {
         id: uid("eq"),
         apartmentId,
+        unitKind: values.unitKind || "interieure",
         type: values.type,
         brand: values.brand || "",
         model: values.model || "",
@@ -4341,19 +4429,19 @@
         installDate: today(),
         lastService: "",
         nextService: "",
-        status: values.status || "actif",
+        status: values.machineStatus || "actif",
         notes: values.equipmentNotes || ""
       };
       state.equipment.unshift(equipment);
     } else {
       Object.assign(equipment, {
+        apartmentId,
+        unitKind: values.unitKind || equipment.unitKind || "interieure",
         type: values.type,
         brand: values.brand || "",
         model: values.model || "",
         serial: values.serial || "",
-        location: values.location,
-        status: values.status || "actif",
-        notes: values.equipmentNotes || ""
+        location: values.location
       });
     }
     const responses = collectFormResponses(form, template);
@@ -4373,6 +4461,10 @@
     intervention.apartmentId = apartmentId;
     intervention.formTemplateId = template?.id || "";
     intervention.formResponses = responses;
+    intervention.activityStatus = values.activityStatus || "completee";
+    intervention.machineStatus = values.machineStatus || equipment.status || "actif";
+    intervention.unitKind = values.unitKind || equipment.unitKind || "interieure";
+    intervention.equipmentNotes = values.equipmentNotes || "";
     intervention.summary = values.summary;
     let pendingAttachments = [];
     try {
@@ -4405,6 +4497,8 @@
       }))];
     }
     equipment.lastService = today();
+    equipment.status = intervention.machineStatus;
+    if (!equipment.notes && values.equipmentNotes) equipment.notes = values.equipmentNotes;
     if (!equipment.nextService) {
       const next = new Date();
       next.setMonth(next.getMonth() + 6);
@@ -4526,6 +4620,7 @@
           marque: item.brand,
           modele: item.model,
           serie: item.serial,
+          unite: item.unitKind === "exterieure" ? "Unité extérieure" : "Unité intérieure",
           statut: statusText(item.status),
           dernier_service: item.lastService,
           prochain_service: item.nextService
@@ -4545,7 +4640,9 @@
           appartement: apartment?.number,
           type: interventionType?.name,
           technicien: tech?.name,
-          statut: statusText(item.status),
+          unite: item.unitKind === "exterieure" ? "Unité extérieure" : "Unité intérieure",
+          statut_activite: statusText(item.activityStatus || item.status),
+          statut_machine: statusText(item.machineStatus),
           resume: item.summary,
           mesures: Object.entries(item.readings || {}).map(([key, value]) => `${key}: ${value}`).join(" | "),
           formulaire: Object.entries(item.formResponses || {}).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`).join(" | ")
@@ -4676,6 +4773,7 @@
           ticketId: target.dataset.ticket || null,
           buildingId: target.dataset.building || null,
           apartmentId: target.dataset.apartment || null,
+          unitKind: target.dataset.unitKind || null,
           orderId: target.dataset.order || null
         } });
       }
@@ -4775,6 +4873,7 @@
       handleReportFilter(event);
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
+      if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
     });
@@ -4812,6 +4911,24 @@
         if (input.name === "newApartmentNumber") input.required = isNew;
       });
     });
+  }
+
+  function populateActivityEquipment(select) {
+    const form = select.closest("form");
+    const equipment = state.equipment.find((item) => item.id === select.value);
+    if (!form) return;
+    form.dataset.equipmentId = equipment?.id || "";
+    ["type", "location", "brand", "model", "serial"].forEach((name) => {
+      const input = form.querySelector(`[name="${name}"]`);
+      if (input) input.value = equipment ? equipment[name === "location" ? "location" : name] || "" : "";
+    });
+    const unitKind = form.querySelector('[name="unitKind"]');
+    if (unitKind && equipment?.unitKind) unitKind.value = equipment.unitKind;
+    const machineStatus = form.querySelector('[name="machineStatus"]');
+    if (machineStatus) machineStatus.value = "";
+    const notes = form.querySelector('[name="equipmentNotes"]');
+    if (notes) notes.value = "";
+    hideComboOptions();
   }
 
   function addFormQuestion(form) {
@@ -4905,6 +5022,7 @@
       ...field,
       id: idMap[field.id],
       showWhen: field.showWhen ? { ...field.showWhen, fieldId: idMap[field.showWhen.fieldId] || field.showWhen.fieldId } : null,
+      nextFieldId: idMap[field.nextFieldId] || field.nextFieldId || "",
       branchRules: Object.fromEntries(Object.entries(field.branchRules || {}).map(([option, target]) => [option, idMap[target] || target]))
     }));
     state.formTemplates.push(copy);
@@ -4925,19 +5043,16 @@
     if (!form || form.dataset.form !== "formTemplate") return;
     const fields = currentBuilderFields(form);
     form.querySelectorAll("[data-question]").forEach((card) => {
-      const select = card.querySelector('[name="q-show-field"]');
-      if (!select) return;
-      const current = select.value;
-      const options = fields
-        .filter((field) => field.id !== card.dataset.fieldId)
-        .map((field) => `<option value="${escapeHtml(field.id)}" ${current === field.id ? "selected" : ""}>${escapeHtml(field.label)}</option>`)
-        .join("");
-      select.innerHTML = `<option value="">Toujours afficher</option>${options}`;
-      select.value = fields.some((field) => field.id === current && field.id !== card.dataset.fieldId) ? current : "";
       const branchOptions = fields
         .filter((field) => field.id !== card.dataset.fieldId)
         .map((field, index) => `<option value="${escapeHtml(field.id)}">${index + 1}. ${escapeHtml(field.label)}</option>`)
         .join("");
+      const nextSelect = card.querySelector('[name="q-next-branch"]');
+      if (nextSelect) {
+        const selected = nextSelect.value;
+        nextSelect.innerHTML = `<option value="">Suivant</option><option value="__end">Fin du formulaire</option>${branchOptions}`;
+        nextSelect.value = selected;
+      }
       card.querySelectorAll('[name="q-option-branch"]').forEach((branchSelect) => {
         const selected = branchSelect.value;
         branchSelect.innerHTML = `<option value="">Suivant</option><option value="__end">Fin du formulaire</option>${branchOptions}`;
@@ -5030,25 +5145,78 @@
 
   function updateDynamicVisibility(form) {
     if (!form || form.dataset.form !== "fieldIntervention") return;
-    for (let pass = 0; pass < 2; pass += 1) {
-      form.querySelectorAll("[data-visible-field]").forEach((field) => {
-        const sourceName = `field-${field.dataset.visibleField}`;
-        const sourceInputs = Array.from(form.querySelectorAll(`[name="${sourceName}"]`));
-        const values = sourceInputs
-          .filter((input) => !input.disabled)
-          .filter((input) => {
-            if (input.type === "checkbox" || input.type === "radio") return input.checked;
-            return true;
-          })
-          .map((input) => input.value)
-          .filter(Boolean);
-        const hidden = !values.includes(field.dataset.visibleValue);
-        field.classList.toggle("hidden", hidden);
-        field.querySelectorAll("input, select, textarea").forEach((input) => {
-          input.disabled = hidden;
-        });
+    const order = state.workOrders.find((item) => item.id === form.dataset.orderId);
+    const template = formTemplateForOrder(order);
+    const fields = template?.fields || [];
+    if (!fields.length) return;
+    const visible = visibleFormFieldIds(form, fields);
+    form.querySelectorAll("[data-dynamic-field-id]").forEach((wrapper) => {
+      const hidden = !visible.has(wrapper.dataset.dynamicFieldId);
+      wrapper.classList.toggle("hidden", hidden);
+      wrapper.querySelectorAll("input, select, textarea").forEach((input) => {
+        input.disabled = hidden;
       });
+    });
+  }
+
+  function visibleFormFieldIds(form, fields) {
+    const visible = new Set();
+    const indexById = new Map(fields.map((field, index) => [field.id, index]));
+    let index = 0;
+    let guard = 0;
+    while (index >= 0 && index < fields.length && guard < fields.length * 3) {
+      guard += 1;
+      const field = fields[index];
+      if (!fieldAppliesToCurrentUnit(form, field) || !legacyShowWhenMatches(form, field)) {
+        index += 1;
+        continue;
+      }
+      visible.add(field.id);
+      const target = branchTargetForRuntimeField(form, field);
+      if (target === "__end") break;
+      if (target && indexById.has(target)) {
+        index = indexById.get(target);
+        continue;
+      }
+      index += 1;
     }
+    return visible;
+  }
+
+  function fieldAppliesToCurrentUnit(form, field) {
+    const scope = field.unitScope || "all";
+    if (scope === "all") return true;
+    const unitKind = form.querySelector('[name="unitKind"]')?.value || "interieure";
+    return scope === unitKind;
+  }
+
+  function legacyShowWhenMatches(form, field) {
+    if (!field.showWhen?.fieldId || !field.showWhen?.value) return true;
+    const source = fieldsByRuntimeForm(form).find((item) => item.id === field.showWhen.fieldId);
+    if (!source) return true;
+    return runtimeFieldValues(form, source).includes(field.showWhen.value);
+  }
+
+  function fieldsByRuntimeForm(form) {
+    const order = state.workOrders.find((item) => item.id === form.dataset.orderId);
+    return formTemplateForOrder(order)?.fields || [];
+  }
+
+  function branchTargetForRuntimeField(form, field) {
+    if (field.type === "section") return field.nextFieldId || "";
+    const values = runtimeFieldValues(form, field);
+    const branchRules = field.branchRules || {};
+    const orderedValues = (field.options || []).filter((option) => values.includes(option));
+    const matched = [...orderedValues, ...values].find((value) => branchRules[value]);
+    return matched ? branchRules[matched] : field.nextFieldId || "";
+  }
+
+  function runtimeFieldValues(form, field) {
+    const inputs = Array.from(form.querySelectorAll(`[name="field-${field.id}"]`));
+    if (!inputs.length) return [];
+    if (["checkbox", "multiple"].includes(field.type)) return inputs.filter((input) => input.checked).map((input) => input.value).filter(Boolean);
+    if (field.type === "single") return [inputs.find((input) => input.checked)?.value].filter(Boolean);
+    return [inputs[0].value].filter(Boolean);
   }
 
   function handleFilter(event) {

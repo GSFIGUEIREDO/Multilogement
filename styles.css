@@ -1239,6 +1239,20 @@ td button.link-button {
   font-weight: 900;
 }
 
+.recommendation-details {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.field-intervention-actions {
+  justify-content: flex-start;
+  padding-top: 8px;
+}
+
 .compact-field {
   gap: 5px;
 }
@@ -1944,6 +1958,16 @@ td button.link-button {
   .actions .ghost-button,
   .actions .danger-button {
     flex: 1 1 150px;
+  }
+
+  .field-intervention-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .field-intervention-actions .primary-button,
+  .field-intervention-actions .ghost-button {
+    width: 100%;
   }
 
   .panel-body,

@@ -251,6 +251,35 @@
           { id: "a_planifier", label: "À planifier", value: "a_planifier" },
           { id: "hors_service", label: "Hors service", value: "hors_service" }
         ]
+      },
+      {
+        id: "activity_status",
+        name: "Statut",
+        group: "Activité",
+        type: "single",
+        appliesTo: ["activity"],
+        options: [
+          { id: "completee", label: "Complétée", value: "completee" },
+          { id: "partielle", label: "Partielle", value: "partielle" },
+          { id: "a_revoir", label: "À revoir", value: "a_revoir" },
+          { id: "client_absent", label: "Client absent", value: "client_absent" },
+          { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise" }
+        ]
+      },
+      {
+        id: "recommendation_type",
+        name: "Type de recommandation",
+        group: "Recommandation",
+        type: "single",
+        appliesTo: ["activity"],
+        options: [
+          { id: "diagnostic", label: "Diagnostic à effectuer", value: "diagnostic" },
+          { id: "atelier", label: "Apporter à l'atelier", value: "atelier" },
+          { id: "remplacement", label: "Remplacement recommandé", value: "remplacement" },
+          { id: "piece", label: "Remplacement de pièce", value: "piece" },
+          { id: "reparation", label: "Réparation recommandée", value: "reparation" },
+          { id: "autre", label: "Autre", value: "autre" }
+        ]
       }
     ],
     reminders: [
@@ -481,7 +510,7 @@
     next.mobileMenuOpen = false;
     next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
-    next.dataFields = normalizeDataFields(data.dataFields || seed.dataFields);
+    next.dataFields = ensureCoreDataFields(normalizeDataFields(data.dataFields || seed.dataFields));
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
       id: template.id,
       name: template.name,
@@ -559,6 +588,7 @@
       machineStatus: "",
       unitKind: "interieure",
       equipmentNotes: "",
+      recommendation: null,
       ...intervention
     }));
     migrateInterventionAttachments(next);
@@ -633,6 +663,24 @@
     ];
     const existing = new Set(options.map((option) => option.value));
     return [...options, ...required.filter((option) => !existing.has(option.value))];
+  }
+
+  function ensureCoreDataFields(fields) {
+    const coreFields = normalizeDataFields(seed.dataFields.filter((field) => ["equipment_status", "activity_status", "recommendation_type"].includes(field.id)));
+    const byId = new Map(fields.map((field) => [field.id, field]));
+    coreFields.forEach((core) => {
+      const existing = byId.get(core.id);
+      if (!existing) {
+        byId.set(core.id, core);
+        return;
+      }
+      const existingValues = new Set((existing.options || []).map((option) => option.value));
+      existing.options = [
+        ...(existing.options || []),
+        ...core.options.filter((option) => !existingValues.has(option.value))
+      ];
+    });
+    return Array.from(byId.values());
   }
 
   function normalizeDataOptions(options = []) {
@@ -893,6 +941,11 @@
       a_revoir: ["À revoir", "info"],
       client_absent: ["Client absent", "neutral"],
       ouvert: ["Ouvert", "info"],
+      a_valider: ["À valider", "warn"],
+      envoyee: ["Envoyée", "info"],
+      approuvee: ["Approuvée", "ok"],
+      refusee: ["Refusée", "danger"],
+      information_demandee: ["Info demandée", "warn"],
       en_cours: ["En cours", "warn"],
       ferme: ["Fermé", "neutral"],
       planifie: ["Planifié", "info"],
@@ -1075,7 +1128,7 @@
           label: "Intervention",
           title: `${type?.name || "Intervention"} | ${formatDate(intervention.date)}`,
           detail: `${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`,
-          text: searchText(type?.name, intervention.status, statusText(intervention.status), intervention.activityStatus, statusText(intervention.activityStatus), intervention.machineStatus, statusText(intervention.machineStatus), intervention.unitKind, intervention.summary, Object.entries(intervention.readings || {}).flat(), tech?.name, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(intervention.date))
+          text: searchText(type?.name, intervention.status, statusText(intervention.status), intervention.activityStatus, statusText(intervention.activityStatus), intervention.machineStatus, statusText(intervention.machineStatus), intervention.unitKind, intervention.recommendation?.type, dataFieldLabelByValue("recommendation_type", intervention.recommendation?.type), intervention.recommendation?.description, intervention.recommendation?.part, intervention.recommendation?.time, intervention.summary, Object.entries(intervention.readings || {}).flat(), tech?.name, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(intervention.date))
         });
       });
     scopedReminders().forEach((reminder) => {
@@ -1928,6 +1981,16 @@
         </div>
         <div class="meta">${intervention.unitKind === "exterieure" ? "Unité extérieure" : "Unité intérieure"} | Statut machine observé: ${statusText(intervention.machineStatus || equipment?.status)}</div>
         <div class="definition compact">${responses || `<div><span>Formulaire</span><strong>Aucune reponse</strong></div>`}</div>
+        ${intervention.recommendation?.type ? `
+          <div class="definition compact">
+            <div><span>Recommandation</span><strong>${escapeHtml(dataFieldLabelByValue("recommendation_type", intervention.recommendation.type))}</strong></div>
+            <div><span>Priorité</span><strong>${escapeHtml(statusText(intervention.recommendation.priority) || "-")}</strong></div>
+            <div><span>Pièce nécessaire</span><strong>${escapeHtml(intervention.recommendation.part || "-")}</strong></div>
+            <div><span>Temps prévu</span><strong>${escapeHtml(intervention.recommendation.time || "-")}</strong></div>
+            <div><span>Statut</span><strong>${escapeHtml(statusText(intervention.recommendation.status || "a_valider"))}</strong></div>
+          </div>
+          <div class="meta">${escapeHtml(intervention.recommendation.description || "")}</div>
+        ` : ""}
         ${intervention.attachments?.length ? `<div class="mini-list">${intervention.attachments.map((file) => {
           const order = state.workOrders.find((item) => item.id === file.workOrderId || item.id === intervention.workOrderId);
           return `<div class="meta">Pièce jointe: ${escapeHtml(file.name)} | Origine: ${escapeHtml(order?.number || "-")}</div>`;
@@ -1982,13 +2045,28 @@
   }
 
   function activityStatusOptions() {
-    return [
-      { value: "completee", label: "Complétée" },
-      { value: "partielle", label: "Partielle" },
-      { value: "a_revoir", label: "À revoir" },
-      { value: "client_absent", label: "Client absent" },
-      { value: "reparation_requise", label: "Réparation requise" }
-    ];
+    return dataFieldOptionsById("activity_status");
+  }
+
+  function recommendationTypeOptions() {
+    return dataFieldOptionsById("recommendation_type");
+  }
+
+  function dataFieldOptionsById(id) {
+    const field = state.dataFields.find((item) => item.id === id);
+    const fallback = seed.dataFields.find((item) => item.id === id);
+    const options = (field?.options?.length ? field.options : normalizeDataOptions(fallback?.options || []));
+    return options.filter((option) => option.active !== false).map((option) => ({
+      value: option.value,
+      label: option.label
+    }));
+  }
+
+  function dataFieldLabelByValue(id, value) {
+    if (!value) return "";
+    const field = state.dataFields.find((item) => item.id === id);
+    const option = field?.options?.find((item) => item.value === value);
+    return option?.label || value;
   }
 
   function reportContext() {
@@ -3621,7 +3699,11 @@
     const template = formTemplateForOrder(order);
     const activityFields = normalizeActivityFields(template?.activityFields);
     const statusOptions = dataFieldOptionsForSelect(activityFields.status);
+    const activityStatuses = activityStatusOptions();
+    const recommendationTypes = recommendationTypeOptions();
     const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
+    const recommendation = existing?.recommendation || {};
+    const hasRecommendation = Boolean(recommendation.type);
     return modalShell(`Nouvelle activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
       <form class="form-grid" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}">
         <div class="form-section-title">Appartement</div>
@@ -3648,7 +3730,7 @@
           <div class="field"><label>Statut machine observé${activityFields.status.required ? " *" : ""}</label><select name="machineStatus" ${activityFields.status.required ? "required" : ""}><option value="">Sélectionner</option>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${existing?.machineStatus === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
         </div>
         <div class="split">
-          <div class="field"><label>Statut de l'activité</label><select name="activityStatus"><option value="completee" ${existing?.activityStatus === "completee" ? "selected" : ""}>Complétée</option><option value="partielle" ${existing?.activityStatus === "partielle" ? "selected" : ""}>Partielle</option><option value="a_revoir" ${existing?.activityStatus === "a_revoir" ? "selected" : ""}>À revoir</option><option value="client_absent" ${existing?.activityStatus === "client_absent" ? "selected" : ""}>Client absent</option><option value="reparation_requise" ${existing?.activityStatus === "reparation_requise" ? "selected" : ""}>Réparation requise</option></select></div>
+          <div class="field"><label>Statut de l'activité</label><select name="activityStatus">${activityStatuses.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.activityStatus || "completee") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
           <div class="field"><label>${activityFields.notes.label}${activityFields.notes.required ? " *" : ""}</label><textarea name="equipmentNotes" ${activityFields.notes.required ? "required" : ""}>${escapeHtml(existing?.equipmentNotes || "")}</textarea></div>
         </div>
         <div class="form-section-title">${escapeHtml(template?.name || "Formulaire")}</div>
@@ -3661,8 +3743,28 @@
           <p class="meta">Maximum 3 fichiers, 10 MB par fichier. Les fichiers seront associés à l'appartement et à la machine de cette activité.</p>
         </div>
         ${existing?.attachments?.length ? `<div class="mini-list">${existing.attachments.map((file) => `<div class="meta">- ${escapeHtml(file.name)} (${escapeHtml(file.type || "fichier")})</div>`).join("")}</div>` : ""}
+        <div class="form-section-title">Recommandation</div>
+        <div class="field">
+          <label>Recommandation au client</label>
+          <select name="recommendationType" data-recommendation-select>
+            <option value="">Aucune recommandation</option>
+            ${recommendationTypes.map((option) => `<option value="${escapeHtml(option.value)}" ${recommendation.type === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="recommendation-details ${hasRecommendation ? "" : "hidden"}" data-recommendation-details>
+          <div class="field"><label>Description</label><textarea name="recommendationDescription" placeholder="Décrire la recommandation pour validation interne">${escapeHtml(recommendation.description || "")}</textarea></div>
+          <div class="split">
+            <div class="field"><label>Priorité</label><select name="recommendationPriority"><option value="basse" ${recommendation.priority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${!recommendation.priority || recommendation.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${recommendation.priority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
+            <div class="field"><label>Temps prévu pour la réparation</label><input name="recommendationTime" value="${escapeHtml(recommendation.time || "")}" placeholder="Ex.: 2 h, 1 journée"></div>
+          </div>
+          <div class="field"><label>Pièce nécessaire</label><input name="recommendationPart" value="${escapeHtml(recommendation.part || "")}" placeholder="Ex.: moteur, carte électronique"></div>
+        </div>
         <div class="field"><label>Resume de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
-        <button class="primary-button" type="submit">Enregistrer appartement</button>
+        <div class="actions field-intervention-actions">
+          <button class="primary-button" type="submit">Enregistrer</button>
+          <button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter unité intérieure</button>
+          <button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter unité extérieure</button>
+        </div>
       </form>
     `);
   }
@@ -3752,6 +3854,7 @@
     if (!form) return;
     event.preventDefault();
     const values = Object.fromEntries(new FormData(form).entries());
+    if (event.submitter?.dataset.afterSave) values.afterSave = event.submitter.dataset.afterSave;
     const formType = form.dataset.form;
     if (formType === "login") login(values);
     if (formType === "signup") signup(values);
@@ -4465,6 +4568,15 @@
     intervention.machineStatus = values.machineStatus || equipment.status || "actif";
     intervention.unitKind = values.unitKind || equipment.unitKind || "interieure";
     intervention.equipmentNotes = values.equipmentNotes || "";
+    intervention.recommendation = values.recommendationType ? {
+      type: values.recommendationType,
+      description: values.recommendationDescription || "",
+      priority: values.recommendationPriority || "normale",
+      part: values.recommendationPart || "",
+      time: values.recommendationTime || "",
+      status: existing?.recommendation?.status || "a_valider",
+      createdAt: existing?.recommendation?.createdAt || today()
+    } : null;
     intervention.summary = values.summary;
     let pendingAttachments = [];
     try {
@@ -4507,6 +4619,16 @@
     if (order.status === "planifie") order.status = "en_cours";
     const progress = workOrderProgress(order);
     if (progress.totalApartments && progress.doneApartments === progress.totalApartments) order.status = "termine";
+    if (["interieure", "exterieure"].includes(values.afterSave)) {
+      setState({
+        modal: { type: "fieldIntervention", orderId: order.id, apartmentId, unitKind: values.afterSave },
+        activeView: "execution",
+        selectedWorkOrderId: order.id,
+        selectedExecutionApartmentId: apartmentId,
+        toast: values.afterSave === "exterieure" ? "Activité enregistrée. Nouvelle unité extérieure prête." : "Activité enregistrée. Nouvelle unité intérieure prête."
+      });
+      return;
+    }
     setState({ modal: null, activeView: "execution", selectedWorkOrderId: order.id, selectedExecutionApartmentId: apartmentId, toast: "Formulaire terrain enregistre." });
   }
 
@@ -4643,6 +4765,11 @@
           unite: item.unitKind === "exterieure" ? "Unité extérieure" : "Unité intérieure",
           statut_activite: statusText(item.activityStatus || item.status),
           statut_machine: statusText(item.machineStatus),
+          recommandation: dataFieldLabelByValue("recommendation_type", item.recommendation?.type),
+          recommandation_priorite: statusText(item.recommendation?.priority),
+          piece_necessaire: item.recommendation?.part,
+          temps_prevu: item.recommendation?.time,
+          recommandation_statut: statusText(item.recommendation?.status),
           resume: item.summary,
           mesures: Object.entries(item.readings || {}).map(([key, value]) => `${key}: ${value}`).join(" | "),
           formulaire: Object.entries(item.formResponses || {}).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`).join(" | ")
@@ -4873,6 +5000,7 @@
       handleReportFilter(event);
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
+      updateRecommendationVisibility(event.target.closest("form"));
       if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
@@ -4909,6 +5037,17 @@
       field.querySelectorAll("input, select, textarea").forEach((input) => {
         input.disabled = !isNew;
         if (input.name === "newApartmentNumber") input.required = isNew;
+      });
+    });
+  }
+
+  function updateRecommendationVisibility(form) {
+    if (!form || form.dataset.form !== "fieldIntervention") return;
+    const hasRecommendation = Boolean(form.querySelector("[data-recommendation-select]")?.value);
+    form.querySelectorAll("[data-recommendation-details]").forEach((section) => {
+      section.classList.toggle("hidden", !hasRecommendation);
+      section.querySelectorAll("input, select, textarea").forEach((input) => {
+        input.disabled = !hasRecommendation;
       });
     });
   }
@@ -5258,6 +5397,7 @@
     else app.innerHTML = dashboard();
     updateDynamicVisibility(app.querySelector("form[data-form='fieldIntervention']"));
     updateNewApartmentVisibility(app.querySelector("form[data-form='fieldIntervention']"));
+    updateRecommendationVisibility(app.querySelector("form[data-form='fieldIntervention']"));
   }
 
   bindEvents();

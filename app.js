@@ -5,6 +5,7 @@
   let toastTimer = null;
   let refreshTimer = null;
   let restoringSession = false;
+  let lastLocalChangeAt = 0;
 
   const seed = {
     sessionUserId: null,
@@ -830,6 +831,7 @@
 
   function setState(patch) {
     state = { ...state, ...patch };
+    lastLocalChangeAt = Date.now();
     saveState();
     render();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
@@ -1460,7 +1462,7 @@
       ["recommandations", "RC", "Recommandations", can("recommendations")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
-      ["parametres", "PR", "Paramètres", can("settings") || can("users")]
+      ["parametres", "PR", "Paramètres", can("settings") && currentUser()?.role !== "client"]
     ];
   }
 
@@ -3326,13 +3328,32 @@
             <tbody>
               ${visibleUsers.map((user) => {
                 const client = state.clients.find((item) => item.id === user.clientId);
-                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(roleLabel(user.role))}${user.role === "client" ? `<br><span class="meta">${escapeHtml(clientAccessLabel(user.clientAccessLevel))}</span>` : ""}</td><td>${escapeHtml(client?.name || "-")}</td><td>${escapeHtml(user.role === "client" ? userBuildingAccessLabel(user) : "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button></td></tr>`;
+                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(user.role === "client" ? clientAccessLabel(user.clientAccessLevel) : roleLabel(user.role))}</td><td>${escapeHtml(client?.name || "-")}</td><td>${escapeHtml(user.role === "client" ? userBuildingAccessLabel(user) : "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button></td></tr>`;
               }).join("")}
             </tbody>
           </table>
         </div>
       </section>
       ${currentUser()?.role === "client" ? "" : `<section class="panel" style="margin-top:16px">
+        <div class="panel-header"><h2>Profils client par client</h2></div>
+        <div class="panel-body cards-list">
+          ${state.clients.map((client) => {
+            const clientUsers = state.users.filter((user) => user.role === "client" && user.clientId === client.id);
+            return `
+              <article class="list-item">
+                <div class="actions" style="justify-content:space-between">
+                  <h3>${escapeHtml(client.name)}</h3>
+                  <button class="ghost-button" data-action="open-modal" data-modal="user" data-client="${escapeHtml(client.id)}">Nouveau profil</button>
+                </div>
+                <div class="mini-list">
+                  ${clientUsers.map((user) => `<div class="mini-row"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(clientAccessLabel(user.clientAccessLevel))} | ${escapeHtml(userBuildingAccessLabel(user))}</span></div>`).join("") || `<div class="meta">Aucun profil client créé.</div>`}
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </section>
+      <section class="panel" style="margin-top:16px">
         <div class="panel-header"><h2>Matrice d'accès</h2></div>
         <div class="panel-body table-wrap">
           <table>
@@ -3791,17 +3812,23 @@
   function userModal(modal) {
     const user = state.users.find((item) => item.id === modal.id) || {};
     const isClientManager = currentUser()?.role === "client";
+    const isClientUserForm = isClientManager || user.role === "client" || Boolean(modal.clientId);
     const effectiveUser = {
-      role: isClientManager ? "client" : user.role,
-      clientId: isClientManager ? currentUser().clientId : user.clientId,
-      clientAccessLevel: user.clientAccessLevel || (user.role === "client" ? "gestionnaire" : ""),
+      role: isClientUserForm ? "client" : user.role,
+      clientId: isClientManager ? currentUser().clientId : user.clientId || modal.clientId || "",
+      clientAccessLevel: user.clientAccessLevel || (isClientUserForm ? "gestionnaire" : ""),
       allowedBuildingIds: user.allowedBuildingIds || [],
       portalRights: user.portalRights || [],
       ...user
     };
     const clients = state.clients.map((client) => `<option value="${client.id}" ${effectiveUser.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
-    const roles = (isClientManager ? state.roleDefinitions.filter((role) => role.id === "client") : state.roleDefinitions)
+    const roles = state.roleDefinitions
       .map((role) => `<option value="${role.id}" ${effectiveUser.role === role.id ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("");
+    const clientRoleOptions = [
+      ["direction", "Direction / headquarters"],
+      ["gestionnaire", "Gestionnaire de lieu"],
+      ["maintenance", "Maintenance client"]
+    ].map(([value, label]) => `<option value="${value}" ${effectiveUser.clientAccessLevel === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
     const clientBuildings = (isClientManager ? scopedBuildings() : state.buildings.filter((building) => building.clientId === effectiveUser.clientId || !effectiveUser.clientId))
       .map((building) => `
         <label><input type="checkbox" name="allowedBuildingIds" value="${escapeHtml(building.id)}" ${(effectiveUser.allowedBuildingIds || []).includes(building.id) ? "checked" : ""}> ${escapeHtml(building.name)}</label>
@@ -3814,18 +3841,18 @@
       <form class="form-grid" data-form="user">
         <input type="hidden" name="id" value="${escapeHtml(user.id || "")}">
         ${isClientManager ? `<input type="hidden" name="clientId" value="${escapeHtml(currentUser().clientId || "")}">` : ""}
+        ${isClientUserForm ? `<input type="hidden" name="role" value="client">` : ""}
         <div class="split">
           <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(user.name || "")}" required></div>
           <div class="field"><label>Courriel</label><input name="email" type="email" value="${escapeHtml(user.email || "")}" required></div>
         </div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" value="${escapeHtml(user.password || "temp123")}" required></div>
-          <div class="field"><label>Rôle</label><select name="role">${roles}</select></div>
+          <div class="field"><label>Rôle</label>${isClientUserForm ? `<select name="clientAccessLevel">${clientRoleOptions}</select>` : `<select name="role">${roles}</select>`}</div>
         </div>
         ${isClientManager ? "" : `<div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>`}
         ${isClientManager || effectiveUser.role === "client" ? `<div class="client-access-editor">
           <div class="split">
-            <div class="field"><label>Profil portail client</label><select name="clientAccessLevel"><option value="direction" ${effectiveUser.clientAccessLevel === "direction" ? "selected" : ""}>Direction / headquarters</option><option value="gestionnaire" ${effectiveUser.clientAccessLevel === "gestionnaire" ? "selected" : ""}>Gestionnaire de lieu</option><option value="maintenance" ${effectiveUser.clientAccessLevel === "maintenance" ? "selected" : ""}>Maintenance client</option></select></div>
             <div class="field"><label>Accès aux lieux</label><div class="choice-list"><label><input type="checkbox" name="allBuildings" value="1" ${!(effectiveUser.allowedBuildingIds || []).length ? "checked" : ""}> Tous les lieux autorisés</label>${clientBuildings}</div></div>
           </div>
           <div class="field"><label>Informations partagées</label><div class="choice-list">${portalChecks}</div></div>
@@ -4478,7 +4505,7 @@
   }
 
   async function refreshStateFromServer() {
-    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer) return;
+    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer || Date.now() - lastLocalChangeAt < 5000) return;
     restoringSession = true;
     const uiState = {
       sessionUserId: state.sessionUserId,

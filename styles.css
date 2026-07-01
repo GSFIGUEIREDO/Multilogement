@@ -617,6 +617,9 @@ textarea:focus {
   background: var(--surface-soft);
   color: var(--ink);
   border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .quick-action {
@@ -665,6 +668,7 @@ textarea:focus {
 
 .notification-button {
   position: relative;
+  flex: 0 0 40px;
 }
 
 .notification-button .alert-dot {
@@ -672,11 +676,17 @@ textarea:focus {
   right: 5px;
 }
 
+.notification-button svg {
+  width: 18px;
+  height: 18px;
+}
+
 .dashboard-board {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 14px;
   align-items: start;
+  grid-auto-flow: row dense;
 }
 
 .dashboard-widget {
@@ -714,6 +724,18 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
   gap: 10px;
+}
+
+.calendar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.calendar-toolbar input {
+  width: 180px;
 }
 
 .calendar-day {
@@ -2153,6 +2175,15 @@ td button.link-button {
 
   .dashboard-calendar {
     grid-template-columns: 1fr;
+  }
+
+  .calendar-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-toolbar input {
+    width: 100%;
   }
 
   .dashboard-edit-controls {

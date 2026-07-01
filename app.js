@@ -6,6 +6,7 @@
   let refreshTimer = null;
   let restoringSession = false;
   let lastLocalChangeAt = 0;
+  let lastNavigationAt = 0;
 
   const seed = {
     sessionUserId: null,
@@ -38,6 +39,7 @@
     },
     dashboardLayouts: {},
     dashboardEditMode: false,
+    dashboardCalendarDate: "",
     reportFilters: {
       reportType: "dashboard_operationnel",
       clientId: "all",
@@ -513,6 +515,7 @@
     next.workOrderFilters = { ...seed.workOrderFilters, ...(data.workOrderFilters || {}) };
     next.dashboardLayouts = data.dashboardLayouts || {};
     next.dashboardEditMode = false;
+    next.dashboardCalendarDate = data.dashboardCalendarDate || today();
     next.reportFilters = {
       ...seed.reportFilters,
       ...(data.reportFilters || {}),
@@ -887,6 +890,7 @@
       mobileMenuOpen: state.mobileMenuOpen,
       dashboardLayouts: state.dashboardLayouts,
       dashboardEditMode: state.dashboardEditMode,
+      dashboardCalendarDate: state.dashboardCalendarDate,
       toast: state.toast,
       modal: state.modal
     };
@@ -903,13 +907,17 @@
       globalSearch: "",
       filters: { ...seed.filters },
       workOrderFilters: { ...seed.workOrderFilters },
-      dashboardEditMode: false
+      dashboardEditMode: false,
+      dashboardCalendarDate: state.dashboardCalendarDate || today()
     };
   }
 
   function setState(patch) {
     state = { ...state, ...patch };
     lastLocalChangeAt = Date.now();
+    if (Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal")) {
+      lastNavigationAt = lastLocalChangeAt;
+    }
     saveState();
     render();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
@@ -918,6 +926,9 @@
   function updateUiState(patch) {
     state = { ...state, ...patch };
     lastLocalChangeAt = Date.now();
+    if (Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal")) {
+      lastNavigationAt = lastLocalChangeAt;
+    }
     render();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
   }
@@ -1242,7 +1253,14 @@
   }
 
   function today() {
-    return new Date().toISOString().slice(0, 10);
+    return dateInputValue(new Date());
+  }
+
+  function dateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
 
   function monthStart(dateValue = today()) {
@@ -1296,7 +1314,7 @@
     if (unit === "days") date.setDate(date.getDate() + Number(amount || 1));
     else if (unit === "months") date.setMonth(date.getMonth() + Number(amount || 1));
     else date.setFullYear(date.getFullYear() + Number(amount || 1));
-    return date.toISOString().slice(0, 10);
+    return dateInputValue(date);
   }
 
   function uid(prefix) {
@@ -1722,7 +1740,7 @@
       { id: "calendar", size: "wide" },
       { id: "demands", size: "medium" },
       { id: "workorders", size: "medium" },
-      { id: "alerts", size: "medium" }
+      { id: "alerts", size: "wide" }
     ];
   }
 
@@ -1791,9 +1809,16 @@
   }
 
   function dashboardCalendarWidget() {
-    const days = Array.from({ length: 14 }, (_, index) => addDateInterval(today(), index, "days"));
-    const orders = scopedWorkOrders().filter((order) => order.scheduledDate >= today() && order.scheduledDate <= days[days.length - 1]).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+    const startDate = state.dashboardCalendarDate || today();
+    const days = Array.from({ length: 14 }, (_, index) => addDateInterval(startDate, index, "days"));
+    const orders = scopedWorkOrders().filter((order) => order.scheduledDate >= startDate && order.scheduledDate <= days[days.length - 1]).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
     return `
+      <div class="calendar-toolbar">
+        <button class="ghost-button" data-action="dashboard-calendar-shift" data-days="-7">Semaine précédente</button>
+        <input type="date" data-action="dashboard-calendar-date" value="${escapeHtml(startDate)}" aria-label="Date de départ du calendrier">
+        <button class="ghost-button" data-action="dashboard-calendar-today">Aujourd'hui</button>
+        <button class="ghost-button" data-action="dashboard-calendar-shift" data-days="7">Semaine suivante</button>
+      </div>
       <div class="dashboard-calendar">
         ${days.map((day) => {
           const dayOrders = orders.filter((order) => order.scheduledDate === day);
@@ -4780,16 +4805,21 @@
   async function restoreSession() {
     if (!SERVER_ENABLED) return;
     if (state.resetToken) return;
+    const restoreStartedAt = Date.now();
+    const uiState = currentUiState();
     restoringSession = true;
     try {
       const response = await fetch("/api/session", { credentials: "same-origin" });
       if (response.ok) {
         const payload = await response.json();
-        state = normalizeState(payload.state);
-        state.sessionUserId = payload.user.id;
+        state = {
+          ...normalizeState(payload.state),
+          ...(lastLocalChangeAt > restoreStartedAt ? uiState : {}),
+          sessionUserId: payload.user.id,
+          modal: lastLocalChangeAt > restoreStartedAt ? uiState.modal : null,
+          toast: ""
+        };
         state.activeView = state.activeView || "tableau";
-        state.modal = null;
-        state.toast = "";
         render();
         startAutoRefresh();
       }
@@ -4799,7 +4829,7 @@
   }
 
   async function refreshStateFromServer() {
-    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer || Date.now() - lastLocalChangeAt < 5000) return;
+    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer || Date.now() - lastLocalChangeAt < 10000 || Date.now() - lastNavigationAt < 30000) return;
     restoringSession = true;
     const uiState = currentUiState();
     try {
@@ -6156,6 +6186,14 @@
         }
         return;
       }
+      if (action === "dashboard-calendar-shift") {
+        updateUiState({ dashboardCalendarDate: addDateInterval(state.dashboardCalendarDate || today(), Number(target.dataset.days || 0), "days") });
+        return;
+      }
+      if (action === "dashboard-calendar-today") {
+        updateUiState({ dashboardCalendarDate: today() });
+        return;
+      }
       if (action === "add-form-question") {
         addFormQuestion(target.closest("form"));
         return;
@@ -6243,6 +6281,7 @@
       handleWorkOrderFilter(event);
       handleReportFilter(event);
       handleDashboardWidgetSize(event);
+      handleDashboardCalendarDate(event);
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
       updateRecommendationVisibility(event.target.closest("form"));
@@ -6622,6 +6661,12 @@
     if (!target) return;
     const layout = dashboardLayoutForCurrentUser().map((item) => item.id === target.dataset.widget ? { ...item, size: target.value } : item);
     saveDashboardLayout(layout);
+  }
+
+  function handleDashboardCalendarDate(event) {
+    const target = event.target.closest("[data-action='dashboard-calendar-date']");
+    if (!target) return;
+    updateUiState({ dashboardCalendarDate: target.value || today() });
   }
 
   function handleReportFilter(event) {

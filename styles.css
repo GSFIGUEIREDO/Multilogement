@@ -904,6 +904,47 @@ td button.link-button {
   margin-top: 4px;
 }
 
+.recommendation-chat {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.chat-message {
+  display: grid;
+  gap: 4px;
+  max-width: 84%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.chat-message.client {
+  justify-self: end;
+  background: #ecf7f8;
+  border-color: rgba(14, 120, 126, 0.25);
+}
+
+.chat-message.internal {
+  justify-self: start;
+}
+
+.chat-message div {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.chat-message p {
+  margin: 0;
+}
+
 .reminder-item.is-due {
   border-color: rgba(178, 59, 59, 0.45);
   background: #fffafa;

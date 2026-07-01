@@ -19,7 +19,7 @@
     globalSearch: "",
     sidebarMode: "auto",
     mobileMenuOpen: false,
-    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "recommandations", "documents", "rapports", "utilisateurs", "parametres"],
+    navOrder: ["tableau", "lieux", "equipements", "alertes", "appels", "bons", "recommandations", "rapports", "utilisateurs", "parametres"],
     filters: {
       buildingId: "all",
       apartmentId: "all",
@@ -610,6 +610,8 @@
       buildingId: "",
       equipmentId: "",
       formTemplateId: next.formTemplates[0]?.id || "",
+      assignedTeam: "",
+      assignedTechnicianIds: order.technicianId ? [order.technicianId] : [],
       ...order
     }));
     next.interventions = (data.interventions || seed.interventions).map((intervention) => ({
@@ -700,6 +702,23 @@
 
   function normalizeRecommendation(recommendation) {
     if (!recommendation?.type) return null;
+    const existingMessages = Array.isArray(recommendation.messages) ? recommendation.messages : [];
+    const fallbackMessages = [
+      recommendation.clientMessage ? {
+        id: uid("msg"),
+        authorRole: "interne",
+        authorName: "ClimaParc",
+        text: recommendation.clientMessage,
+        createdAt: recommendation.sentAt || recommendation.createdAt || today()
+      } : null,
+      recommendation.clientComment ? {
+        id: uid("msg"),
+        authorRole: "client",
+        authorName: "Client",
+        text: recommendation.clientComment,
+        createdAt: recommendation.decisionAt || today()
+      } : null
+    ].filter(Boolean);
     return {
       type: recommendation.type,
       description: recommendation.description || "",
@@ -717,7 +736,14 @@
       decisionAt: recommendation.decisionAt || "",
       reviewedBy: recommendation.reviewedBy || "",
       decidedBy: recommendation.decidedBy || "",
-      workOrderId: recommendation.workOrderId || ""
+      workOrderId: recommendation.workOrderId || "",
+      messages: (existingMessages.length ? existingMessages : fallbackMessages).map((message) => ({
+        id: message.id || uid("msg"),
+        authorRole: message.authorRole || "interne",
+        authorName: message.authorName || "",
+        text: message.text || "",
+        createdAt: message.createdAt || today()
+      })).filter((message) => message.text)
     };
   }
 
@@ -897,7 +923,7 @@
     const equipmentIds = scopedEquipment().map((item) => item.id);
     const buildingIds = scopedBuildings().map((building) => building.id);
     if (currentUser()?.role === "technicien") {
-      return state.workOrders.filter((order) => order.technicianId === currentUser().id);
+      return state.workOrders.filter((order) => order.technicianId === currentUser().id || (order.assignedTechnicianIds || []).includes(currentUser().id));
     }
     return state.workOrders.filter((order) => equipmentIds.includes(order.equipmentId) || buildingIds.includes(order.buildingId));
   }
@@ -1293,6 +1319,15 @@
     return poste ? `${formatted} poste ${poste}` : formatted;
   }
 
+  function unitKindLabel(value) {
+    return value === "exterieure" ? "Unité extérieure" : "Unité intérieure";
+  }
+
+  function apartmentNumberValue(value) {
+    const match = String(value || "").match(/\d+/);
+    return match ? Number(match[0]) : 0;
+  }
+
   function iconSvg(name) {
     const icons = {
       pin: '<path d="M15 4.5 19.5 9l-3.1 3.1.5 4.1-1.4 1.4-4.2-4.2L7 17.7 6.3 17l4.3-4.3-4.2-4.2 1.4-1.4 4.1.5L15 4.5Z"/><path d="m9.5 14.5-4 4"/>',
@@ -1365,7 +1400,6 @@
       ["appels", "CH", "Appels de service", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
       ["recommandations", "RC", "Recommandations", can("recommendations") || can("portal")],
-      ["documents", "DC", "Documents", can("documents") || can("portal")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
       ["parametres", "PR", "Paramètres", can("settings") || can("users")]
@@ -1469,6 +1503,9 @@
     if (!building) return buildingsView();
     const client = state.clients.find((item) => item.id === building.clientId);
     const apartments = apartmentsForBuilding(building.id);
+    const documents = scopedClientDocuments()
+      .filter((doc) => doc.buildingId === building.id || (!doc.buildingId && doc.clientId === building.clientId))
+      .sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
     const actions = `
       <button class="ghost-button" data-action="view" data-view="lieux">Retour</button>
       ${currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="apartment" data-building="${building.id}">Nouvel appartement</button>` : ""}
@@ -1497,6 +1534,15 @@
             ${apartments.map((apartment) => apartmentBlock(apartment)).join("") || `<div class="empty">Aucun appartement dans ce lieu.</div>`}
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Documents du lieu</h2>
+            ${currentUser()?.role !== "client" && can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="clientDocument" data-building="${building.id}" data-client="${building.clientId}">Ajouter</button>` : ""}
+          </div>
+          <div class="panel-body cards-list">
+            ${documents.map((doc) => clientDocumentItem(doc)).join("") || `<div class="empty">Aucun document pour ce lieu.</div>`}
+          </div>
+        </div>
       </section>
     `);
   }
@@ -1509,12 +1555,11 @@
           <h3>Appartement ${escapeHtml(apartment.number)}</h3>
           <span class="badge neutral">${machines.length} machine${machines.length > 1 ? "s" : ""}</span>
         </div>
-        <div class="meta">Occupant: ${escapeHtml(apartment.occupant || "-")}</div>
         <div class="mini-list">
           ${machines.map((item) => `
             <button class="mini-row" data-action="select-equipment" data-id="${item.id}">
               <strong>${escapeHtml(item.type)}</strong>
-              <span>${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${statusText(item.status)}</span>
+              <span>${unitKindLabel(item.unitKind)} | ${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${statusText(item.status)}</span>
             </button>
           `).join("") || `<div class="meta">Aucune machine enregistrée.</div>`}
         </div>
@@ -1677,9 +1722,9 @@
               const { apartment, building } = equipmentContext(item.id);
               return `
                 <tr>
-                  <td><strong>${escapeHtml(item.type)}</strong><br><span class="meta">${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${escapeHtml(item.serial)}</span></td>
+                  <td><strong>${escapeHtml(item.type)}</strong><br><span class="meta">${unitKindLabel(item.unitKind)} | ${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${escapeHtml(item.serial)}</span></td>
                   <td>${escapeHtml(building?.name || "-")}</td>
-                  <td>${escapeHtml(apartment?.number || "-")}<br><span class="meta">${escapeHtml(apartment?.occupant || "")}</span></td>
+                  <td>${escapeHtml(apartment?.number || "-")}</td>
                   <td>${formatDate(item.lastService)}</td>
                   <td>${formatDate(item.nextService)}</td>
                   <td>${statusBadge(item.status)}</td>
@@ -1704,6 +1749,8 @@
       .sort((a, b) => b.date.localeCompare(a.date));
     const orders = state.workOrders.filter((item) => item.equipmentId === equipment.id);
     const tickets = state.tickets.filter((item) => item.equipmentId === equipment.id);
+    const activeTickets = tickets.filter((item) => item.status !== "ferme");
+    const activeOrders = orders.filter((item) => !["termine", "annule"].includes(item.status));
     const attachments = equipment.attachments || [];
     const reminders = scopedReminders().filter((item) => item.equipmentId === equipment.id);
     const actionButtons = `
@@ -1721,7 +1768,8 @@
           <div class="panel-body definition">
             <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
             <div><span>Immeuble</span><strong>${escapeHtml(building?.name || "-")}</strong></div>
-            <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")} - ${escapeHtml(apartment?.occupant || "")}</strong></div>
+            <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")}</strong></div>
+            <div><span>Unité</span><strong>${unitKindLabel(equipment.unitKind)}</strong></div>
             <div><span>Marque / modèle</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div>
             <div><span>Numéro de série</span><strong>${escapeHtml(equipment.serial)}</strong></div>
             <div><span>Localisation</span><strong>${escapeHtml(equipment.location)}</strong></div>
@@ -1736,14 +1784,13 @@
               ${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrée.</div>`}
             </div>
           </div>
-          <div class="split">
-            <div class="panel">
-              <div class="panel-header"><h2>Appels liés</h2></div>
-              <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket)).join("") || `<div class="empty">Aucun appel.</div>`}</div>
-            </div>
-            <div class="panel">
-              <div class="panel-header"><h2>Bons liés</h2></div>
-              <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order)).join("") || `<div class="empty">Aucun bon.</div>`}</div>
+          <div class="panel">
+            <div class="panel-header"><h2>En cours</h2></div>
+            <div class="panel-body cards-list">
+              ${[
+                ...activeTickets.map((ticket) => ticketItem(ticket)),
+                ...activeOrders.map((order) => workOrderItem(order))
+              ].join("") || `<div class="empty">Aucune demande ou intervention en cours pour cette machine.</div>`}
             </div>
           </div>
           <div class="panel">
@@ -1791,11 +1838,18 @@
 
   function attachmentTypeLabel(file) {
     const type = file.type || file.fileType || "";
+    const name = file.name || file.fileName || "";
     if (type.startsWith("image/")) return "Image";
     if (type === "application/pdf") return "PDF";
+    if (isOfficeFile(type, name)) return "Document Office";
     if (type.startsWith("video/")) return "Vidéo";
     if (type.startsWith("audio/")) return "Audio";
     return type || "Fichier";
+  }
+
+  function isOfficeFile(type, name) {
+    return /word|excel|powerpoint|officedocument|msword|ms-excel|ms-powerpoint/i.test(type || "")
+      || /\.(docx?|xlsx?|pptx?)$/i.test(name || "");
   }
 
   function findAttachment(fileId) {
@@ -1813,6 +1867,8 @@
       ? `<img class="attachment-preview-image" src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(name)}">`
       : type === "application/pdf"
         ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(name)}"></iframe>`
+        : isOfficeFile(type, name)
+          ? `<div class="empty"><strong>Document Office</strong><p>La prévisualisation intégrée n'est pas disponible pour Word, Excel ou PowerPoint. Téléchargez le fichier pour l'ouvrir dans votre application.</p></div>`
         : type.startsWith("video/")
           ? `<video class="attachment-preview-video" controls src="${escapeHtml(file.dataUrl)}"></video>`
           : type.startsWith("audio/")
@@ -1833,8 +1889,9 @@
     const type = state.interventionTypes.find((typeItem) => typeItem.id === item.typeId);
     const technician = state.users.find((user) => user.id === item.technicianId);
     const readings = Object.entries(item.readings || {}).map(([key, value]) => `${key}: ${value}`).join(" | ");
+    const clickable = Boolean(item.workOrderId);
     return `
-      <div class="timeline-item">
+      <div class="timeline-item ${clickable ? "clickable-card" : ""}" ${clickable ? `data-action="open-intervention-workorder" data-id="${escapeHtml(item.workOrderId)}"` : ""}>
         <strong>${escapeHtml(type?.name || item.typeId)} - ${formatDate(item.date)}</strong>
         <span class="meta">${escapeHtml(technician?.name || "-")} - ${statusBadge(item.status)}</span>
         <p class="meta">${escapeHtml(item.summary)}</p>
@@ -1943,8 +2000,8 @@
           <div><span>Temps prévu</span><strong>${escapeHtml(recommendation.time || "-")}</strong></div>
           <div><span>Origine</span><strong>${escapeHtml(order?.number || "-")}</strong></div>
         </div>
-        <div class="meta">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</div>
-        ${recommendation.clientComment ? `<div class="client-message-panel compact"><strong>Message du client</strong><p>${escapeHtml(recommendation.clientComment)}</p></div>` : ""}
+        <div class="meta">${escapeHtml(recommendation.description || "")}</div>
+        ${recommendationChat(recommendation)}
         ${!isClient ? `<div class="meta">Technicien: ${escapeHtml(technician?.name || "-")} | Intervention: ${formatDate(intervention.date)}</div>` : ""}
         <div class="actions">
           <button class="link-button" data-action="select-equipment" data-id="${escapeHtml(equipment?.id || "")}">Dossier machine</button>
@@ -1952,6 +2009,37 @@
         </div>
       </article>
     `;
+  }
+
+  function recommendationChat(recommendation) {
+    const messages = recommendation.messages || [];
+    if (!messages.length) return "";
+    return `
+      <div class="recommendation-chat">
+        <strong>Conversation</strong>
+        ${messages.map((message) => `
+          <div class="chat-message ${message.authorRole === "client" ? "client" : "internal"}">
+            <div><span>${escapeHtml(message.authorName || (message.authorRole === "client" ? "Client" : "ClimaParc"))}</span><small>${formatDate(message.createdAt)}</small></div>
+            <p>${escapeHtml(message.text)}</p>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function addRecommendationMessage(recommendation, authorRole, text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    recommendation.messages = recommendation.messages || [];
+    const last = recommendation.messages[recommendation.messages.length - 1];
+    if (last?.authorRole === authorRole && last?.text === clean) return;
+    recommendation.messages.push({
+      id: uid("msg"),
+      authorRole,
+      authorName: authorRole === "client" ? currentUser()?.name || "Client" : currentUser()?.name || "ClimaParc",
+      text: clean,
+      createdAt: today()
+    });
   }
 
   function internalRecommendationActions(interventionId, recommendation) {
@@ -2024,8 +2112,6 @@
     const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
     const attachments = equipment?.attachments || [];
-    const assignedTechs = (ticket.assignedTechnicianIds || []).map((id) => state.users.find((user) => user.id === id)?.name).filter(Boolean).join(", ");
-    const assignedLabel = [ticket.assignedTeam ? statusText(ticket.assignedTeam) || ticket.assignedTeam : "", assignedTechs].filter(Boolean).join(" | ");
     const actions = expanded && can("workorders")
       ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
       : "";
@@ -2036,7 +2122,6 @@
           <span>${statusBadge(ticket.priority)} ${statusBadge(ticket.status)}</span>
         </div>
         <div class="meta">Type: ${escapeHtml(serviceType?.name || "-")}</div>
-        ${assignedLabel ? `<div class="meta">Assigné: ${escapeHtml(assignedLabel)}</div>` : ""}
         <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "-")}</div>
         <div class="meta">${escapeHtml(ticket.description)}</div>
         ${expanded ? `
@@ -2081,6 +2166,8 @@
     const { equipment, apartment, building } = workOrderContext(order);
     const type = state.interventionTypes.find((item) => item.id === order.typeId);
     const tech = state.users.find((item) => item.id === order.technicianId);
+    const assignedTechs = (order.assignedTechnicianIds || []).map((id) => state.users.find((user) => user.id === id)?.name).filter(Boolean).join(", ");
+    const assignedLabel = [order.assignedTeam ? statusText(order.assignedTeam) || order.assignedTeam : "", assignedTechs].filter(Boolean).join(" | ");
     const progress = workOrderProgress(order);
     const scopeLabel = order.buildingId ? "Bloc complet" : `Apt ${apartment?.number || "-"} - ${equipment?.type || "-"}`;
     return `
@@ -2090,6 +2177,7 @@
           ${statusBadge(order.status)}
         </div>
         <div class="meta">${formatDate(order.scheduledDate)} - ${escapeHtml(tech?.name || "Non assigné")}</div>
+        ${assignedLabel ? `<div class="meta">Assigné: ${escapeHtml(assignedLabel)}</div>` : ""}
         <div class="meta">${escapeHtml(building?.name || "-")} - ${escapeHtml(scopeLabel)}</div>
         <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
         <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisé${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysée${progress.machines > 1 ? "s" : ""}</div>
@@ -2113,17 +2201,18 @@
       return (item.apartmentId || equipment?.apartmentId) === selectedApartment?.id;
     });
     const apartmentMachines = selectedApartment ? equipmentForApartment(selectedApartment.id) : [];
+    const canEditExecution = currentUser()?.role !== "client" && (can("workorders") || can("interventions"));
     return appShell(`
       ${renderTopbar(`Execution ${order.number}`, `${building?.name || "-"} - ${type?.name || ""}`, `
         <button class="ghost-button" data-action="view" data-view="bons">Retour</button>
-        <button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Changer le formulaire</button>
-        <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
+        ${canEditExecution ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Changer le formulaire</button>` : ""}
+        ${canEditExecution ? `<button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>` : ""}
       `)}
       <section class="stats-grid">
         <div class="stat"><span>Progression</span><strong>${progress.percent}%</strong></div>
         <div class="stat"><span>Appartements realises</span><strong>${progress.doneApartments}/${progress.totalApartments}</strong></div>
         <div class="stat"><span>Machines analysees</span><strong>${progress.machines}</strong></div>
-        <div class="stat"><span>Formulaire</span><strong>${escapeHtml(template?.name || "-")}</strong></div>
+        ${canEditExecution ? `<div class="stat"><span>Formulaire</span><strong>${escapeHtml(template?.name || "-")}</strong></div>` : ""}
       </section>
       <section class="progress-panel">
         <div class="progress-line large"><span style="width:${progress.percent}%"></span></div>
@@ -2139,11 +2228,11 @@
           <div class="panel">
             <div class="panel-header">
               <h2>Appartement ${escapeHtml(selectedApartment?.number || "-")}</h2>
-              <div class="actions">
+              ${canEditExecution ? `<div class="actions">
                 <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-unit-kind="interieure">+ Unité intérieure</button>
                 <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-unit-kind="exterieure">+ Unité extérieure</button>
                 <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
-              </div>
+              </div>` : ""}
             </div>
             <div class="panel-body cards-list">
               ${apartmentMachines.map((machine) => {
@@ -2155,9 +2244,9 @@
                       ${intervention ? statusBadge("terminee") : statusBadge("planifie")}
                     </div>
                     <div class="meta">${escapeHtml(machine.brand)} ${escapeHtml(machine.model)} - ${escapeHtml(machine.location || "-")}</div>
-                    <div class="actions">
+                    ${canEditExecution ? `<div class="actions">
                       <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-equipment="${machine.id}">${intervention ? "Modifier le formulaire" : "Remplir le formulaire"}</button>
-                    </div>
+                    </div>` : ""}
                   </article>
                 `;
               }).join("") || `<div class="empty">Aucune machine encore cadastrée pour cet appartement.</div>`}
@@ -2223,12 +2312,15 @@
   function reportsView() {
     const context = reportContext();
     const meta = reportAudienceMeta();
-    return appShell(`
-      ${renderTopbar(meta.title, meta.subtitle, `
+    const exportActions = ["client", "technicien"].includes(currentUser()?.role)
+      ? ""
+      : `
         <button class="ghost-button" data-action="export" data-report="equipment">CSV inventaire</button>
         <button class="ghost-button" data-action="export" data-report="interventions">CSV interventions</button>
         <button class="ghost-button" data-action="export" data-report="operations">CSV opérations</button>
-      `)}
+      `;
+    return appShell(`
+      ${renderTopbar(meta.title, meta.subtitle, exportActions)}
       ${reportControls()}
       ${selectedExecutiveReport(context)}
     `);
@@ -3312,7 +3404,7 @@
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
     if (modal.type === "clientRecommendationMessage") return clientRecommendationMessageModal(modal.id, modal.decisionStatus);
-    if (modal.type === "clientDocument") return clientDocumentModal(modal.id);
+    if (modal.type === "clientDocument") return clientDocumentModal(modal.id, modal);
     if (modal.type === "attachmentPreview") return attachmentPreviewModal(modal.fileId);
     return "";
   }
@@ -3431,10 +3523,6 @@
       return `<option value="${item.id}" ${selectedEquipmentId === item.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment?.number || "")} - ${escapeHtml(item.type)}</option>`;
     }).join("");
     const serviceOptions = state.serviceTypes.map((type) => `<option value="${type.id}" ${ticket.serviceTypeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
-    const assignedIds = ticket.assignedTechnicianIds || [];
-    const technicianChecks = state.users.filter((user) => user.role === "technicien").map((user) => `
-      <label><input type="checkbox" name="assignedTechnicianIds" value="${escapeHtml(user.id)}" ${assignedIds.includes(user.id) ? "checked" : ""}> ${escapeHtml(user.name)}</label>
-    `).join("") || `<span class="meta">Aucun technicien créé.</span>`;
     return modalShell(ticket.id ? "Modifier l'appel de service" : "Nouvel appel de service", `
       <form class="form-grid" data-form="ticket">
         <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
@@ -3446,12 +3534,6 @@
           <div class="field"><label>Priorité</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
         </div>
         <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>Fermé</option></select></div>
-        ${currentUser().role !== "client" ? `
-          <div class="split">
-            <div class="field"><label>Équipe assignée</label><select name="assignedTeam"><option value="" ${!ticket.assignedTeam ? "selected" : ""}>Aucune</option><option value="equipe_interne" ${ticket.assignedTeam === "equipe_interne" ? "selected" : ""}>Équipe interne</option><option value="techniciens" ${ticket.assignedTeam === "techniciens" ? "selected" : ""}>Équipe techniciens</option></select></div>
-            <div class="field"><label>Techniciens assignés</label><div class="choice-list">${technicianChecks}</div></div>
-          </div>
-        ` : ""}
         <div class="field"><label>Description</label><textarea name="description" required>${escapeHtml(ticket.description || "")}</textarea></div>
         <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer l'appel"}</button>
       </form>
@@ -3471,6 +3553,10 @@
     const typeOptions = state.interventionTypes.map((type) => `<option value="${type.id}" ${order.typeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
     const formOptions = state.formTemplates.map((template) => `<option value="${template.id}" ${order.formTemplateId === template.id ? "selected" : ""}>${escapeHtml(template.name)}</option>`).join("");
     const techOptions = state.users.filter((user) => user.role === "technicien").map((user) => `<option value="${user.id}" ${order.technicianId === user.id ? "selected" : ""}>${escapeHtml(user.name)}</option>`).join("");
+    const assignedIds = new Set([...(order.assignedTechnicianIds || []), order.technicianId].filter(Boolean));
+    const technicianChecks = state.users.filter((user) => user.role === "technicien").map((user) => `
+      <label><input type="checkbox" name="assignedTechnicianIds" value="${escapeHtml(user.id)}" ${assignedIds.has(user.id) ? "checked" : ""}> ${escapeHtml(user.name)}</label>
+    `).join("") || `<span class="meta">Aucun technicien créé.</span>`;
     return modalShell(order.id ? "Modifier le bon de travail" : "Nouveau bon de travail", `
       <form class="form-grid" data-form="workorder">
         <input type="hidden" name="id" value="${escapeHtml(order.id || "")}">
@@ -3486,6 +3572,10 @@
         <div class="split">
           <div class="field"><label>Type d'intervention</label><select name="typeId">${typeOptions}</select></div>
           <div class="field"><label>Technicien</label><select name="technicianId">${techOptions}</select></div>
+        </div>
+        <div class="split">
+          <div class="field"><label>Équipe assignée</label><select name="assignedTeam"><option value="" ${!order.assignedTeam ? "selected" : ""}>Aucune</option><option value="equipe_interne" ${order.assignedTeam === "equipe_interne" ? "selected" : ""}>Équipe interne</option><option value="techniciens" ${order.assignedTeam === "techniciens" ? "selected" : ""}>Équipe techniciens</option></select></div>
+          <div class="field"><label>Techniciens assignés</label><div class="choice-list">${technicianChecks}</div></div>
         </div>
         <div class="split">
           <div class="field"><label>Date prévue</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
@@ -3545,6 +3635,7 @@
     };
     const nextDueDate = reminder.nextDueDate || addDateInterval(reminder.startDate || today(), reminder.frequencyValue || 1, reminder.frequencyUnit || "years");
     const selectedEquipmentIds = new Set([reminder.equipmentId || modal.equipmentId].filter(Boolean));
+    const buildingOptions = scopedBuildings().map((building) => `<option value="${building.id}" ${modal.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("");
     const equipmentRows = scopedEquipment().map((item) => {
       const { apartment, building } = equipmentContext(item.id);
       return `
@@ -3561,6 +3652,19 @@
       <form class="form-grid" data-form="reminder">
         <input type="hidden" name="id" value="${escapeHtml(reminder.id || "")}">
         <div class="field"><label>Titre</label><input name="title" value="${escapeHtml(reminder.title || "")}" required placeholder="Ex.: Entretien annuel"></div>
+        ${!reminder.id ? `
+          <div class="panel soft-panel">
+            <div class="panel-body form-grid">
+              <h3>Appliquer à une plage d'appartements</h3>
+              <div class="field"><label>Lieu</label><select name="rangeBuildingId"><option value="">Choisir un lieu</option>${buildingOptions}</select></div>
+              <div class="split">
+                <div class="field"><label>Appartement de</label><input name="rangeFrom" inputmode="numeric" placeholder="Ex.: 100"></div>
+                <div class="field"><label>Appartement à</label><input name="rangeTo" inputmode="numeric" placeholder="Ex.: 200"></div>
+              </div>
+              <p class="meta">Les machines des appartements compris dans cette plage seront ajoutées au rappel.</p>
+            </div>
+          </div>
+        ` : ""}
         <div class="field">
           <label>Équipement${reminder.id ? "" : "s"}</label>
           <div class="equipment-check-list">${equipmentRows || `<div class="empty">Aucun équipement disponible.</div>`}</div>
@@ -4018,13 +4122,7 @@
           <div><span>Machine</span><strong>${escapeHtml(equipment?.type || "-")}</strong></div>
           <div><span>Type</span><strong>${escapeHtml(dataFieldLabelByValue("recommendation_type", recommendation.type))}</strong></div>
         </div>
-        ${recommendation.clientComment ? `
-          <div class="client-message-panel">
-            <strong>Message du client</strong>
-            <p>${escapeHtml(recommendation.clientComment)}</p>
-            <span>${recommendation.decisionAt ? `Reçu le ${formatDate(recommendation.decisionAt)}` : ""}</span>
-          </div>
-        ` : ""}
+        ${recommendationChat(recommendation)}
         <div class="field"><label>Description technique</label><textarea name="description">${escapeHtml(recommendation.description || "")}</textarea></div>
         <div class="split">
           <div class="field"><label>Prix proposé</label><input name="price" value="${escapeHtml(recommendation.price || "")}" inputmode="decimal" placeholder="Ex.: 450.00"></div>
@@ -4051,6 +4149,7 @@
       <form class="form-grid" data-form="clientRecommendationMessage">
         <input type="hidden" name="interventionId" value="${escapeHtml(interventionId)}">
         <input type="hidden" name="status" value="${escapeHtml(status || "information_demandee")}">
+        ${recommendationChat(intervention.recommendation)}
         <p class="meta">${isRefusal ? "Expliquez la raison du refus si vous le souhaitez." : "Écrivez votre question. L'équipe interne pourra vous répondre et renvoyer la recommandation."}</p>
         <div class="field"><label>${isRefusal ? "Raison du refus" : "Question / information demandée"}</label><textarea name="clientComment" required>${escapeHtml(intervention.recommendation.clientComment || "")}</textarea></div>
         <button class="${isRefusal ? "danger-button" : "primary-button"}" type="submit">${isRefusal ? "Refuser" : "Envoyer la demande"}</button>
@@ -4058,8 +4157,12 @@
     `);
   }
 
-  function clientDocumentModal(id) {
-    const doc = state.clientDocuments.find((item) => item.id === id) || { visibleToClient: true };
+  function clientDocumentModal(id, modal = {}) {
+    const doc = state.clientDocuments.find((item) => item.id === id) || {
+      visibleToClient: true,
+      buildingId: modal.buildingId || "",
+      clientId: modal.clientId || state.buildings.find((building) => building.id === modal.buildingId)?.clientId || ""
+    };
     const clientOptions = state.clients.map((client) => `<option value="${client.id}" ${doc.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
     const buildingOptions = state.buildings.map((building) => `<option value="${building.id}" ${doc.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("");
     const apartmentOptions = state.apartments.map((apartment) => {
@@ -4185,7 +4288,7 @@
     if (formType === "building") saveBuilding(values);
     if (formType === "apartment") saveApartment(values);
     if (formType === "ticket") createTicket(form, values);
-    if (formType === "workorder") createWorkOrder(values);
+    if (formType === "workorder") createWorkOrder(form, values);
     if (formType === "equipment") createEquipment(values);
     if (formType === "reminder") saveReminder(form, values);
     if (formType === "user") createUser(values);
@@ -4439,7 +4542,6 @@
     const { building, apartment } = equipmentContext(values.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === values.serviceTypeId) || state.serviceTypes[0];
     const existing = state.tickets.find((item) => item.id === values.id);
-    const assignedTechnicianIds = Array.from(form.querySelectorAll('[name="assignedTechnicianIds"]:checked')).map((input) => input.value);
     if (existing) {
       const closedAt = values.status === "ferme" ? existing.closedAt || today() : "";
       Object.assign(existing, {
@@ -4451,8 +4553,6 @@
         description: values.description,
         priority: values.priority,
         status: values.status,
-        assignedTeam: values.assignedTeam || "",
-        assignedTechnicianIds,
         closedAt
       });
       setState({ modal: null, activeView: "appels", toast: "Appel de service modifié." });
@@ -4470,8 +4570,6 @@
       description: values.description,
       priority: values.priority || serviceType?.defaultPriority || "normale",
       status: values.status || "ouvert",
-      assignedTeam: values.assignedTeam || "",
-      assignedTechnicianIds,
       createdAt: today(),
       closedAt: values.status === "ferme" ? today() : "",
       createdBy: currentUser().id
@@ -4480,8 +4578,10 @@
     setState({ modal: null, activeView: "appels", toast: "Appel de service créé." });
   }
 
-  function createWorkOrder(values) {
+  function createWorkOrder(form, values) {
     const scope = values.scope || "equipment";
+    const assignedTechnicianIds = Array.from(form.querySelectorAll('[name="assignedTechnicianIds"]:checked')).map((input) => input.value);
+    const technicianId = values.technicianId || assignedTechnicianIds[0] || "";
     if (scope === "building" && !values.buildingId) {
       showToast("Choisissez un immeuble pour le BT de bloc.");
       return;
@@ -4498,7 +4598,9 @@
         equipmentId: scope === "equipment" ? values.equipmentId : "",
         typeId: values.typeId,
         formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
-        technicianId: values.technicianId,
+        technicianId,
+        assignedTeam: values.assignedTeam || "",
+        assignedTechnicianIds,
         scheduledDate: values.scheduledDate,
         status: values.status,
         notes: values.notes
@@ -4516,7 +4618,9 @@
       equipmentId: scope === "equipment" ? values.equipmentId : "",
       typeId: values.typeId,
       formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
-      technicianId: values.technicianId,
+      technicianId,
+      assignedTeam: values.assignedTeam || "",
+      assignedTechnicianIds,
       scheduledDate: values.scheduledDate,
       status: values.status,
       notes: values.notes
@@ -4567,8 +4671,23 @@
   }
 
   function saveReminder(form, values) {
-    const equipmentIds = Array.from(form.querySelectorAll("input[name='equipmentIds']:checked")).map((input) => input.value);
-    if (!equipmentIds.length) {
+    const equipmentIds = new Set(Array.from(form.querySelectorAll("input[name='equipmentIds']:checked")).map((input) => input.value));
+    if (!values.id && values.rangeBuildingId && (values.rangeFrom || values.rangeTo)) {
+      const from = apartmentNumberValue(values.rangeFrom || "0");
+      const to = apartmentNumberValue(values.rangeTo || values.rangeFrom || "999999");
+      const min = Math.min(from, to);
+      const max = Math.max(from, to);
+      state.apartments
+        .filter((apartment) => apartment.buildingId === values.rangeBuildingId)
+        .filter((apartment) => {
+          const number = apartmentNumberValue(apartment.number);
+          return number >= min && number <= max;
+        })
+        .forEach((apartment) => {
+          state.equipment.filter((item) => item.apartmentId === apartment.id).forEach((item) => equipmentIds.add(item.id));
+        });
+    }
+    if (!equipmentIds.size) {
       showToast("Sélectionnez au moins un équipement.");
       return;
     }
@@ -4582,16 +4701,17 @@
       notes: values.notes || ""
     };
     const existing = state.reminders.find((item) => item.id === values.id);
+    const selectedEquipmentIds = Array.from(equipmentIds);
     if (existing) {
       Object.assign(existing, {
         ...payload,
-        equipmentId: equipmentIds[0],
+        equipmentId: selectedEquipmentIds[0],
         lastSeenDueDate: existing.nextDueDate === payload.nextDueDate ? existing.lastSeenDueDate : ""
       });
       setState({ modal: null, activeView: "alertes", toast: "Rappel modifié." });
       return;
     }
-    equipmentIds.forEach((equipmentId) => {
+    selectedEquipmentIds.forEach((equipmentId) => {
       state.reminders.unshift({
         id: uid("rem"),
         equipmentId,
@@ -4600,7 +4720,7 @@
         lastSeenDueDate: ""
       });
     });
-    setState({ modal: null, activeView: "alertes", toast: equipmentIds.length > 1 ? "Rappels créés." : "Rappel créé." });
+    setState({ modal: null, activeView: "alertes", toast: equipmentIds.size > 1 ? "Rappels créés." : "Rappel créé." });
   }
 
   function createUser(values) {
@@ -4970,6 +5090,7 @@
       return;
     }
     const previousStatus = intervention.recommendation.status;
+    const previousMessage = intervention.recommendation.clientMessage || "";
     Object.assign(intervention.recommendation, {
       description: values.description || "",
       priority: values.priority || "normale",
@@ -4984,6 +5105,9 @@
     });
     if (intervention.recommendation.status === "envoyee" && previousStatus !== "envoyee") {
       intervention.recommendation.sentAt = today();
+    }
+    if (values.clientMessage && (values.clientMessage !== previousMessage || intervention.recommendation.status === "envoyee")) {
+      addRecommendationMessage(intervention.recommendation, "interne", values.clientMessage);
     }
     setState({ modal: null, activeView: "recommandations", toast: "Recommandation enregistrée." });
   }
@@ -5000,6 +5124,7 @@
     recommendation.status = "envoyee";
     recommendation.sentAt = today();
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
+    addRecommendationMessage(recommendation, "interne", recommendation.clientMessage || recommendation.description);
     setState({ activeView: "recommandations", toast: "Recommandation envoyée au client." });
   }
 
@@ -5011,6 +5136,7 @@
     recommendation.status = status;
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
+    if (status === "approuvee") addRecommendationMessage(recommendation, "client", "Recommandation approuvée.");
     setState({ activeView: "recommandations", toast: status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée." });
   }
 
@@ -5022,6 +5148,7 @@
     recommendation.clientComment = values.clientComment || "";
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
+    addRecommendationMessage(recommendation, "client", values.clientComment);
     setState({
       modal: null,
       activeView: "recommandations",
@@ -5064,7 +5191,12 @@
     const index = state.clientDocuments.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.clientDocuments[index] = payload;
     else state.clientDocuments.unshift(payload);
-    setState({ modal: null, activeView: "documents", toast: index >= 0 ? "Document modifié." : "Document ajouté." });
+    setState({
+      modal: null,
+      activeView: payload.buildingId ? "lieu_detail" : "lieux",
+      selectedBuildingId: payload.buildingId || state.selectedBuildingId,
+      toast: index >= 0 ? "Document modifié." : "Document ajouté."
+    });
   }
 
   function readGenericFile(file) {
@@ -5383,6 +5515,14 @@
         setState({ activeView: "bons", modal: null });
         return;
       }
+      if (action === "open-intervention-workorder") {
+        const order = state.workOrders.find((item) => item.id === target.dataset.id);
+        if (order) {
+          const firstApartment = workOrderApartments(order)[0];
+          setState({ selectedWorkOrderId: order.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
+        }
+        return;
+      }
       if (action === "open-modal") {
         setState({ modal: {
           type: target.dataset.modal,
@@ -5390,6 +5530,7 @@
           equipmentId: target.dataset.equipment || null,
           ticketId: target.dataset.ticket || null,
           buildingId: target.dataset.building || null,
+          clientId: target.dataset.client || null,
           apartmentId: target.dataset.apartment || null,
           unitKind: target.dataset.unitKind || null,
           decisionStatus: target.dataset.status || null,

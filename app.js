@@ -803,17 +803,48 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
+      const saveStartedAt = Date.now();
       fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({ state: persistableState() })
-      }).catch(() => {
+      }).then((response) => response.ok ? response.json().catch(() => null) : null)
+        .then((payload) => {
+          if (!payload?.state || state.modal || lastLocalChangeAt > saveStartedAt) return;
+          const uiState = currentUiState();
+          state = {
+            ...normalizeState(payload.state),
+            ...uiState,
+            sessionUserId: uiState.sessionUserId
+          };
+          render();
+        })
+        .catch(() => {
         state.toast = "Sauvegarde serveur indisponible.";
         render();
         scheduleToastClear();
       });
     }, 250);
+  }
+
+  function currentUiState() {
+    return {
+      sessionUserId: state.sessionUserId,
+      activeView: state.activeView,
+      selectedBuildingId: state.selectedBuildingId,
+      selectedEquipmentId: state.selectedEquipmentId,
+      selectedTicketId: state.selectedTicketId,
+      selectedWorkOrderId: state.selectedWorkOrderId,
+      selectedExecutionApartmentId: state.selectedExecutionApartmentId,
+      filters: state.filters,
+      reportFilters: state.reportFilters,
+      globalSearch: state.globalSearch,
+      sidebarMode: state.sidebarMode,
+      mobileMenuOpen: state.mobileMenuOpen,
+      toast: state.toast,
+      modal: state.modal
+    };
   }
 
   function persistableState() {
@@ -4507,21 +4538,7 @@
   async function refreshStateFromServer() {
     if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer || Date.now() - lastLocalChangeAt < 5000) return;
     restoringSession = true;
-    const uiState = {
-      sessionUserId: state.sessionUserId,
-      activeView: state.activeView,
-      selectedBuildingId: state.selectedBuildingId,
-      selectedEquipmentId: state.selectedEquipmentId,
-      selectedTicketId: state.selectedTicketId,
-      selectedWorkOrderId: state.selectedWorkOrderId,
-      selectedExecutionApartmentId: state.selectedExecutionApartmentId,
-      filters: state.filters,
-      reportFilters: state.reportFilters,
-      globalSearch: state.globalSearch,
-      sidebarMode: state.sidebarMode,
-      mobileMenuOpen: state.mobileMenuOpen,
-      toast: state.toast
-    };
+    const uiState = currentUiState();
     try {
       const response = await fetch("/api/session", { credentials: "same-origin" });
       if (!response.ok) return;
@@ -4530,7 +4547,7 @@
         ...normalizeState(payload.state),
         ...uiState,
         sessionUserId: payload.user.id,
-        modal: null
+        modal: uiState.modal
       };
       render();
     } finally {
@@ -4957,6 +4974,7 @@
 
   function createUser(form, values) {
     const creator = currentUser();
+    const changedAt = new Date().toISOString();
     const isClientManager = creator?.role === "client";
     const role = isClientManager ? "client" : values.role;
     const clientId = isClientManager ? creator.clientId : values.clientId || null;
@@ -4985,7 +5003,8 @@
         clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
         allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
         portalRights,
-        parentUserId: existing.parentUserId || (isClientManager ? creator.id : "")
+        parentUserId: existing.parentUserId || (isClientManager ? creator.id : ""),
+        updatedAt: changedAt
       });
       setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
       return;
@@ -5000,7 +5019,8 @@
       clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
       allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
       portalRights,
-      parentUserId: isClientManager ? creator.id : ""
+      parentUserId: isClientManager ? creator.id : "",
+      updatedAt: changedAt
     });
     setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
   }

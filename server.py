@@ -224,6 +224,79 @@ def save_state(connection, state: dict) -> None:
     )
 
 
+MERGE_BY_ID_KEYS = {
+    "users",
+    "clients",
+    "buildings",
+    "apartments",
+    "equipment",
+    "tickets",
+    "workOrders",
+    "interventions",
+    "reminders",
+    "clientDocuments",
+    "serviceTypes",
+    "interventionTypes",
+    "formTemplates",
+    "roleDefinitions",
+    "dataFields",
+    "passwordResetRequests",
+}
+
+
+def item_timestamp(item: dict) -> str:
+    for key in ("updatedAt", "updated_at", "modifiedAt", "createdAt", "uploadedAt", "date"):
+        value = item.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def merge_by_id(current_items: list[Any], incoming_items: list[Any]) -> list[Any]:
+    current_items = current_items or []
+    incoming_items = incoming_items or []
+    current_map = {
+        item.get("id"): item
+        for item in current_items
+        if isinstance(item, dict) and item.get("id")
+    }
+    incoming_map = {
+        item.get("id"): item
+        for item in incoming_items
+        if isinstance(item, dict) and item.get("id")
+    }
+    ordered_ids: list[str] = []
+    for item in incoming_items + current_items:
+        if isinstance(item, dict) and item.get("id") and item["id"] not in ordered_ids:
+            ordered_ids.append(item["id"])
+
+    merged: list[Any] = []
+    for item_id in ordered_ids:
+        current = current_map.get(item_id)
+        incoming = incoming_map.get(item_id)
+        if current and incoming:
+            current_stamp = item_timestamp(current)
+            incoming_stamp = item_timestamp(incoming)
+            chosen = current if current_stamp and incoming_stamp and current_stamp > incoming_stamp else incoming
+            if isinstance(current.get("attachments"), list) or isinstance(incoming.get("attachments"), list):
+                chosen = dict(chosen)
+                chosen["attachments"] = merge_by_id(current.get("attachments", []), incoming.get("attachments", []))
+            merged.append(chosen)
+        else:
+            merged.append(incoming or current)
+    return merged
+
+
+def merge_shared_state(current: dict | None, incoming: dict) -> dict:
+    if not current:
+        return incoming
+    merged = {**current, **incoming}
+    for key in MERGE_BY_ID_KEYS:
+        if isinstance(current.get(key), list) or isinstance(incoming.get(key), list):
+            merged[key] = merge_by_id(current.get(key, []), incoming.get(key, []))
+    return merged
+
+
 def sync_users(connection, state: dict) -> None:
     for user in state.get("users", []):
         password = str(user.get("password") or "")
@@ -525,9 +598,14 @@ class Handler(BaseHTTPRequestHandler):
         state["modal"] = None
         state["toast"] = ""
         with db() as connection:
-            save_state(connection, state)
-            sync_users(connection, state)
-        self.json_response({"ok": True})
+            current_state = get_state(connection)
+            merged_state = merge_shared_state(current_state, state)
+            merged_state["sessionUserId"] = None
+            merged_state["modal"] = None
+            merged_state["toast"] = ""
+            save_state(connection, merged_state)
+            sync_users(connection, merged_state)
+        self.json_response({"ok": True, "state": merged_state})
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

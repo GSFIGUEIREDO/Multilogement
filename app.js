@@ -894,8 +894,16 @@
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
   }
 
+  function updateUiState(patch) {
+    state = { ...state, ...patch };
+    lastLocalChangeAt = Date.now();
+    render();
+    if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
+  }
+
   function updateGlobalSearch(input) {
     state = { ...state, globalSearch: input.value };
+    lastLocalChangeAt = Date.now();
     render();
     const nextInput = document.querySelector("[data-action='global-search']");
     if (nextInput) {
@@ -913,10 +921,10 @@
       Object.assign(patch, { selectedBuildingId: apartment?.buildingId || state.selectedBuildingId, activeView: "lieu_detail" });
     } else if (type === "equipment") Object.assign(patch, { selectedEquipmentId: id, activeView: "detail" });
     else if (type === "ticket") Object.assign(patch, { activeView: "appels", modal: { type: "ticket", id } });
-    else if (type === "workorder") Object.assign(patch, { activeView: "bons", modal: can("workorders") ? { type: "workorder", id } : null });
+    else if (type === "workorder") Object.assign(patch, { activeView: "bons", modal: canCreateWorkOrders() ? { type: "workorder", id } : null });
     else if (type === "intervention") Object.assign(patch, { selectedEquipmentId: equipment, activeView: "detail" });
     else if (type === "reminder") Object.assign(patch, { activeView: "alertes", modal: { type: "reminder", id } });
-    setState(patch);
+    updateUiState(patch);
   }
 
   function scheduleToastClear() {
@@ -924,7 +932,6 @@
     if (!state.toast) return;
     toastTimer = setTimeout(() => {
       state = { ...state, toast: "" };
-      saveState();
       render();
     }, 2500);
   }
@@ -951,6 +958,10 @@
     }
     const role = state.roleDefinitions?.find((item) => item.id === user.role);
     return role?.rights?.includes("all") || role?.rights?.includes(action);
+  }
+
+  function canCreateWorkOrders() {
+    return currentUser()?.role !== "client" && can("workorders");
   }
 
   function portalRightsCatalog() {
@@ -1712,7 +1723,7 @@
 
     const actions = `
       ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>` : ""}
-      ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : ""}
+      ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : ""}
     `;
 
     return appShell(`
@@ -1727,7 +1738,7 @@
         </div>
         <div class="stack">
           ${can("tickets") ? `<button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>` : ""}
-          ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
+          ${canCreateWorkOrders() ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
           ${canManageReminders() ? `<button class="quick-action" data-action="view" data-view="alertes">Centre d'alertes<span>Consulter les rappels actifs, à venir ou inactifs.</span></button>` : ""}
           <div class="panel">
             <div class="panel-header"><h2>Appels actifs</h2></div>
@@ -1864,7 +1875,7 @@
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
       ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
       ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvel appel</button>` : ""}
-      ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
+      ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
     `;
     return appShell(`
       ${renderTopbar("Dossier équipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
@@ -2259,7 +2270,7 @@
     const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
     const attachments = equipment?.attachments || [];
-    const actions = expanded && can("workorders")
+    const actions = expanded && canCreateWorkOrders()
       ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
       : "";
     return `
@@ -2302,7 +2313,7 @@
   function workOrdersView() {
     const orders = scopedWorkOrders();
     return appShell(`
-      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exécution des checklists.", can("workorders") ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
+      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exécution des checklists.", canCreateWorkOrders() ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
       <section class="panel">
         <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order, true)).join("") || `<div class="empty">Aucun bon de travail.</div>`}</div>
       </section>
@@ -5786,7 +5797,7 @@
   }
 
   function showToast(message) {
-    setState({ toast: message });
+    updateUiState({ toast: message });
   }
 
   function bindEvents() {
@@ -5805,20 +5816,20 @@
         return;
       }
       if (action === "clear-global-search") {
-        setState({ globalSearch: "" });
+        updateUiState({ globalSearch: "" });
         return;
       }
       if (action === "open-search-result") {
         openSearchResult(target);
         return;
       }
-      if (action === "view") setState({ activeView: target.dataset.view, modal: null, mobileMenuOpen: false });
+      if (action === "view") updateUiState({ activeView: target.dataset.view, modal: null, mobileMenuOpen: false });
       if (action === "toggle-mobile-menu") {
-        setState({ mobileMenuOpen: !state.mobileMenuOpen });
+        updateUiState({ mobileMenuOpen: !state.mobileMenuOpen });
         return;
       }
       if (action === "close-mobile-menu") {
-        setState({ mobileMenuOpen: false });
+        updateUiState({ mobileMenuOpen: false });
         return;
       }
       if (action === "toggle-sidebar-pin") {
@@ -5828,11 +5839,11 @@
         });
         return;
       }
-      if (action === "select-building") setState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
-      if (action === "select-equipment") setState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
+      if (action === "select-building") updateUiState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
+      if (action === "select-equipment") updateUiState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
       if (action === "dashboard-ticket") {
         if (event.target.closest("button, a, input, select, textarea")) return;
-        setState({ activeView: "appels", modal: currentUser()?.role === "client" ? null : { type: "ticket", id: target.dataset.id } });
+        updateUiState({ activeView: "appels", modal: currentUser()?.role === "client" ? null : { type: "ticket", id: target.dataset.id } });
         return;
       }
       if (action === "dashboard-workorder") {
@@ -5840,22 +5851,26 @@
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
         if ((can("workorders") || currentUser()?.role === "technicien") && order) {
           const firstApartment = workOrderApartments(order)[0];
-          setState({ selectedWorkOrderId: order.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
+          updateUiState({ selectedWorkOrderId: order.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
           return;
         }
-        setState({ activeView: "bons", modal: null });
+        updateUiState({ activeView: "bons", modal: null });
         return;
       }
       if (action === "open-intervention-workorder") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
         if (order) {
           const firstApartment = workOrderApartments(order)[0];
-          setState({ selectedWorkOrderId: order.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
+          updateUiState({ selectedWorkOrderId: order.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
         }
         return;
       }
       if (action === "open-modal") {
-        setState({ modal: {
+        if (target.dataset.modal === "workorder" && !canCreateWorkOrders()) {
+          updateUiState({ toast: "Accès réservé à l'équipe interne." });
+          return;
+        }
+        updateUiState({ modal: {
           type: target.dataset.modal,
           id: target.dataset.id || null,
           equipmentId: target.dataset.equipment || null,
@@ -5869,24 +5884,24 @@
         } });
       }
       if (action === "close-modal") {
-        setState({ modal: null });
+        updateUiState({ modal: null });
         return;
       }
       if (action === "delete-apartment") {
         deleteApartment(target.dataset.id);
         return;
       }
-      if (action === "open-checklist") setState({ modal: { type: "checklist", orderId: target.dataset.id } });
+      if (action === "open-checklist") updateUiState({ modal: { type: "checklist", orderId: target.dataset.id } });
       if (action === "execute-workorder") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
         const firstApartment = workOrderApartments(order)[0];
-        setState({ selectedWorkOrderId: target.dataset.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
+        updateUiState({ selectedWorkOrderId: target.dataset.id, selectedExecutionApartmentId: firstApartment?.id || null, activeView: "execution", modal: null });
       }
       if (action === "select-execution-apartment") {
-        setState({ selectedExecutionApartmentId: target.dataset.id });
+        updateUiState({ selectedExecutionApartmentId: target.dataset.id });
       }
       if (action === "preview-attachment") {
-        setState({ modal: { type: "attachmentPreview", fileId: target.dataset.id } });
+        updateUiState({ modal: { type: "attachmentPreview", fileId: target.dataset.id } });
         return;
       }
       if (action === "add-form-question") {
@@ -6339,17 +6354,13 @@
     if (!target) return;
     const nextFilters = { ...state.filters, [target.dataset.filter]: target.value };
     if (target.dataset.filter === "buildingId") nextFilters.apartmentId = "all";
-    state.filters = nextFilters;
-    saveState();
-    render();
+    updateUiState({ filters: nextFilters });
   }
 
   function handleReportFilter(event) {
     const target = event.target.closest("[data-action='report-filter']");
     if (!target) return;
-    state.reportFilters = { ...state.reportFilters, [target.dataset.filter]: target.value };
-    saveState();
-    render();
+    updateUiState({ reportFilters: { ...state.reportFilters, [target.dataset.filter]: target.value } });
   }
 
   function render() {

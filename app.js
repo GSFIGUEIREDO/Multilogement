@@ -1267,6 +1267,12 @@
     return `${dateValue.slice(0, 7)}-01`;
   }
 
+  function daysInMonth(dateValue = today()) {
+    const [year, month] = monthStart(dateValue).split("-").map(Number);
+    const total = new Date(year, month, 0).getDate();
+    return Array.from({ length: total }, (_, index) => `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`);
+  }
+
   function monthKey(dateValue) {
     return dateValue ? dateValue.slice(0, 7) : "";
   }
@@ -1737,10 +1743,10 @@
 
   function defaultDashboardWidgets() {
     return [
-      { id: "calendar", size: "wide" },
-      { id: "demands", size: "medium" },
-      { id: "workorders", size: "medium" },
-      { id: "alerts", size: "wide" }
+      { id: "calendar", size: "full" },
+      { id: "demands", size: "half" },
+      { id: "workorders", size: "half" },
+      { id: "alerts", size: "full" }
     ];
   }
 
@@ -1750,9 +1756,17 @@
     const defaults = defaultDashboardWidgets();
     if (!saved.length) return defaults;
     const defaultById = new Map(defaults.map((item) => [item.id, item]));
-    const knownSaved = saved.filter((item) => defaultById.has(item.id)).map((item) => ({ ...defaultById.get(item.id), ...item }));
+    const knownSaved = saved.filter((item) => defaultById.has(item.id)).map((item) => ({ ...defaultById.get(item.id), ...item, size: normalizeDashboardWidgetSize(item.size) }));
     const savedIds = new Set(knownSaved.map((item) => item.id));
     return [...knownSaved, ...defaults.filter((item) => !savedIds.has(item.id))];
+  }
+
+  function normalizeDashboardWidgetSize(size) {
+    return {
+      small: "third",
+      medium: "half",
+      wide: "full"
+    }[size] || size || "half";
   }
 
   function internalDashboard() {
@@ -1791,17 +1805,19 @@
     }[widget.id]?.() || "";
     const editControls = editMode ? `
       <div class="dashboard-edit-controls">
-        <button class="ghost-button" data-action="dashboard-widget-move" data-widget="${widget.id}" data-direction="-1" ${index === 0 ? "disabled" : ""}>Monter</button>
-        <button class="ghost-button" data-action="dashboard-widget-move" data-widget="${widget.id}" data-direction="1" ${index === total - 1 ? "disabled" : ""}>Descendre</button>
+        <span class="drag-handle" title="Déplacer">⋮⋮</span>
         <select data-action="dashboard-widget-size" data-widget="${widget.id}">
-          <option value="small" ${widget.size === "small" ? "selected" : ""}>Petit</option>
-          <option value="medium" ${widget.size === "medium" ? "selected" : ""}>Moyen</option>
-          <option value="wide" ${widget.size === "wide" ? "selected" : ""}>Large</option>
+          <option value="quarter" ${widget.size === "quarter" ? "selected" : ""}>25%</option>
+          <option value="third" ${widget.size === "third" ? "selected" : ""}>33%</option>
+          <option value="half" ${widget.size === "half" ? "selected" : ""}>50%</option>
+          <option value="two-thirds" ${widget.size === "two-thirds" ? "selected" : ""}>66%</option>
+          <option value="three-quarters" ${widget.size === "three-quarters" ? "selected" : ""}>75%</option>
+          <option value="full" ${widget.size === "full" ? "selected" : ""}>100%</option>
         </select>
       </div>
     ` : "";
     return `
-      <article class="panel dashboard-widget widget-${escapeHtml(widget.size || "medium")}">
+      <article class="panel dashboard-widget widget-${escapeHtml(widget.size || "half")}" data-dashboard-widget="${escapeHtml(widget.id)}" ${editMode ? `draggable="true"` : ""}>
         <div class="panel-header"><h2>${escapeHtml(title)}</h2>${editControls}</div>
         <div class="panel-body">${body}</div>
       </article>
@@ -1809,15 +1825,15 @@
   }
 
   function dashboardCalendarWidget() {
-    const startDate = state.dashboardCalendarDate || today();
-    const days = Array.from({ length: 14 }, (_, index) => addDateInterval(startDate, index, "days"));
-    const orders = scopedWorkOrders().filter((order) => order.scheduledDate >= startDate && order.scheduledDate <= days[days.length - 1]).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+    const month = monthStart(state.dashboardCalendarDate || today());
+    const days = daysInMonth(month);
+    const orders = scopedWorkOrders().filter((order) => order.scheduledDate >= days[0] && order.scheduledDate <= days[days.length - 1]).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
     return `
       <div class="calendar-toolbar">
-        <button class="ghost-button" data-action="dashboard-calendar-shift" data-days="-7">Semaine précédente</button>
-        <input type="date" data-action="dashboard-calendar-date" value="${escapeHtml(startDate)}" aria-label="Date de départ du calendrier">
-        <button class="ghost-button" data-action="dashboard-calendar-today">Aujourd'hui</button>
-        <button class="ghost-button" data-action="dashboard-calendar-shift" data-days="7">Semaine suivante</button>
+        <button class="ghost-button" data-action="dashboard-calendar-month" data-direction="-1">Mois précédent</button>
+        <strong>${monthLabel(month.slice(0, 7))}</strong>
+        <input type="month" data-action="dashboard-calendar-date" value="${escapeHtml(month.slice(0, 7))}" aria-label="Mois du calendrier">
+        <button class="ghost-button" data-action="dashboard-calendar-month" data-direction="1">Mois suivant</button>
       </div>
       <div class="dashboard-calendar">
         ${days.map((day) => {
@@ -1868,7 +1884,7 @@
         <div class="mini-row">
           <strong>${escapeHtml(reminder.title)} - ${formatDate(reminder.nextDueDate)}</strong>
           <span>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</span>
-          ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Ouvrir BT</button>` : ""}
+          ${canCreateWorkOrders() ? `<button class="ghost-button small-action-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Créer BT</button>` : ""}
         </div>
       `;
     }).join("") || `<div class="empty">Aucune alerte à ouvrir.</div>`;
@@ -2270,7 +2286,7 @@
         ${expanded ? `
           <div class="actions">
             ${showEquipmentLink ? `<button class="link-button" data-action="select-equipment" data-id="${escapeHtml(reminder.equipmentId)}">Dossier machine</button>` : ""}
-            ${canCreateWorkOrders() && reminder.status === "active" && !reminder.lastWorkOrderId ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Ouvrir BT</button>` : ""}
+            ${canCreateWorkOrders() && reminder.status === "active" && !reminder.lastWorkOrderId ? `<button class="ghost-button small-action-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Créer BT</button>` : ""}
             <button class="ghost-button" data-action="open-modal" data-modal="reminder" data-id="${escapeHtml(reminder.id)}">Modifier</button>
             <button class="ghost-button" data-action="reminder-status" data-id="${escapeHtml(reminder.id)}" data-status="${reminder.status === "active" ? "inactive" : "active"}">${reminder.status === "active" ? "Inactiver" : "Activer"}</button>
             ${reminderIsDue(reminder) ? `<button class="ghost-button" data-action="mark-reminder-seen" data-id="${escapeHtml(reminder.id)}">Vu</button>` : ""}
@@ -6175,23 +6191,8 @@
         updateUiState({ dashboardEditMode: !state.dashboardEditMode });
         return;
       }
-      if (action === "dashboard-widget-move") {
-        const layout = dashboardLayoutForCurrentUser();
-        const index = layout.findIndex((item) => item.id === target.dataset.widget);
-        const nextIndex = index + Number(target.dataset.direction || 0);
-        if (index >= 0 && nextIndex >= 0 && nextIndex < layout.length) {
-          const [item] = layout.splice(index, 1);
-          layout.splice(nextIndex, 0, item);
-          saveDashboardLayout(layout);
-        }
-        return;
-      }
-      if (action === "dashboard-calendar-shift") {
-        updateUiState({ dashboardCalendarDate: addDateInterval(state.dashboardCalendarDate || today(), Number(target.dataset.days || 0), "days") });
-        return;
-      }
-      if (action === "dashboard-calendar-today") {
-        updateUiState({ dashboardCalendarDate: today() });
+      if (action === "dashboard-calendar-month") {
+        updateUiState({ dashboardCalendarDate: monthStart(addDateInterval(state.dashboardCalendarDate || today(), Number(target.dataset.direction || 0), "months")) });
         return;
       }
       if (action === "add-form-question") {
@@ -6308,6 +6309,8 @@
     app.addEventListener("dragover", handleQuestionDragOver);
     app.addEventListener("drop", handleQuestionDrop);
     app.addEventListener("dragend", () => {
+      document.querySelectorAll("[data-dashboard-widget].dragging").forEach((card) => card.classList.remove("dragging"));
+      draggedDashboardWidget = null;
       draggedQuestion = null;
       draggedOption = null;
     });
@@ -6516,8 +6519,42 @@
 
   let draggedQuestion = null;
   let draggedOption = null;
+  let draggedDashboardWidget = null;
+
+  function handleDashboardDragStart(event) {
+    const card = event.target.closest("[data-dashboard-widget]");
+    if (!card || !state.dashboardEditMode) return false;
+    draggedDashboardWidget = card.dataset.dashboardWidget;
+    card.classList.add("dragging");
+    event.dataTransfer.effectAllowed = "move";
+    return true;
+  }
+
+  function handleDashboardDragOver(event) {
+    const card = event.target.closest("[data-dashboard-widget]");
+    if (!card || !draggedDashboardWidget || card.dataset.dashboardWidget === draggedDashboardWidget) return false;
+    event.preventDefault();
+    return true;
+  }
+
+  function handleDashboardDrop(event) {
+    const card = event.target.closest("[data-dashboard-widget]");
+    if (!card || !draggedDashboardWidget || card.dataset.dashboardWidget === draggedDashboardWidget) return false;
+    event.preventDefault();
+    const layout = dashboardLayoutForCurrentUser();
+    const from = layout.findIndex((item) => item.id === draggedDashboardWidget);
+    const to = layout.findIndex((item) => item.id === card.dataset.dashboardWidget);
+    if (from >= 0 && to >= 0) {
+      const [item] = layout.splice(from, 1);
+      layout.splice(to, 0, item);
+      saveDashboardLayout(layout);
+    }
+    draggedDashboardWidget = null;
+    return true;
+  }
 
   function handleQuestionDragStart(event) {
+    if (handleDashboardDragStart(event)) return;
     const optionRow = event.target.closest("[data-option-row]");
     if (optionRow) {
       draggedOption = optionRow;
@@ -6531,6 +6568,7 @@
   }
 
   function handleQuestionDragOver(event) {
+    if (handleDashboardDragOver(event)) return;
     const optionRow = event.target.closest("[data-option-row]");
     if (optionRow && draggedOption && optionRow !== draggedOption) {
       event.preventDefault();
@@ -6542,6 +6580,7 @@
   }
 
   function handleQuestionDrop(event) {
+    if (handleDashboardDrop(event)) return;
     const optionRow = event.target.closest("[data-option-row]");
     if (optionRow && draggedOption && optionRow !== draggedOption) {
       event.preventDefault();
@@ -6666,7 +6705,7 @@
   function handleDashboardCalendarDate(event) {
     const target = event.target.closest("[data-action='dashboard-calendar-date']");
     if (!target) return;
-    updateUiState({ dashboardCalendarDate: target.value || today() });
+    updateUiState({ dashboardCalendarDate: target.value ? `${target.value}-01` : monthStart(today()) });
   }
 
   function handleReportFilter(event) {

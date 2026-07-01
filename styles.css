@@ -693,16 +693,33 @@ textarea:focus {
   min-width: 0;
 }
 
-.dashboard-widget.widget-small {
+.dashboard-widget.widget-quarter {
+  grid-column: span 3;
+}
+
+.dashboard-widget.widget-third {
   grid-column: span 4;
 }
 
-.dashboard-widget.widget-medium {
+.dashboard-widget.widget-half {
   grid-column: span 6;
 }
 
+.dashboard-widget.widget-two-thirds {
+  grid-column: span 8;
+}
+
+.dashboard-widget.widget-three-quarters {
+  grid-column: span 9;
+}
+
+.dashboard-widget.widget-full,
 .dashboard-widget.widget-wide {
   grid-column: span 12;
+}
+
+.dashboard-widget.dragging {
+  opacity: 0.55;
 }
 
 .dashboard-edit-controls {
@@ -722,7 +739,7 @@ textarea:focus {
 
 .dashboard-calendar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -734,8 +751,14 @@ textarea:focus {
   margin-bottom: 14px;
 }
 
+.calendar-toolbar strong {
+  min-width: 150px;
+  text-align: center;
+  font-size: 1.05rem;
+}
+
 .calendar-toolbar input {
-  width: 180px;
+  width: 150px;
 }
 
 .calendar-day {
@@ -749,6 +772,7 @@ textarea:focus {
 .calendar-day.today {
   border-color: var(--brand);
   background: #eefafa;
+  box-shadow: inset 0 0 0 2px rgba(17, 106, 115, 0.16);
 }
 
 .calendar-day strong {
@@ -782,6 +806,13 @@ textarea:focus {
 .mini-row span {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.small-action-button {
+  width: max-content;
+  min-height: 32px;
+  padding: 6px 10px;
+  justify-self: start;
 }
 
 .grid {
@@ -2068,10 +2099,18 @@ td button.link-button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dashboard-widget.widget-small,
-  .dashboard-widget.widget-medium,
+  .dashboard-widget.widget-quarter,
+  .dashboard-widget.widget-third,
+  .dashboard-widget.widget-half,
+  .dashboard-widget.widget-two-thirds,
+  .dashboard-widget.widget-three-quarters,
+  .dashboard-widget.widget-full,
   .dashboard-widget.widget-wide {
     grid-column: span 2;
+  }
+
+  .dashboard-calendar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .global-search {
@@ -2167,8 +2206,12 @@ td button.link-button {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-widget.widget-small,
-  .dashboard-widget.widget-medium,
+  .dashboard-widget.widget-quarter,
+  .dashboard-widget.widget-third,
+  .dashboard-widget.widget-half,
+  .dashboard-widget.widget-two-thirds,
+  .dashboard-widget.widget-three-quarters,
+  .dashboard-widget.widget-full,
   .dashboard-widget.widget-wide {
     grid-column: span 1;
   }

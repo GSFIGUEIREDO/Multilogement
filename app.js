@@ -3,6 +3,7 @@
   const SERVER_ENABLED = typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:");
   let saveTimer = null;
   let toastTimer = null;
+  let refreshTimer = null;
   let restoringSession = false;
 
   const seed = {
@@ -792,6 +793,7 @@
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
+      saveTimer = null;
       fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1503,11 +1505,9 @@
     if (!building) return buildingsView();
     const client = state.clients.find((item) => item.id === building.clientId);
     const apartments = apartmentsForBuilding(building.id);
-    const documents = scopedClientDocuments()
-      .filter((doc) => doc.buildingId === building.id || (!doc.buildingId && doc.clientId === building.clientId))
-      .sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
     const actions = `
       <button class="ghost-button" data-action="view" data-view="lieux">Retour</button>
+      <button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>
       ${currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="apartment" data-building="${building.id}">Nouvel appartement</button>` : ""}
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier le lieu</button>` : ""}
     `;
@@ -1532,15 +1532,6 @@
           <div class="panel-header"><h2>Appartements cadastrés</h2></div>
           <div class="panel-body cards-list">
             ${apartments.map((apartment) => apartmentBlock(apartment)).join("") || `<div class="empty">Aucun appartement dans ce lieu.</div>`}
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Documents du lieu</h2>
-            ${currentUser()?.role !== "client" && can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="clientDocument" data-building="${building.id}" data-client="${building.clientId}">Ajouter</button>` : ""}
-          </div>
-          <div class="panel-body cards-list">
-            ${documents.map((doc) => clientDocumentItem(doc)).join("") || `<div class="empty">Aucun document pour ce lieu.</div>`}
           </div>
         </div>
       </section>
@@ -1837,7 +1828,7 @@
   }
 
   function attachmentTypeLabel(file) {
-    const type = file.type || file.fileType || "";
+    const type = inferFileType(file);
     const name = file.name || file.fileName || "";
     if (type.startsWith("image/")) return "Image";
     if (type === "application/pdf") return "PDF";
@@ -1852,6 +1843,25 @@
       || /\.(docx?|xlsx?|pptx?)$/i.test(name || "");
   }
 
+  function dataUrlMime(dataUrl) {
+    const match = String(dataUrl || "").match(/^data:([^;,]+)/);
+    return match?.[1] || "";
+  }
+
+  function inferFileType(file) {
+    const explicit = file.type || file.fileType || "";
+    if (explicit) return explicit;
+    const fromData = dataUrlMime(file.dataUrl);
+    if (fromData) return fromData;
+    const name = file.name || file.fileName || "";
+    if (/\.pdf$/i.test(name)) return "application/pdf";
+    if (/\.(jpe?g|png|gif|webp|bmp)$/i.test(name)) return "image/*";
+    if (/\.(mp4|mov|webm)$/i.test(name)) return "video/*";
+    if (/\.(mp3|wav|m4a)$/i.test(name)) return "audio/*";
+    if (/\.(docx?|xlsx?|pptx?)$/i.test(name)) return "application/vnd.openxmlformats-officedocument";
+    return "";
+  }
+
   function findAttachment(fileId) {
     return state.equipment.flatMap((item) => item.attachments || []).find((file) => file.id === fileId)
       || (state.clientDocuments || []).find((doc) => doc.id === fileId);
@@ -1861,7 +1871,7 @@
     const file = findAttachment(fileId);
     if (!file) return "";
     const order = state.workOrders.find((item) => item.id === file.workOrderId);
-    const type = file.type || file.fileType || "";
+    const type = inferFileType(file);
     const name = file.name || file.fileName || "Document";
     const preview = type.startsWith("image/")
       ? `<img class="attachment-preview-image" src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(name)}">`
@@ -1873,7 +1883,9 @@
           ? `<video class="attachment-preview-video" controls src="${escapeHtml(file.dataUrl)}"></video>`
           : type.startsWith("audio/")
             ? `<audio controls src="${escapeHtml(file.dataUrl)}"></audio>`
-            : `<div class="empty">Prévisualisation non disponible pour ce type de fichier.</div>`;
+            : file.dataUrl
+              ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(name)}"></iframe>`
+              : `<div class="empty">Prévisualisation non disponible pour ce type de fichier.</div>`;
     return modalShell(name, `
       <div class="stack">
         <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
@@ -2098,6 +2110,24 @@
     `;
   }
 
+  function buildingDocumentsModal(buildingId) {
+    const building = state.buildings.find((item) => item.id === buildingId) || scopedBuildings()[0];
+    if (!building) return modalShell("Documents", `<div class="empty">Lieu introuvable.</div>`);
+    const docs = scopedClientDocuments()
+      .filter((doc) => doc.buildingId === building.id || (!doc.buildingId && doc.clientId === building.clientId))
+      .sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
+    return modalShell(`Documents - ${escapeHtml(building.name)}`, `
+      <div class="stack">
+        <div class="actions">
+          ${currentUser()?.role !== "client" && can("documents") ? `<button class="primary-button" data-action="open-modal" data-modal="clientDocument" data-building="${escapeHtml(building.id)}" data-client="${escapeHtml(building.clientId)}">Ajouter un document</button>` : ""}
+        </div>
+        <div class="cards-list">
+          ${docs.map((doc) => clientDocumentItem(doc)).join("") || `<div class="empty">Aucun document pour ce lieu.</div>`}
+        </div>
+      </div>
+    `, "modal-card-wide");
+  }
+
   function ticketsView() {
     const tickets = scopedTickets();
     return appShell(`
@@ -2165,9 +2195,7 @@
   function workOrderItem(order, expanded = false, dashboardLink = false) {
     const { equipment, apartment, building } = workOrderContext(order);
     const type = state.interventionTypes.find((item) => item.id === order.typeId);
-    const tech = state.users.find((item) => item.id === order.technicianId);
     const assignedTechs = (order.assignedTechnicianIds || []).map((id) => state.users.find((user) => user.id === id)?.name).filter(Boolean).join(", ");
-    const assignedLabel = [order.assignedTeam ? statusText(order.assignedTeam) || order.assignedTeam : "", assignedTechs].filter(Boolean).join(" | ");
     const progress = workOrderProgress(order);
     const scopeLabel = order.buildingId ? "Bloc complet" : `Apt ${apartment?.number || "-"} - ${equipment?.type || "-"}`;
     return `
@@ -2176,8 +2204,8 @@
           <h3>${escapeHtml(order.number)} - ${escapeHtml(type?.name || "")}</h3>
           ${statusBadge(order.status)}
         </div>
-        <div class="meta">${formatDate(order.scheduledDate)} - ${escapeHtml(tech?.name || "Non assigné")}</div>
-        ${assignedLabel ? `<div class="meta">Assigné: ${escapeHtml(assignedLabel)}</div>` : ""}
+        <div class="meta">${formatDate(order.scheduledDate)}</div>
+        ${assignedTechs ? `<div class="meta">Techniciens assignés: ${escapeHtml(assignedTechs)}</div>` : ""}
         <div class="meta">${escapeHtml(building?.name || "-")} - ${escapeHtml(scopeLabel)}</div>
         <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
         <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisé${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysée${progress.machines > 1 ? "s" : ""}</div>
@@ -3404,6 +3432,7 @@
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
     if (modal.type === "clientRecommendationMessage") return clientRecommendationMessageModal(modal.id, modal.decisionStatus);
+    if (modal.type === "buildingDocuments") return buildingDocumentsModal(modal.buildingId);
     if (modal.type === "clientDocument") return clientDocumentModal(modal.id, modal);
     if (modal.type === "attachmentPreview") return attachmentPreviewModal(modal.fileId);
     return "";
@@ -3552,7 +3581,6 @@
     }).join("");
     const typeOptions = state.interventionTypes.map((type) => `<option value="${type.id}" ${order.typeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
     const formOptions = state.formTemplates.map((template) => `<option value="${template.id}" ${order.formTemplateId === template.id ? "selected" : ""}>${escapeHtml(template.name)}</option>`).join("");
-    const techOptions = state.users.filter((user) => user.role === "technicien").map((user) => `<option value="${user.id}" ${order.technicianId === user.id ? "selected" : ""}>${escapeHtml(user.name)}</option>`).join("");
     const assignedIds = new Set([...(order.assignedTechnicianIds || []), order.technicianId].filter(Boolean));
     const technicianChecks = state.users.filter((user) => user.role === "technicien").map((user) => `
       <label><input type="checkbox" name="assignedTechnicianIds" value="${escapeHtml(user.id)}" ${assignedIds.has(user.id) ? "checked" : ""}> ${escapeHtml(user.name)}</label>
@@ -3571,10 +3599,6 @@
         </div>
         <div class="split">
           <div class="field"><label>Type d'intervention</label><select name="typeId">${typeOptions}</select></div>
-          <div class="field"><label>Technicien</label><select name="technicianId">${techOptions}</select></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Équipe assignée</label><select name="assignedTeam"><option value="" ${!order.assignedTeam ? "selected" : ""}>Aucune</option><option value="equipe_interne" ${order.assignedTeam === "equipe_interne" ? "selected" : ""}>Équipe interne</option><option value="techniciens" ${order.assignedTeam === "techniciens" ? "selected" : ""}>Équipe techniciens</option></select></div>
           <div class="field"><label>Techniciens assignés</label><div class="choice-list">${technicianChecks}</div></div>
         </div>
         <div class="split">
@@ -4318,10 +4342,57 @@
         state.modal = null;
         state.toast = "";
         render();
+        startAutoRefresh();
       }
     } finally {
       restoringSession = false;
     }
+  }
+
+  async function refreshStateFromServer() {
+    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer) return;
+    restoringSession = true;
+    const uiState = {
+      sessionUserId: state.sessionUserId,
+      activeView: state.activeView,
+      selectedBuildingId: state.selectedBuildingId,
+      selectedEquipmentId: state.selectedEquipmentId,
+      selectedTicketId: state.selectedTicketId,
+      selectedWorkOrderId: state.selectedWorkOrderId,
+      selectedExecutionApartmentId: state.selectedExecutionApartmentId,
+      filters: state.filters,
+      reportFilters: state.reportFilters,
+      globalSearch: state.globalSearch,
+      sidebarMode: state.sidebarMode,
+      mobileMenuOpen: state.mobileMenuOpen,
+      toast: state.toast
+    };
+    try {
+      const response = await fetch("/api/session", { credentials: "same-origin" });
+      if (!response.ok) return;
+      const payload = await response.json();
+      state = {
+        ...normalizeState(payload.state),
+        ...uiState,
+        sessionUserId: payload.user.id,
+        modal: null
+      };
+      render();
+    } finally {
+      restoringSession = false;
+    }
+  }
+
+  function startAutoRefresh() {
+    if (!SERVER_ENABLED || refreshTimer) return;
+    refreshTimer = setInterval(refreshStateFromServer, 8000);
+  }
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshStateFromServer();
+    });
+    window.addEventListener("focus", refreshStateFromServer);
   }
 
   async function signup(values) {
@@ -4357,6 +4428,7 @@
         state.toast = "Compte créé.";
         saveState();
         render();
+        startAutoRefresh();
         scheduleToastClear();
       } catch (error) {
         showToast("Serveur indisponible.");
@@ -4463,6 +4535,7 @@
         state.toast = "";
         saveState();
         render();
+        startAutoRefresh();
       } catch (error) {
         showToast("Serveur indisponible.");
       }
@@ -4479,6 +4552,10 @@
   async function logout() {
     if (SERVER_ENABLED) {
       await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+    }
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
     }
     setState({ sessionUserId: null, activeView: "tableau", modal: null });
   }
@@ -4599,7 +4676,7 @@
         typeId: values.typeId,
         formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
         technicianId,
-        assignedTeam: values.assignedTeam || "",
+        assignedTeam: "",
         assignedTechnicianIds,
         scheduledDate: values.scheduledDate,
         status: values.status,
@@ -4619,7 +4696,7 @@
       typeId: values.typeId,
       formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
       technicianId,
-      assignedTeam: values.assignedTeam || "",
+      assignedTeam: "",
       assignedTechnicianIds,
       scheduledDate: values.scheduledDate,
       status: values.status,

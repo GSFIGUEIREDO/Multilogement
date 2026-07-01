@@ -297,9 +297,28 @@ def merge_shared_state(current: dict | None, incoming: dict) -> dict:
     return merged
 
 
+def duplicate_user_email(state: dict) -> str | None:
+    seen: set[str] = set()
+    for user in state.get("users", []):
+        if not isinstance(user, dict):
+            continue
+        email = str(user.get("email", "")).strip().lower()
+        if not email:
+            continue
+        if email in seen:
+            return email
+        seen.add(email)
+    return None
+
+
 def sync_users(connection, state: dict) -> None:
     for user in state.get("users", []):
         password = str(user.get("password") or "")
+        email = str(user["email"]).lower()
+        existing_email = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
+        if existing_email and row_get(existing_email, "id") != user["id"]:
+            execute(connection, "delete from climaparc_sessions where user_id = ?", (row_get(existing_email, "id"),))
+            execute(connection, "delete from climaparc_users where id = ?", (row_get(existing_email, "id"),))
         existing = execute(connection, "select salt from climaparc_users where id = ?", (user["id"],)).fetchone()
         digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
         execute(
@@ -318,7 +337,7 @@ def sync_users(connection, state: dict) -> None:
             """,
             (
                 user["id"],
-                user["email"].lower(),
+                email,
                 user.get("name", ""),
                 user.get("role", ""),
                 user.get("clientId"),
@@ -603,6 +622,10 @@ class Handler(BaseHTTPRequestHandler):
             merged_state["sessionUserId"] = None
             merged_state["modal"] = None
             merged_state["toast"] = ""
+            duplicate_email = duplicate_user_email(merged_state)
+            if duplicate_email:
+                self.json_response({"error": f"Un utilisateur existe déjà avec le courriel {duplicate_email}."}, HTTPStatus.CONFLICT)
+                return
             save_state(connection, merged_state)
             sync_users(connection, merged_state)
         self.json_response({"ok": True, "state": merged_state})

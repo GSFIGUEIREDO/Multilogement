@@ -828,6 +828,32 @@
     }, 250);
   }
 
+  async function saveStateNow() {
+    if (!SERVER_ENABLED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      return;
+    }
+    if (!state.sessionUserId || restoringSession) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const response = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ state: persistableState() })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
+    if (payload.state) {
+      const uiState = currentUiState();
+      state = {
+        ...normalizeState(payload.state),
+        ...uiState,
+        sessionUserId: uiState.sessionUserId
+      };
+    }
+  }
+
   function currentUiState() {
     return {
       sessionUserId: state.sessionUserId,
@@ -4972,7 +4998,7 @@
     setState({ modal: null, activeView: "alertes", toast: equipmentIds.size > 1 ? "Rappels créés." : "Rappel créé." });
   }
 
-  function createUser(form, values) {
+  async function createUser(form, values) {
     const creator = currentUser();
     const changedAt = new Date().toISOString();
     const isClientManager = creator?.role === "client";
@@ -4988,6 +5014,7 @@
     const portalRights = role === "client"
       ? (selectedPortalRights.length ? selectedPortalRights : defaultPortalRights(values.clientAccessLevel || "gestionnaire").filter((right) => right !== "portal"))
       : [];
+    const previousUsers = JSON.parse(JSON.stringify(state.users));
     const existing = state.users.find((item) => item.id === values.id);
     if (existing) {
       if (isClientManager && existing.clientId !== creator.clientId) {
@@ -5006,7 +5033,13 @@
         parentUserId: existing.parentUserId || (isClientManager ? creator.id : ""),
         updatedAt: changedAt
       });
-      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
+      try {
+        await saveStateNow();
+        setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
+      } catch (error) {
+        state.users = previousUsers;
+        showToast(error.message || "Utilisateur non sauvegardé.");
+      }
       return;
     }
     state.users.push({
@@ -5022,7 +5055,13 @@
       parentUserId: isClientManager ? creator.id : "",
       updatedAt: changedAt
     });
-    setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
+    try {
+      await saveStateNow();
+      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
+    } catch (error) {
+      state.users = previousUsers;
+      showToast(error.message || "Utilisateur non sauvegardé.");
+    }
   }
 
   function saveServiceType(values) {

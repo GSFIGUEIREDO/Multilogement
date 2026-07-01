@@ -663,6 +663,105 @@ textarea:focus {
   font-size: 2rem;
 }
 
+.notification-button {
+  position: relative;
+}
+
+.notification-button .alert-dot {
+  top: 5px;
+  right: 5px;
+}
+
+.dashboard-board {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.dashboard-widget {
+  min-width: 0;
+}
+
+.dashboard-widget.widget-small {
+  grid-column: span 4;
+}
+
+.dashboard-widget.widget-medium {
+  grid-column: span 6;
+}
+
+.dashboard-widget.widget-wide {
+  grid-column: span 12;
+}
+
+.dashboard-edit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.dashboard-edit-controls .ghost-button,
+.dashboard-edit-controls select {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 0.82rem;
+}
+
+.dashboard-calendar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 10px;
+}
+
+.calendar-day {
+  min-height: 118px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.calendar-day.today {
+  border-color: var(--brand);
+  background: #eefafa;
+}
+
+.calendar-day strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.calendar-event,
+.mini-row {
+  width: 100%;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  text-align: left;
+}
+
+.calendar-event {
+  margin-top: 6px;
+  color: var(--brand-dark);
+  font-weight: 800;
+}
+
+.mini-row + .mini-row {
+  margin-top: 8px;
+}
+
+.mini-row span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
@@ -1941,9 +2040,16 @@ td button.link-button {
 
   .stats-grid,
   .cards-grid,
+  .dashboard-board,
   .report-layout,
   .report-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-widget.widget-small,
+  .dashboard-widget.widget-medium,
+  .dashboard-widget.widget-wide {
+    grid-column: span 2;
   }
 
   .global-search {
@@ -2033,6 +2139,29 @@ td button.link-button {
   .actions .ghost-button,
   .actions .danger-button {
     flex: 1 1 150px;
+  }
+
+  .dashboard-board {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-widget.widget-small,
+  .dashboard-widget.widget-medium,
+  .dashboard-widget.widget-wide {
+    grid-column: span 1;
+  }
+
+  .dashboard-calendar {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-edit-controls {
+    justify-content: stretch;
+  }
+
+  .dashboard-edit-controls .ghost-button,
+  .dashboard-edit-controls select {
+    flex: 1 1 120px;
   }
 
   .field-intervention-actions {

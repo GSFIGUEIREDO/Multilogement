@@ -28,6 +28,16 @@
       status: "all",
       search: ""
     },
+    workOrderFilters: {
+      buildingId: "all",
+      technicianId: "all",
+      status: "all",
+      startDate: "",
+      endDate: "",
+      search: ""
+    },
+    dashboardLayouts: {},
+    dashboardEditMode: false,
     reportFilters: {
       reportType: "dashboard_operationnel",
       clientId: "all",
@@ -500,6 +510,9 @@
   function normalizeState(data) {
     const next = { ...JSON.parse(JSON.stringify(seed)), ...data };
     next.filters = { ...seed.filters, ...(data.filters || {}) };
+    next.workOrderFilters = { ...seed.workOrderFilters, ...(data.workOrderFilters || {}) };
+    next.dashboardLayouts = data.dashboardLayouts || {};
+    next.dashboardEditMode = false;
     next.reportFilters = {
       ...seed.reportFilters,
       ...(data.reportFilters || {}),
@@ -613,7 +626,9 @@
       status: reminder.status || "active",
       notes: reminder.notes || "",
       createdAt: reminder.createdAt || today(),
-      lastSeenDueDate: reminder.lastSeenDueDate || ""
+      lastSeenDueDate: reminder.lastSeenDueDate || "",
+      lastWorkOrderId: reminder.lastWorkOrderId || "",
+      lastOpenedAt: reminder.lastOpenedAt || ""
     }));
     next.workOrders = (data.workOrders || seed.workOrders).map((order) => ({
       scope: order.buildingId ? "building" : "equipment",
@@ -622,6 +637,7 @@
       formTemplateId: next.formTemplates[0]?.id || "",
       assignedTeam: "",
       assignedTechnicianIds: order.technicianId ? [order.technicianId] : [],
+      sourceReminderId: "",
       ...order
     }));
     next.interventions = (data.interventions || seed.interventions).map((intervention) => ({
@@ -864,10 +880,13 @@
       selectedWorkOrderId: state.selectedWorkOrderId,
       selectedExecutionApartmentId: state.selectedExecutionApartmentId,
       filters: state.filters,
+      workOrderFilters: state.workOrderFilters,
       reportFilters: state.reportFilters,
       globalSearch: state.globalSearch,
       sidebarMode: state.sidebarMode,
       mobileMenuOpen: state.mobileMenuOpen,
+      dashboardLayouts: state.dashboardLayouts,
+      dashboardEditMode: state.dashboardEditMode,
       toast: state.toast,
       modal: state.modal
     };
@@ -882,7 +901,9 @@
       toast: "",
       activeView: "tableau",
       globalSearch: "",
-      filters: { ...seed.filters }
+      filters: { ...seed.filters },
+      workOrderFilters: { ...seed.workOrderFilters },
+      dashboardEditMode: false
     };
   }
 
@@ -968,7 +989,7 @@
     return [
       ["lieux", "Voir lieux et appartements"],
       ["equipment", "Voir équipements"],
-      ["tickets", "Voir appels de service"],
+      ["tickets", "Voir demandes clients"],
       ["workorders", "Voir bons de travail"],
       ["documents", "Voir documents"],
       ["reports", "Voir rapports"],
@@ -1347,7 +1368,7 @@
       rows.push({
         type: "ticket",
         id: ticket.id,
-        label: "Appel",
+        label: "Demande client",
         title: `${ticket.number || ticket.id} | ${ticket.title}`,
         detail: `${serviceType?.name || "-"} | ${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${statusText(ticket.status)}`,
         text: searchText(ticket.number, ticket.id, ticket.title, ticket.description, ticket.priority, statusText(ticket.priority), ticket.status, statusText(ticket.status), serviceType?.name, building?.name, building?.address, apartment?.number, apartment?.occupant, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, dateSearchParts(ticket.createdAt))
@@ -1465,7 +1486,8 @@
       chevronLeft: '<path d="m15 18-6-6 6-6"/>',
       chevronRight: '<path d="m9 18 6-6-6-6"/>',
       chevronUp: '<path d="m7 13 5-5 5 5"/>',
-      chevronDown: '<path d="m7 11 5 5 5-5"/>'
+      chevronDown: '<path d="m7 11 5 5 5-5"/>',
+      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'
     };
     return `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;width:16px;height:16px;flex:0 0 16px">${icons[name] || ""}</svg>`;
   }
@@ -1525,7 +1547,7 @@
       ["lieux", "LI", "Lieux", can("lieux")],
       ["equipements", "EQ", "Équipements", can("equipment")],
       ["alertes", "AL", "Alertes", canManageReminders()],
-      ["appels", "CH", "Appels de service", can("tickets")],
+      ["appels", "DC", "Demandes des clients", can("tickets")],
       ["bons", "BT", "Bons de travail", can("workorders")],
       ["recommandations", "RC", "Recommandations", can("recommendations")],
       ["rapports", "RP", "Rapports", can("reports")],
@@ -1545,7 +1567,7 @@
         <section class="login-panel">
           <div class="brand-mark"><span class="logo">CP</span><span>ClimaParc</span></div>
           <h1>Gestion HVAC multi-immeubles</h1>
-          <p>Inventaire des équipements, interventions, appels de service, bons de travail, checklists techniques et accès client.</p>
+          <p>Inventaire des équipements, interventions, demandes clients, bons de travail, checklists techniques et accès client.</p>
           <form class="login-form" data-form="login">
             <div class="field">
               <label for="email">Courriel</label>
@@ -1691,6 +1713,148 @@
   }
 
   function dashboard() {
+    if (currentUser()?.role === "client") return clientDashboard();
+    return internalDashboard();
+  }
+
+  function defaultDashboardWidgets() {
+    return [
+      { id: "calendar", size: "wide" },
+      { id: "demands", size: "medium" },
+      { id: "workorders", size: "medium" },
+      { id: "alerts", size: "medium" }
+    ];
+  }
+
+  function dashboardLayoutForCurrentUser() {
+    const userId = currentUser()?.id || "default";
+    const saved = state.dashboardLayouts?.[userId] || [];
+    const defaults = defaultDashboardWidgets();
+    if (!saved.length) return defaults;
+    const defaultById = new Map(defaults.map((item) => [item.id, item]));
+    const knownSaved = saved.filter((item) => defaultById.has(item.id)).map((item) => ({ ...defaultById.get(item.id), ...item }));
+    const savedIds = new Set(knownSaved.map((item) => item.id));
+    return [...knownSaved, ...defaults.filter((item) => !savedIds.has(item.id))];
+  }
+
+  function internalDashboard() {
+    const layout = dashboardLayoutForCurrentUser();
+    const editMode = Boolean(state.dashboardEditMode);
+    const dueReminders = scopedReminders().filter((reminder) => reminder.status === "active" && !reminder.lastWorkOrderId).sort((a, b) => (a.nextDueDate || "").localeCompare(b.nextDueDate || ""));
+    const notificationCount = dueReminders.filter((reminder) => reminderIsDue(reminder)).length + recommendationAttentionCount();
+    const actions = `
+      <button class="icon-button notification-button" data-action="view" data-view="alertes" title="Centre d'alertes" aria-label="Centre d'alertes">
+        ${iconSvg("bell")}${notificationCount ? `<span class="alert-dot"></span>` : ""}
+      </button>
+      <button class="ghost-button" data-action="toggle-dashboard-edit">${editMode ? "Terminer" : "Modifier"}</button>
+      ${canCreateWorkOrders() ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : ""}
+    `;
+
+    return appShell(`
+      ${renderTopbar("Tableau de bord", "Vue opérationnelle des RDV, demandes clients et travaux en cours.", actions)}
+      <section class="dashboard-board ${editMode ? "is-editing" : ""}">
+        ${layout.map((widget, index) => dashboardWidget(widget, index, editMode, layout.length)).join("")}
+      </section>
+    `);
+  }
+
+  function dashboardWidget(widget, index, editMode, total) {
+    const title = {
+      calendar: "Calendrier des RDV",
+      demands: "Nouvelles demandes et approbations",
+      workorders: "Bons de travail en cours",
+      alerts: "Alertes à transformer en BT"
+    }[widget.id] || widget.id;
+    const body = {
+      calendar: dashboardCalendarWidget,
+      demands: dashboardDemandWidget,
+      workorders: dashboardWorkOrderWidget,
+      alerts: dashboardAlertWidget
+    }[widget.id]?.() || "";
+    const editControls = editMode ? `
+      <div class="dashboard-edit-controls">
+        <button class="ghost-button" data-action="dashboard-widget-move" data-widget="${widget.id}" data-direction="-1" ${index === 0 ? "disabled" : ""}>Monter</button>
+        <button class="ghost-button" data-action="dashboard-widget-move" data-widget="${widget.id}" data-direction="1" ${index === total - 1 ? "disabled" : ""}>Descendre</button>
+        <select data-action="dashboard-widget-size" data-widget="${widget.id}">
+          <option value="small" ${widget.size === "small" ? "selected" : ""}>Petit</option>
+          <option value="medium" ${widget.size === "medium" ? "selected" : ""}>Moyen</option>
+          <option value="wide" ${widget.size === "wide" ? "selected" : ""}>Large</option>
+        </select>
+      </div>
+    ` : "";
+    return `
+      <article class="panel dashboard-widget widget-${escapeHtml(widget.size || "medium")}">
+        <div class="panel-header"><h2>${escapeHtml(title)}</h2>${editControls}</div>
+        <div class="panel-body">${body}</div>
+      </article>
+    `;
+  }
+
+  function dashboardCalendarWidget() {
+    const days = Array.from({ length: 14 }, (_, index) => addDateInterval(today(), index, "days"));
+    const orders = scopedWorkOrders().filter((order) => order.scheduledDate >= today() && order.scheduledDate <= days[days.length - 1]).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+    return `
+      <div class="dashboard-calendar">
+        ${days.map((day) => {
+          const dayOrders = orders.filter((order) => order.scheduledDate === day);
+          return `
+            <div class="calendar-day ${day === today() ? "today" : ""}">
+              <strong>${formatDate(day)}</strong>
+              ${dayOrders.slice(0, 3).map((order) => {
+                const context = workOrderContext(order);
+                return `<button class="calendar-event" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}">${escapeHtml(order.number)} - ${escapeHtml(context.building?.name || "-")}</button>`;
+              }).join("") || `<span class="meta">Aucun RDV</span>`}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function dashboardDemandWidget() {
+    const tickets = scopedTickets().filter((ticket) => ticket.status !== "ferme").sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
+    const approved = scopedRecommendations().filter(({ recommendation }) => recommendation.status === "approuvee" && !recommendation.workOrderId).slice(0, 5);
+    const rows = [
+      ...tickets.map((ticket) => {
+        const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
+        return `<button class="mini-row" data-action="dashboard-ticket" data-id="${escapeHtml(ticket.id)}"><strong>${escapeHtml(ticket.number || ticket.id)} - ${escapeHtml(ticket.title)}</strong><span>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</span></button>`;
+      }),
+      ...approved.map(({ intervention, recommendation }) => {
+        const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
+        return `<button class="mini-row" data-action="create-bt-from-recommendation" data-id="${escapeHtml(intervention.id)}"><strong>Recommandation approuvée - ${escapeHtml(recommendation.type || "Travaux")}</strong><span>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</span></button>`;
+      })
+    ];
+    return rows.join("") || `<div class="empty">Aucune nouvelle demande.</div>`;
+  }
+
+  function dashboardWorkOrderWidget() {
+    const orders = scopedWorkOrders().filter((order) => order.status === "en_cours").sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)).slice(0, 6);
+    return orders.map((order) => {
+      const { equipment, building } = workOrderContext(order);
+      return `<button class="mini-row" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"><strong>${escapeHtml(order.number)} - RDV ${formatDate(order.scheduledDate)}</strong><span>${escapeHtml(building?.name || "-")} | ${escapeHtml(equipment?.type || "Bloc complet")}</span></button>`;
+    }).join("") || `<div class="empty">Aucun BT en cours.</div>`;
+  }
+
+  function dashboardAlertWidget() {
+    const reminders = scopedReminders().filter((reminder) => reminder.status === "active" && !reminder.lastWorkOrderId).sort((a, b) => (a.nextDueDate || "").localeCompare(b.nextDueDate || "")).slice(0, 6);
+    return reminders.map((reminder) => {
+      const { equipment, apartment, building } = equipmentContext(reminder.equipmentId);
+      return `
+        <div class="mini-row">
+          <strong>${escapeHtml(reminder.title)} - ${formatDate(reminder.nextDueDate)}</strong>
+          <span>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</span>
+          ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Ouvrir BT</button>` : ""}
+        </div>
+      `;
+    }).join("") || `<div class="empty">Aucune alerte à ouvrir.</div>`;
+  }
+
+  function saveDashboardLayout(layout) {
+    const userId = currentUser()?.id || "default";
+    setState({ dashboardLayouts: { ...(state.dashboardLayouts || {}), [userId]: layout } });
+  }
+
+  function clientDashboard() {
     const equipment = scopedEquipment();
     const tickets = scopedTickets();
     const orders = scopedWorkOrders();
@@ -1722,7 +1886,7 @@
       .join("");
 
     const actions = `
-      ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>` : ""}
+      ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvelle demande</button>` : ""}
       ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : ""}
     `;
 
@@ -1737,12 +1901,12 @@
           <div class="panel-body">${equipmentTable(equipment.filter((item) => item.status !== "actif" || item.nextService <= today()).slice(0, 6), false)}</div>
         </div>
         <div class="stack">
-          ${can("tickets") ? `<button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>` : ""}
+          ${can("tickets") ? `<button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir une demande<span>Demande client, urgence ou suivi préventif.</span></button>` : ""}
           ${canCreateWorkOrders() ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
-          ${canManageReminders() ? `<button class="quick-action" data-action="view" data-view="alertes">Centre d'alertes<span>Consulter les rappels actifs, à venir ou inactifs.</span></button>` : ""}
+        ${canManageReminders() ? `<button class="quick-action" data-action="view" data-view="alertes">Centre d'alertes<span>Consulter les rappels actifs, à venir ou inactifs.</span></button>` : ""}
           <div class="panel">
-            <div class="panel-header"><h2>Appels actifs</h2></div>
-            <div class="panel-body cards-list">${urgentTickets || `<div class="empty">Aucun appel actif.</div>`}</div>
+            <div class="panel-header"><h2>Demandes actives</h2></div>
+            <div class="panel-body cards-list">${urgentTickets || `<div class="empty">Aucune demande active.</div>`}</div>
           </div>
           <div class="panel">
             <div class="panel-header"><h2>Prochains bons</h2></div>
@@ -1874,7 +2038,7 @@
       <button class="ghost-button" data-action="view" data-view="equipements">Retour</button>
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
       ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
-      ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvel appel</button>` : ""}
+      ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvelle demande</button>` : ""}
       ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
     `;
     return appShell(`
@@ -1916,7 +2080,7 @@
               ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}
             </div>
             <div class="panel-body cards-list">
-              ${reminders.map((reminder) => reminderItem(reminder, true)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}
+              ${reminders.map((reminder) => reminderItem(reminder, true, false)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}
             </div>
           </div>
           <div class="panel">
@@ -2066,7 +2230,7 @@
     `);
   }
 
-  function reminderItem(reminder, expanded = false) {
+  function reminderItem(reminder, expanded = false, showEquipmentLink = true) {
     const { equipment, apartment, building } = equipmentContext(reminder.equipmentId);
     const frequency = `${reminder.frequencyValue} ${reminder.frequencyUnit === "years" ? "an(s)" : "mois"}`;
     return `
@@ -2080,7 +2244,8 @@
         ${reminder.notes ? `<div class="meta">${escapeHtml(reminder.notes)}</div>` : ""}
         ${expanded ? `
           <div class="actions">
-            <button class="link-button" data-action="select-equipment" data-id="${escapeHtml(reminder.equipmentId)}">Dossier machine</button>
+            ${showEquipmentLink ? `<button class="link-button" data-action="select-equipment" data-id="${escapeHtml(reminder.equipmentId)}">Dossier machine</button>` : ""}
+            ${canCreateWorkOrders() && reminder.status === "active" && !reminder.lastWorkOrderId ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Ouvrir BT</button>` : ""}
             <button class="ghost-button" data-action="open-modal" data-modal="reminder" data-id="${escapeHtml(reminder.id)}">Modifier</button>
             <button class="ghost-button" data-action="reminder-status" data-id="${escapeHtml(reminder.id)}" data-status="${reminder.status === "active" ? "inactive" : "active"}">${reminder.status === "active" ? "Inactiver" : "Activer"}</button>
             ${reminderIsDue(reminder) ? `<button class="ghost-button" data-action="mark-reminder-seen" data-id="${escapeHtml(reminder.id)}">Vu</button>` : ""}
@@ -2259,9 +2424,9 @@
   function ticketsView() {
     const tickets = scopedTickets();
     return appShell(`
-      ${renderTopbar("Appels de service", "Demandes clients, priorités et suivi opérationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvel appel</button>`)}
+      ${renderTopbar("Demandes des clients", "Demandes clients, priorités et suivi opérationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvelle demande</button>`)}
       <section class="panel">
-        <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket, true)).join("") || `<div class="empty">Aucun appel de service.</div>`}</div>
+        <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket, true)).join("") || `<div class="empty">Aucune demande client.</div>`}</div>
       </section>
     `);
   }
@@ -2311,13 +2476,71 @@
   }
 
   function workOrdersView() {
-    const orders = scopedWorkOrders();
+    const orders = filteredWorkOrders();
     return appShell(`
       ${renderTopbar("Bons de travail", "Planification, assignation technicien et exécution des checklists.", canCreateWorkOrders() ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
+      <section class="panel">
+        <div class="panel-body">
+          ${workOrderFiltersBlock()}
+        </div>
+      </section>
       <section class="panel">
         <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order, true)).join("") || `<div class="empty">Aucun bon de travail.</div>`}</div>
       </section>
     `);
+  }
+
+  function filteredWorkOrders() {
+    const filters = state.workOrderFilters || seed.workOrderFilters;
+    return scopedWorkOrders().filter((order) => {
+      const { equipment, apartment, building } = workOrderContext(order);
+      const type = state.interventionTypes.find((item) => item.id === order.typeId);
+      const assignedIds = new Set([order.technicianId, ...(order.assignedTechnicianIds || [])].filter(Boolean));
+      const haystack = searchText(order.number, type?.name, order.status, statusText(order.status), order.notes, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, order.scheduledDate, formatDate(order.scheduledDate));
+      return (
+        (filters.buildingId === "all" || building?.id === filters.buildingId || order.buildingId === filters.buildingId) &&
+        (filters.technicianId === "all" || assignedIds.has(filters.technicianId)) &&
+        (filters.status === "all" || order.status === filters.status) &&
+        (!filters.startDate || order.scheduledDate >= filters.startDate) &&
+        (!filters.endDate || order.scheduledDate <= filters.endDate) &&
+        (!filters.search || haystack.includes(normalizeSearch(filters.search)))
+      );
+    });
+  }
+
+  function workOrderFiltersBlock() {
+    const filters = state.workOrderFilters || seed.workOrderFilters;
+    return `
+      <div class="filters">
+        <div class="field">
+          <label>Immeuble</label>
+          <select data-action="workorder-filter" data-filter="buildingId">
+            <option value="all">Tous</option>
+            ${scopedBuildings().map((building) => `<option value="${building.id}" ${filters.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Technicien</label>
+          <select data-action="workorder-filter" data-filter="technicianId">
+            <option value="all">Tous</option>
+            ${state.users.filter((user) => user.role === "technicien").map((user) => `<option value="${user.id}" ${filters.technicianId === user.id ? "selected" : ""}>${escapeHtml(user.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Statut</label>
+          <select data-action="workorder-filter" data-filter="status">
+            <option value="all">Tous</option>
+            <option value="planifie" ${filters.status === "planifie" ? "selected" : ""}>Planifié</option>
+            <option value="en_cours" ${filters.status === "en_cours" ? "selected" : ""}>En cours</option>
+            <option value="termine" ${filters.status === "termine" ? "selected" : ""}>Terminé</option>
+            <option value="annule" ${filters.status === "annule" ? "selected" : ""}>Annulé</option>
+          </select>
+        </div>
+        <div class="field"><label>Début</label><input type="date" data-action="workorder-filter" data-filter="startDate" value="${escapeHtml(filters.startDate || "")}"></div>
+        <div class="field"><label>Fin</label><input type="date" data-action="workorder-filter" data-filter="endDate" value="${escapeHtml(filters.endDate || "")}"></div>
+        <div class="field"><label>Recherche</label><input data-action="workorder-filter" data-filter="search" value="${escapeHtml(filters.search || "")}" placeholder="BT, machine, série, adresse"></div>
+      </div>
+    `;
   }
 
   function workOrderItem(order, expanded = false, dashboardLink = false) {
@@ -2332,7 +2555,7 @@
           <h3>${escapeHtml(order.number)} - ${escapeHtml(type?.name || "")}</h3>
           ${statusBadge(order.status)}
         </div>
-        <div class="meta">${formatDate(order.scheduledDate)}</div>
+        <div class="meta">RDV: ${formatDate(order.scheduledDate)}</div>
         ${assignedTechs ? `<div class="meta">Techniciens assignés: ${escapeHtml(assignedTechs)}</div>` : ""}
         <div class="meta">${escapeHtml(building?.name || "-")} - ${escapeHtml(scopeLabel)}</div>
         <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
@@ -2365,6 +2588,7 @@
         ${canEditExecution ? `<button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>` : ""}
       `)}
       <section class="stats-grid">
+        <div class="stat"><span>RDV</span><strong>${formatDate(order.scheduledDate)}</strong></div>
         <div class="stat"><span>Progression</span><strong>${progress.percent}%</strong></div>
         <div class="stat"><span>Appartements realises</span><strong>${progress.doneApartments}/${progress.totalApartments}</strong></div>
         <div class="stat"><span>Machines analysees</span><strong>${progress.machines}</strong></div>
@@ -2401,6 +2625,7 @@
                     </div>
                     <div class="meta">${escapeHtml(machine.brand)} ${escapeHtml(machine.model)} - ${escapeHtml(machine.location || "-")}</div>
                     ${canEditExecution ? `<div class="actions">
+                      ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${machine.id}">Nouveau BT</button>` : ""}
                       <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-equipment="${machine.id}">${intervention ? "Modifier le formulaire" : "Remplir le formulaire"}</button>
                     </div>` : ""}
                   </article>
@@ -2573,7 +2798,7 @@
     return [
       ["parc_mensuel", "Rapport mensuel de parc HVAC"],
       ["maintenance_preventive", "Rapport de maintenance préventive"],
-      ["appels_service", "Rapport des appels de service"],
+      ["appels_service", "Rapport des demandes clients"],
       ["hors_service", "Rapport des équipements hors service"],
       ["budget_annuel", "Rapport annuel pour budget"]
     ];
@@ -3148,7 +3373,7 @@
         const { equipment, apartment, building } = equipmentContext(equipmentId);
         return [`${building?.name || "-"} | Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, count];
       });
-    return reportShell("Rapport des appels de service", "Demandes ouvertes, priorités et récurrences opérationnelles.", `
+    return reportShell("Rapport des demandes clients", "Demandes ouvertes, priorités et récurrences opérationnelles.", `
       ${reportKpis([
         ["Ouverts", context.tickets.filter((ticket) => ticket.status === "ouvert").length],
         ["En cours", context.tickets.filter((ticket) => ticket.status === "en_cours").length],
@@ -3178,7 +3403,7 @@
       ${reportKpis([
         ["Hors service", out.length],
         ["Immeubles touchés", byBuilding.length],
-        ["Appels actifs", context.tickets.filter((ticket) => ticket.status !== "ferme").length],
+        ["Demandes actives", context.tickets.filter((ticket) => ticket.status !== "ferme").length],
         ["BT planifiés", context.workOrders.filter((order) => order.status === "planifie").length]
       ], "danger")}
       <section class="report-layout">
@@ -3455,7 +3680,7 @@
       ["lieux", "Lieux et appartements"],
       ["equipment", "Équipements"],
       ["alerts", "Alertes et rappels"],
-      ["tickets", "Appels de service"],
+      ["tickets", "Demandes des clients"],
       ["workorders", "Bons de travail"],
       ["interventions", "Interventions"],
       ["recommendations", "Recommandations"],
@@ -3469,9 +3694,9 @@
 
   function settingsView() {
     return appShell(`
-      ${renderTopbar("Paramètres", "Types d'appels, checklists et droits d'accès.", `
+      ${renderTopbar("Paramètres", "Types de demandes, checklists et droits d'accès.", `
         <button class="primary-button" data-action="open-modal" data-modal="dataField">Champ de données</button>
-        <button class="primary-button" data-action="open-modal" data-modal="serviceType">Type d'appel</button>
+        <button class="primary-button" data-action="open-modal" data-modal="serviceType">Type de demande</button>
         <button class="ghost-button" data-action="open-modal" data-modal="interventionType">Type de checklist</button>
         <button class="ghost-button" data-action="open-modal" data-modal="formTemplate">Formulaire terrain</button>
       `)}
@@ -3497,7 +3722,7 @@
             </div>
           </div>
           <div class="panel">
-            <div class="panel-header"><h2>Types d'appel de service</h2></div>
+            <div class="panel-header"><h2>Types de demandes clients</h2></div>
             <div class="panel-body cards-list">
               ${state.serviceTypes.map((type) => {
                 const linked = state.interventionTypes.find((item) => item.id === type.linkedInterventionTypeId);
@@ -3721,19 +3946,19 @@
       return `<option value="${item.id}" ${selectedEquipmentId === item.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment?.number || "")} - ${escapeHtml(item.type)}</option>`;
     }).join("");
     const serviceOptions = state.serviceTypes.map((type) => `<option value="${type.id}" ${ticket.serviceTypeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
-    return modalShell(ticket.id ? "Modifier l'appel de service" : "Nouvel appel de service", `
+    return modalShell(ticket.id ? "Modifier la demande client" : "Nouvelle demande client", `
       <form class="form-grid" data-form="ticket">
         <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
-        ${ticket.id ? `<div class="field"><label>Numéro d'appel</label><input value="${escapeHtml(ticket.number || ticket.id)}" readonly></div>` : ""}
+        ${ticket.id ? `<div class="field"><label>Numéro de demande</label><input value="${escapeHtml(ticket.number || ticket.id)}" readonly></div>` : ""}
         <div class="field"><label>Équipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
-        <div class="field"><label>Type d'appel</label><select name="serviceTypeId">${serviceOptions}</select></div>
+        <div class="field"><label>Type de demande</label><select name="serviceTypeId">${serviceOptions}</select></div>
         <div class="split">
           <div class="field"><label>Titre</label><input name="title" value="${escapeHtml(ticket.title || "")}" required placeholder="Ex.: Bruit anormal"></div>
           <div class="field"><label>Priorité</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
         </div>
         <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>Fermé</option></select></div>
         <div class="field"><label>Description</label><textarea name="description" required>${escapeHtml(ticket.description || "")}</textarea></div>
-        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer l'appel"}</button>
+        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer la demande"}</button>
       </form>
     `);
   }
@@ -3758,6 +3983,7 @@
       <form class="form-grid" data-form="workorder">
         <input type="hidden" name="id" value="${escapeHtml(order.id || "")}">
         <input type="hidden" name="ticketId" value="${escapeHtml(modal.ticketId || "")}">
+        <input type="hidden" name="sourceReminderId" value="${escapeHtml(modal.reminderId || order.sourceReminderId || "")}">
         <div class="split">
           <div class="field"><label>Portee du BT</label><select name="scope"><option value="building" ${selectedScope === "building" ? "selected" : ""}>Bloc complet / immeuble</option><option value="equipment" ${selectedScope === "equipment" ? "selected" : ""}>Machine precise</option></select></div>
           <div class="field"><label>Formulaire terrain</label><select name="formTemplateId">${formOptions}</select></div>
@@ -3771,7 +3997,7 @@
           <div class="field"><label>Techniciens assignés</label><div class="choice-list">${technicianChecks}</div></div>
         </div>
         <div class="split">
-          <div class="field"><label>Date prévue</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
+          <div class="field"><label>Date du RDV</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
           <div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>Planifié</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>Terminé</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>Annulé</option></select></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(order.notes || "")}</textarea></div>
@@ -3971,10 +4197,10 @@
   function serviceTypeModal(modal) {
     const type = state.serviceTypes.find((item) => item.id === modal.id) || {};
     const checklistOptions = state.interventionTypes.map((item) => `<option value="${item.id}" ${type.linkedInterventionTypeId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
-    return modalShell(type.id ? "Modifier le type d'appel" : "Nouveau type d'appel", `
+    return modalShell(type.id ? "Modifier le type de demande" : "Nouveau type de demande", `
       <form class="form-grid" data-form="serviceType">
         <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
-        <div class="field"><label>Nom du type d'appel</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
+        <div class="field"><label>Nom du type de demande</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
         <div class="split">
           <div class="field"><label>Priorité par défaut</label><select name="defaultPriority"><option value="basse" ${type.defaultPriority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${type.defaultPriority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${type.defaultPriority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
           <div class="field"><label>Checklist liée</label><select name="linkedInterventionTypeId">${checklistOptions}</select></div>
@@ -4841,7 +5067,7 @@
         status: values.status,
         closedAt
       });
-      setState({ modal: null, activeView: "appels", toast: "Appel de service modifié." });
+      setState({ modal: null, activeView: "appels", toast: "Demande client modifiée." });
       return;
     }
     const ticket = {
@@ -4861,7 +5087,7 @@
       createdBy: currentUser().id
     };
     state.tickets.unshift(ticket);
-    setState({ modal: null, activeView: "appels", toast: "Appel de service créé." });
+    setState({ modal: null, activeView: "appels", toast: "Demande client créée." });
   }
 
   function createWorkOrder(form, values) {
@@ -4889,8 +5115,10 @@
         assignedTechnicianIds,
         scheduledDate: values.scheduledDate,
         status: values.status,
-        notes: values.notes
+        notes: values.notes,
+        sourceReminderId: values.sourceReminderId || existing.sourceReminderId || ""
       });
+      if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, existing.id);
       setState({ modal: null, activeView: "bons", toast: "Bon de travail modifié." });
       return;
     }
@@ -4909,14 +5137,24 @@
       assignedTechnicianIds,
       scheduledDate: values.scheduledDate,
       status: values.status,
-      notes: values.notes
+      notes: values.notes,
+      sourceReminderId: values.sourceReminderId || ""
     };
     state.workOrders.unshift(order);
+    if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, order.id);
     if (values.ticketId) {
       const ticket = state.tickets.find((item) => item.id === values.ticketId);
       if (ticket) ticket.status = "en_cours";
     }
     setState({ modal: null, activeView: "bons", toast: "Bon de travail créé." });
+  }
+
+  function markReminderWorkOrderOpened(reminderId, orderId) {
+    const reminder = state.reminders.find((item) => item.id === reminderId);
+    if (!reminder) return;
+    reminder.lastWorkOrderId = orderId;
+    reminder.lastOpenedAt = today();
+    reminder.lastSeenDueDate = reminder.nextDueDate || reminder.lastSeenDueDate || "";
   }
 
   function createEquipment(values) {
@@ -5085,7 +5323,7 @@
     const index = state.serviceTypes.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.serviceTypes[index] = payload;
     else state.serviceTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type d'appel modifié." : "Type d'appel créé." });
+    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type de demande modifié." : "Type de demande créé." });
   }
 
   function saveInterventionType(values) {
@@ -5731,7 +5969,7 @@
         ...scopedTickets().map((ticket) => {
           const { apartment, building, equipment } = equipmentContext(ticket.equipmentId);
           return {
-            nature: "Appel de service",
+            nature: "Demande client",
             reference: ticket.number || ticket.id,
             date: ticket.createdAt,
             immeuble: building?.name,
@@ -5842,12 +6080,10 @@
       if (action === "select-building") updateUiState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
       if (action === "select-equipment") updateUiState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
       if (action === "dashboard-ticket") {
-        if (event.target.closest("button, a, input, select, textarea")) return;
         updateUiState({ activeView: "appels", modal: currentUser()?.role === "client" ? null : { type: "ticket", id: target.dataset.id } });
         return;
       }
       if (action === "dashboard-workorder") {
-        if (event.target.closest("button, a, input, select, textarea")) return;
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
         if ((can("workorders") || currentUser()?.role === "technicien") && order) {
           const firstApartment = workOrderApartments(order)[0];
@@ -5880,7 +6116,8 @@
           apartmentId: target.dataset.apartment || null,
           unitKind: target.dataset.unitKind || null,
           decisionStatus: target.dataset.status || null,
-          orderId: target.dataset.order || null
+          orderId: target.dataset.order || null,
+          reminderId: target.dataset.reminder || null
         } });
       }
       if (action === "close-modal") {
@@ -5902,6 +6139,21 @@
       }
       if (action === "preview-attachment") {
         updateUiState({ modal: { type: "attachmentPreview", fileId: target.dataset.id } });
+        return;
+      }
+      if (action === "toggle-dashboard-edit") {
+        updateUiState({ dashboardEditMode: !state.dashboardEditMode });
+        return;
+      }
+      if (action === "dashboard-widget-move") {
+        const layout = dashboardLayoutForCurrentUser();
+        const index = layout.findIndex((item) => item.id === target.dataset.widget);
+        const nextIndex = index + Number(target.dataset.direction || 0);
+        if (index >= 0 && nextIndex >= 0 && nextIndex < layout.length) {
+          const [item] = layout.splice(index, 1);
+          layout.splice(nextIndex, 0, item);
+          saveDashboardLayout(layout);
+        }
         return;
       }
       if (action === "add-form-question") {
@@ -5944,7 +6196,7 @@
           ticket.status = target.dataset.status;
           ticket.closedAt = target.dataset.status === "ferme" ? ticket.closedAt || today() : "";
         }
-        setState({ toast: "Statut de l'appel mis à jour." });
+        setState({ toast: "Statut de la demande mis à jour." });
       }
       if (action === "order-status") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
@@ -5988,7 +6240,9 @@
     });
     app.addEventListener("change", (event) => {
       handleFilter(event);
+      handleWorkOrderFilter(event);
       handleReportFilter(event);
+      handleDashboardWidgetSize(event);
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
       updateRecommendationVisibility(event.target.closest("form"));
@@ -6355,6 +6609,19 @@
     const nextFilters = { ...state.filters, [target.dataset.filter]: target.value };
     if (target.dataset.filter === "buildingId") nextFilters.apartmentId = "all";
     updateUiState({ filters: nextFilters });
+  }
+
+  function handleWorkOrderFilter(event) {
+    const target = event.target.closest("[data-action='workorder-filter']");
+    if (!target) return;
+    updateUiState({ workOrderFilters: { ...(state.workOrderFilters || seed.workOrderFilters), [target.dataset.filter]: target.value } });
+  }
+
+  function handleDashboardWidgetSize(event) {
+    const target = event.target.closest("[data-action='dashboard-widget-size']");
+    if (!target) return;
+    const layout = dashboardLayoutForCurrentUser().map((item) => item.id === target.dataset.widget ? { ...item, size: target.value } : item);
+    saveDashboardLayout(layout);
   }
 
   function handleReportFilter(event) {

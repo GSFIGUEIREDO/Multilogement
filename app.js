@@ -545,6 +545,7 @@
         rights.add("reports");
         rights.add("recommendations");
         rights.add("documents");
+        rights.add("users");
         return { ...role, rights: Array.from(rights) };
       }
       return role;
@@ -587,6 +588,13 @@
       assignedTeam: "",
       ...ticket,
       number: ticket.number || ticketNumberFromIndex(index + 1, ticket.createdAt)
+    }));
+    next.users = next.users.map((user) => ({
+      clientAccessLevel: user.role === "client" ? "direction" : "",
+      allowedBuildingIds: [],
+      portalRights: [],
+      parentUserId: "",
+      ...user
     }));
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
@@ -878,14 +886,56 @@
   function can(action) {
     const user = currentUser();
     if (!user) return false;
+    if (user.role === "client") {
+      const rights = clientPortalRights(user);
+      return rights.includes("all") || rights.includes(action);
+    }
     const role = state.roleDefinitions?.find((item) => item.id === user.role);
     return role?.rights?.includes("all") || role?.rights?.includes(action);
+  }
+
+  function portalRightsCatalog() {
+    return [
+      ["lieux", "Voir lieux et appartements"],
+      ["equipment", "Voir équipements"],
+      ["tickets", "Voir appels de service"],
+      ["workorders", "Voir bons de travail"],
+      ["documents", "Voir documents"],
+      ["reports", "Voir rapports"],
+      ["recommendations", "Voir recommandations"],
+      ["recommendation_prices", "Voir prix et délais"],
+      ["recommendation_approve", "Approuver / refuser recommandations"],
+      ["alerts", "Voir alertes"],
+      ["users", "Créer et gérer utilisateurs client"]
+    ];
+  }
+
+  function defaultPortalRights(level) {
+    if (level === "maintenance") return ["portal", "lieux", "equipment", "tickets", "workorders", "documents"];
+    return ["portal", ...portalRightsCatalog().map(([right]) => right)];
+  }
+
+  function clientPortalRights(user = currentUser()) {
+    if (!user || user.role !== "client") return [];
+    return user.portalRights?.length ? ["portal", ...user.portalRights] : defaultPortalRights(user.clientAccessLevel || "direction");
+  }
+
+  function canPortal(right) {
+    const rights = clientPortalRights();
+    return rights.includes("all") || rights.includes(right);
+  }
+
+  function clientAllowedBuildingIds(user = currentUser()) {
+    if (!user || user.role !== "client") return null;
+    const clientBuildings = state.buildings.filter((building) => building.clientId === user.clientId).map((building) => building.id);
+    const allowed = user.allowedBuildingIds || [];
+    return allowed.length ? clientBuildings.filter((id) => allowed.includes(id)) : clientBuildings;
   }
 
   function clientScopeIds() {
     const user = currentUser();
     if (!user || user.role !== "client") return null;
-    const buildingIds = state.buildings.filter((building) => building.clientId === user.clientId).map((building) => building.id);
+    const buildingIds = clientAllowedBuildingIds(user);
     const apartmentIds = state.apartments.filter((apartment) => buildingIds.includes(apartment.buildingId)).map((apartment) => apartment.id);
     const equipmentIds = state.equipment.filter((item) => apartmentIds.includes(item.apartmentId)).map((item) => item.id);
     return { buildingIds, apartmentIds, equipmentIds };
@@ -918,7 +968,7 @@
 
   function scopedTickets() {
     const scope = clientScopeIds();
-    return scope ? state.tickets.filter((ticket) => ticket.clientId === currentUser().clientId) : state.tickets;
+    return scope ? state.tickets.filter((ticket) => ticket.clientId === currentUser().clientId && (scope.equipmentIds.includes(ticket.equipmentId) || scope.buildingIds.includes(ticket.buildingId))) : state.tickets;
   }
 
   function scopedWorkOrders() {
@@ -938,7 +988,13 @@
   function scopedClientDocuments() {
     const user = currentUser();
     if (user?.role === "client") {
-      return (state.clientDocuments || []).filter((doc) => doc.clientId === user.clientId && doc.visibleToClient !== false);
+      const buildingIds = clientAllowedBuildingIds(user);
+      const hasFullClientAccess = !(user.allowedBuildingIds || []).length;
+      return (state.clientDocuments || []).filter((doc) => {
+        if (doc.clientId !== user.clientId || doc.visibleToClient === false) return false;
+        if (!doc.buildingId) return hasFullClientAccess;
+        return buildingIds.includes(doc.buildingId);
+      });
     }
     return state.clientDocuments || [];
   }
@@ -1396,12 +1452,12 @@
   function baseNavItems() {
     return [
       ["tableau", "TB", "Tableau de bord", true],
-      ["lieux", "LI", "Lieux", can("lieux") || can("portal")],
-      ["equipements", "EQ", "Équipements", can("equipment") || can("portal")],
+      ["lieux", "LI", "Lieux", can("lieux")],
+      ["equipements", "EQ", "Équipements", can("equipment")],
       ["alertes", "AL", "Alertes", canManageReminders()],
       ["appels", "CH", "Appels de service", can("tickets")],
-      ["bons", "BT", "Bons de travail", can("workorders") || can("portal")],
-      ["recommandations", "RC", "Recommandations", can("recommendations") || can("portal")],
+      ["bons", "BT", "Bons de travail", can("workorders")],
+      ["recommandations", "RC", "Recommandations", can("recommendations")],
       ["rapports", "RP", "Rapports", can("reports")],
       ["utilisateurs", "UT", "Utilisateurs", can("users")],
       ["parametres", "PR", "Paramètres", can("settings") || can("users")]
@@ -1507,7 +1563,7 @@
     const apartments = apartmentsForBuilding(building.id);
     const actions = `
       <button class="ghost-button" data-action="view" data-view="lieux">Retour</button>
-      <button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>
+      ${can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>` : ""}
       ${currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="apartment" data-building="${building.id}">Nouvel appartement</button>` : ""}
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier le lieu</button>` : ""}
     `;
@@ -1611,7 +1667,7 @@
           <div class="panel-body">${equipmentTable(equipment.filter((item) => item.status !== "actif" || item.nextService <= today()).slice(0, 6), false)}</div>
         </div>
         <div class="stack">
-          <button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>
+          ${can("tickets") ? `<button class="quick-action" data-action="open-modal" data-modal="ticket">Ouvrir un appel de service<span>Demande client, urgence ou suivi préventif.</span></button>` : ""}
           ${can("workorders") ? `<button class="quick-action" data-action="open-modal" data-modal="workorder">Créer un bon de travail<span>Planifier une intervention et assigner un technicien.</span></button>` : ""}
           ${canManageReminders() ? `<button class="quick-action" data-action="view" data-view="alertes">Centre d'alertes<span>Consulter les rappels actifs, à venir ou inactifs.</span></button>` : ""}
           <div class="panel">
@@ -1995,6 +2051,7 @@
   function recommendationCard(item) {
     const { recommendation, intervention, equipment, apartment, building, order, technician } = item;
     const isClient = currentUser()?.role === "client";
+    const canSeePrice = !isClient || canPortal("recommendation_prices");
     const price = recommendation.price ? `${recommendation.price} $` : "-";
     const delay = recommendation.delay || "-";
     return `
@@ -2005,8 +2062,7 @@
         </div>
         <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "Machine")} ${equipment?.serial ? `| ${escapeHtml(equipment.serial)}` : ""}</div>
         <div class="definition compact">
-          <div><span>Prix</span><strong>${escapeHtml(price)}</strong></div>
-          <div><span>Délai</span><strong>${escapeHtml(delay)}</strong></div>
+          ${canSeePrice ? `<div><span>Prix</span><strong>${escapeHtml(price)}</strong></div><div><span>Délai</span><strong>${escapeHtml(delay)}</strong></div>` : ""}
           <div><span>Priorité</span><strong>${escapeHtml(statusText(recommendation.priority) || "-")}</strong></div>
           <div><span>Pièce</span><strong>${escapeHtml(recommendation.part || "-")}</strong></div>
           <div><span>Temps prévu</span><strong>${escapeHtml(recommendation.time || "-")}</strong></div>
@@ -2057,6 +2113,7 @@
   function internalRecommendationActions(interventionId, recommendation) {
     return `
       <button class="ghost-button" data-action="open-modal" data-modal="recommendationReview" data-id="${escapeHtml(interventionId)}">Réviser</button>
+      ${recommendation.status === "information_demandee" ? `<button class="primary-button" data-action="open-modal" data-modal="recommendationReply" data-id="${escapeHtml(interventionId)}">Répondre au client</button>` : ""}
       ${["a_valider", "information_demandee"].includes(recommendation.status) ? `<button class="primary-button" data-action="send-recommendation" data-id="${escapeHtml(interventionId)}">Envoyer au client</button>` : ""}
       ${recommendation.status === "approuvee" && !recommendation.workOrderId ? `<button class="ghost-button" data-action="create-bt-from-recommendation" data-id="${escapeHtml(interventionId)}">Créer un BT</button>` : ""}
       ${recommendation.workOrderId ? `<span class="meta">BT créé</span>` : ""}
@@ -2065,6 +2122,7 @@
 
   function clientRecommendationActions(interventionId, status) {
     if (status !== "envoyee") return "";
+    if (!canPortal("recommendation_approve")) return `<button class="ghost-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="information_demandee">Demander plus d'informations</button>`;
     return `
       <button class="primary-button" data-action="client-recommendation" data-status="approuvee" data-id="${escapeHtml(interventionId)}">Approuver</button>
       <button class="ghost-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="information_demandee">Demander plus d'informations</button>
@@ -3252,22 +3310,29 @@
 
   function usersView() {
     const roles = state.roleDefinitions.map((role) => role.id);
+    const visibleUsers = currentUser()?.role === "client"
+      ? state.users.filter((user) => user.clientId === currentUser().clientId)
+      : state.users;
+    const title = currentUser()?.role === "client" ? "Utilisateurs client" : "Utilisateurs et accès";
+    const subtitle = currentUser()?.role === "client"
+      ? "Créer des accès par lieu et choisir les informations partagées."
+      : "Contrôle des rôles pour clients, techniciens, équipe interne et administrateurs.";
     return appShell(`
-      ${renderTopbar("Utilisateurs et accès", "Contrôle des rôles pour clients, techniciens, équipe interne et administrateurs.", `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
+      ${renderTopbar(title, subtitle, `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
       <section class="panel">
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Client lié</th><th></th></tr></thead>
+            <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Client lié</th><th>Accès lieux</th><th></th></tr></thead>
             <tbody>
-              ${state.users.map((user) => {
+              ${visibleUsers.map((user) => {
                 const client = state.clients.find((item) => item.id === user.clientId);
-                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(roleLabel(user.role))}</td><td>${escapeHtml(client?.name || "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button></td></tr>`;
+                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(roleLabel(user.role))}${user.role === "client" ? `<br><span class="meta">${escapeHtml(clientAccessLabel(user.clientAccessLevel))}</span>` : ""}</td><td>${escapeHtml(client?.name || "-")}</td><td>${escapeHtml(user.role === "client" ? userBuildingAccessLabel(user) : "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button></td></tr>`;
               }).join("")}
             </tbody>
           </table>
         </div>
       </section>
-      <section class="panel" style="margin-top:16px">
+      ${currentUser()?.role === "client" ? "" : `<section class="panel" style="margin-top:16px">
         <div class="panel-header"><h2>Matrice d'accès</h2></div>
         <div class="panel-body table-wrap">
           <table>
@@ -3277,8 +3342,22 @@
             </tbody>
           </table>
         </div>
-      </section>
+      </section>`}
     `);
+  }
+
+  function clientAccessLabel(level) {
+    return {
+      direction: "Direction",
+      gestionnaire: "Gestionnaire de lieu",
+      maintenance: "Maintenance client"
+    }[level || "direction"] || level;
+  }
+
+  function userBuildingAccessLabel(user) {
+    const ids = user.allowedBuildingIds || [];
+    if (!ids.length) return "Tous les lieux";
+    return ids.map((id) => state.buildings.find((building) => building.id === id)?.name).filter(Boolean).join(", ") || "-";
   }
 
   function rightsCatalog() {
@@ -3431,6 +3510,7 @@
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
+    if (modal.type === "recommendationReply") return recommendationReplyModal(modal.id);
     if (modal.type === "clientRecommendationMessage") return clientRecommendationMessageModal(modal.id, modal.decisionStatus);
     if (modal.type === "buildingDocuments") return buildingDocumentsModal(modal.buildingId);
     if (modal.type === "clientDocument") return clientDocumentModal(modal.id, modal);
@@ -3710,11 +3790,30 @@
 
   function userModal(modal) {
     const user = state.users.find((item) => item.id === modal.id) || {};
-    const clients = state.clients.map((client) => `<option value="${client.id}" ${user.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
-    const roles = state.roleDefinitions.map((role) => `<option value="${role.id}" ${user.role === role.id ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("");
+    const isClientManager = currentUser()?.role === "client";
+    const effectiveUser = {
+      role: isClientManager ? "client" : user.role,
+      clientId: isClientManager ? currentUser().clientId : user.clientId,
+      clientAccessLevel: user.clientAccessLevel || (user.role === "client" ? "gestionnaire" : ""),
+      allowedBuildingIds: user.allowedBuildingIds || [],
+      portalRights: user.portalRights || [],
+      ...user
+    };
+    const clients = state.clients.map((client) => `<option value="${client.id}" ${effectiveUser.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
+    const roles = (isClientManager ? state.roleDefinitions.filter((role) => role.id === "client") : state.roleDefinitions)
+      .map((role) => `<option value="${role.id}" ${effectiveUser.role === role.id ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("");
+    const clientBuildings = (isClientManager ? scopedBuildings() : state.buildings.filter((building) => building.clientId === effectiveUser.clientId || !effectiveUser.clientId))
+      .map((building) => `
+        <label><input type="checkbox" name="allowedBuildingIds" value="${escapeHtml(building.id)}" ${(effectiveUser.allowedBuildingIds || []).includes(building.id) ? "checked" : ""}> ${escapeHtml(building.name)}</label>
+      `).join("") || `<span class="meta">Aucun lieu disponible.</span>`;
+    const rights = clientPortalRights(effectiveUser);
+    const portalChecks = portalRightsCatalog().map(([right, label]) => `
+      <label><input type="checkbox" name="portalRights" value="${escapeHtml(right)}" ${rights.includes(right) ? "checked" : ""}> ${escapeHtml(label)}</label>
+    `).join("");
     return modalShell(user.id ? "Modifier l'utilisateur" : "Nouvel utilisateur", `
       <form class="form-grid" data-form="user">
         <input type="hidden" name="id" value="${escapeHtml(user.id || "")}">
+        ${isClientManager ? `<input type="hidden" name="clientId" value="${escapeHtml(currentUser().clientId || "")}">` : ""}
         <div class="split">
           <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(user.name || "")}" required></div>
           <div class="field"><label>Courriel</label><input name="email" type="email" value="${escapeHtml(user.email || "")}" required></div>
@@ -3723,7 +3822,14 @@
           <div class="field"><label>Mot de passe</label><input name="password" value="${escapeHtml(user.password || "temp123")}" required></div>
           <div class="field"><label>Rôle</label><select name="role">${roles}</select></div>
         </div>
-        <div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>
+        ${isClientManager ? "" : `<div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>`}
+        ${isClientManager || effectiveUser.role === "client" ? `<div class="client-access-editor">
+          <div class="split">
+            <div class="field"><label>Profil portail client</label><select name="clientAccessLevel"><option value="direction" ${effectiveUser.clientAccessLevel === "direction" ? "selected" : ""}>Direction / headquarters</option><option value="gestionnaire" ${effectiveUser.clientAccessLevel === "gestionnaire" ? "selected" : ""}>Gestionnaire de lieu</option><option value="maintenance" ${effectiveUser.clientAccessLevel === "maintenance" ? "selected" : ""}>Maintenance client</option></select></div>
+            <div class="field"><label>Accès aux lieux</label><div class="choice-list"><label><input type="checkbox" name="allBuildings" value="1" ${!(effectiveUser.allowedBuildingIds || []).length ? "checked" : ""}> Tous les lieux autorisés</label>${clientBuildings}</div></div>
+          </div>
+          <div class="field"><label>Informations partagées</label><div class="choice-list">${portalChecks}</div></div>
+        </div>` : ""}
         <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
       </form>
     `);
@@ -4165,6 +4271,27 @@
     `, "modal-card-wide");
   }
 
+  function recommendationReplyModal(interventionId) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    if (!intervention?.recommendation) return modalShell("Répondre au client", `<div class="empty">Recommandation introuvable.</div>`);
+    const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
+    const recommendation = intervention.recommendation;
+    return modalShell("Répondre au client", `
+      <form class="form-grid" data-form="recommendationReply">
+        <input type="hidden" name="interventionId" value="${escapeHtml(intervention.id)}">
+        <div class="definition compact">
+          <div><span>Lieu</span><strong>${escapeHtml(building?.name || "-")}</strong></div>
+          <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")}</strong></div>
+          <div><span>Machine</span><strong>${escapeHtml(equipment?.type || "-")}</strong></div>
+          <div><span>Statut</span><strong>${escapeHtml(statusText(recommendation.status))}</strong></div>
+        </div>
+        ${recommendationChat(recommendation)}
+        <div class="field"><label>Réponse au client</label><textarea name="reply" required placeholder="Écrire la réponse qui sera visible dans le portail client"></textarea></div>
+        <button class="primary-button" type="submit">Envoyer la réponse</button>
+      </form>
+    `, "modal-card-wide");
+  }
+
   function clientRecommendationMessageModal(interventionId, status) {
     const intervention = state.interventions.find((item) => item.id === interventionId);
     if (!intervention?.recommendation) return modalShell("Message", `<div class="empty">Recommandation introuvable.</div>`);
@@ -4315,7 +4442,7 @@
     if (formType === "workorder") createWorkOrder(form, values);
     if (formType === "equipment") createEquipment(values);
     if (formType === "reminder") saveReminder(form, values);
-    if (formType === "user") createUser(values);
+    if (formType === "user") createUser(form, values);
     if (formType === "dataField") saveDataField(form, values);
     if (formType === "serviceType") saveServiceType(values);
     if (formType === "interventionType") saveInterventionType(values);
@@ -4324,6 +4451,7 @@
     if (formType === "checklist") saveChecklist(form, values);
     if (formType === "fieldIntervention") saveFieldIntervention(form, values);
     if (formType === "recommendationReview") saveRecommendationReview(values);
+    if (formType === "recommendationReply") saveRecommendationReply(values);
     if (formType === "clientRecommendationMessage") saveClientRecommendationMessage(values);
     if (formType === "clientDocument") saveClientDocument(form, values);
   }
@@ -4800,15 +4928,37 @@
     setState({ modal: null, activeView: "alertes", toast: equipmentIds.size > 1 ? "Rappels créés." : "Rappel créé." });
   }
 
-  function createUser(values) {
+  function createUser(form, values) {
+    const creator = currentUser();
+    const isClientManager = creator?.role === "client";
+    const role = isClientManager ? "client" : values.role;
+    const clientId = isClientManager ? creator.clientId : values.clientId || null;
+    const allowedByCreator = isClientManager ? clientAllowedBuildingIds(creator) : null;
+    const creatorHasFullClientAccess = !isClientManager || !(creator.allowedBuildingIds || []).length;
+    const selectedBuildingIds = Array.from(form.querySelectorAll('[name="allowedBuildingIds"]:checked')).map((input) => input.value);
+    const allowedBuildingIds = values.allBuildings
+      ? (creatorHasFullClientAccess ? [] : allowedByCreator)
+      : (allowedByCreator ? selectedBuildingIds.filter((id) => allowedByCreator.includes(id)) : selectedBuildingIds);
+    const selectedPortalRights = Array.from(form.querySelectorAll('[name="portalRights"]:checked')).map((input) => input.value);
+    const portalRights = role === "client"
+      ? (selectedPortalRights.length ? selectedPortalRights : defaultPortalRights(values.clientAccessLevel || "gestionnaire").filter((right) => right !== "portal"))
+      : [];
     const existing = state.users.find((item) => item.id === values.id);
     if (existing) {
+      if (isClientManager && existing.clientId !== creator.clientId) {
+        showToast("Vous ne pouvez modifier que les utilisateurs de votre client.");
+        return;
+      }
       Object.assign(existing, {
         name: values.name,
         email: values.email,
         password: values.password,
-        role: values.role,
-        clientId: values.clientId || null
+        role,
+        clientId,
+        clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
+        allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
+        portalRights,
+        parentUserId: existing.parentUserId || (isClientManager ? creator.id : "")
       });
       setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
       return;
@@ -4818,8 +4968,12 @@
       name: values.name,
       email: values.email,
       password: values.password,
-      role: values.role,
-      clientId: values.clientId || null
+      role,
+      clientId,
+      clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
+      allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
+      portalRights,
+      parentUserId: isClientManager ? creator.id : ""
     });
     setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
   }
@@ -5095,14 +5249,16 @@
     intervention.machineStatus = values.machineStatus || equipment.status || "actif";
     intervention.unitKind = values.unitKind || equipment.unitKind || "interieure";
     intervention.equipmentNotes = values.equipmentNotes || "";
+    const existingRecommendation = existing?.recommendation || {};
     intervention.recommendation = values.recommendationType ? {
+      ...existingRecommendation,
       type: values.recommendationType,
       description: values.recommendationDescription || "",
       priority: values.recommendationPriority || "normale",
       part: values.recommendationPart || "",
       time: values.recommendationTime || "",
-      status: existing?.recommendation?.status || "a_valider",
-      createdAt: existing?.recommendation?.createdAt || today()
+      status: existingRecommendation.status || "a_valider",
+      createdAt: existingRecommendation.createdAt || today()
     } : null;
     intervention.summary = values.summary;
     let pendingAttachments = [];
@@ -5203,6 +5359,18 @@
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
     addRecommendationMessage(recommendation, "interne", recommendation.clientMessage || recommendation.description);
     setState({ activeView: "recommandations", toast: "Recommandation envoyée au client." });
+  }
+
+  function saveRecommendationReply(values) {
+    const intervention = state.interventions.find((item) => item.id === values.interventionId);
+    const recommendation = intervention?.recommendation;
+    if (!recommendation) return;
+    recommendation.clientMessage = values.reply || recommendation.clientMessage || "";
+    recommendation.status = "envoyee";
+    recommendation.sentAt = today();
+    recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
+    addRecommendationMessage(recommendation, "interne", values.reply);
+    setState({ modal: null, activeView: "recommandations", toast: "Réponse envoyée au client." });
   }
 
   function clientRecommendationDecision(interventionId, status) {
@@ -6112,8 +6280,8 @@
     else if (state.activeView === "alertes" && canManageReminders()) app.innerHTML = alertsView();
     else if (state.activeView === "appels") app.innerHTML = ticketsView();
     else if (state.activeView === "bons") app.innerHTML = workOrdersView();
-    else if (state.activeView === "recommandations" && (can("recommendations") || can("portal"))) app.innerHTML = recommendationsView();
-    else if (state.activeView === "documents" && (can("documents") || can("portal"))) app.innerHTML = documentsView();
+    else if (state.activeView === "recommandations" && can("recommendations")) app.innerHTML = recommendationsView();
+    else if (state.activeView === "documents" && can("documents")) app.innerHTML = documentsView();
     else if (state.activeView === "execution") app.innerHTML = workOrderExecutionView();
     else if (state.activeView === "rapports" && can("reports")) app.innerHTML = reportsView();
     else if (state.activeView === "utilisateurs" && can("users")) app.innerHTML = usersView();

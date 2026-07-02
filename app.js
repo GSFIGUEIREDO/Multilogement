@@ -1521,7 +1521,11 @@
       chevronRight: '<path d="m9 18 6-6-6-6"/>',
       chevronUp: '<path d="m7 13 5-5 5 5"/>',
       chevronDown: '<path d="m7 11 5 5 5-5"/>',
-      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'
+      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+      file: '<path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
+      wrench: '<path d="M14.7 6.3a4 4 0 0 0-5 5L4 17v3h3l5.7-5.7a4 4 0 0 0 5-5l-2.4 2.4-3-3 2.4-2.4Z"/>',
+      alertTriangle: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+      check: '<path d="m20 6-11 11-5-5"/>'
     };
     return `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;width:16px;height:16px;flex:0 0 16px">${icons[name] || ""}</svg>`;
   }
@@ -1536,9 +1540,10 @@
     const nav = orderedNavItems().filter((item) => item[3]);
     const isPinned = state.sidebarMode === "fixed";
     const showSidebarPin = canPinSidebar();
+    const isDashboardTemplate = state.activeView === "tableau" && user.role !== "client";
 
     return `
-      <div class="app-shell sidebar-${state.sidebarMode} ${state.mobileMenuOpen ? "mobile-menu-open" : ""}">
+      <div class="app-shell sidebar-${state.sidebarMode} ${state.mobileMenuOpen ? "mobile-menu-open" : ""} ${isDashboardTemplate ? "dashboard-template" : ""}">
         <header class="mobile-appbar">
           <button class="mobile-brand-button brand-mark" type="button" data-action="toggle-mobile-menu" aria-expanded="${state.mobileMenuOpen}" aria-label="${state.mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}">
             <span class="logo">CP</span><span class="brand-name">ClimaParc</span>
@@ -1830,11 +1835,23 @@
         </select>
       </div>
     ` : "";
+    const headerTools = widget.id === "calendar" ? `<div class="dashboard-header-tools">${dashboardCalendarControls()}${editControls}</div>` : editControls;
     return `
       <article class="panel dashboard-widget widget-${escapeHtml(widget.size || "half")}" data-dashboard-widget="${escapeHtml(widget.id)}" ${editMode ? `draggable="true"` : ""}>
-        <div class="panel-header"><h2>${escapeHtml(title)}</h2>${editControls}</div>
+        <div class="panel-header"><h2>${escapeHtml(title)}</h2>${headerTools}</div>
         <div class="panel-body">${body}</div>
       </article>
+    `;
+  }
+
+  function dashboardCalendarControls() {
+    const month = monthStart(state.dashboardCalendarDate || today());
+    return `
+      <div class="calendar-toolbar">
+        <button class="icon-button" data-action="dashboard-calendar-month" data-direction="-1" aria-label="Mois précédent">${iconSvg("chevronLeft")}</button>
+        <input type="month" data-action="dashboard-calendar-date" value="${escapeHtml(month.slice(0, 7))}" aria-label="Mois du calendrier">
+        <button class="icon-button" data-action="dashboard-calendar-month" data-direction="1" aria-label="Mois suivant">${iconSvg("chevronRight")}</button>
+      </div>
     `;
   }
 
@@ -1845,12 +1862,6 @@
     const currentMonth = month.slice(0, 7);
     const weekdays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
     return `
-      <div class="calendar-toolbar">
-        <button class="icon-button" data-action="dashboard-calendar-month" data-direction="-1" aria-label="Mois précédent">${iconSvg("chevronLeft")}</button>
-        <strong>${monthLabel(month.slice(0, 7))}</strong>
-        <input type="month" data-action="dashboard-calendar-date" value="${escapeHtml(month.slice(0, 7))}" aria-label="Mois du calendrier">
-        <button class="icon-button" data-action="dashboard-calendar-month" data-direction="1" aria-label="Mois suivant">${iconSvg("chevronRight")}</button>
-      </div>
       <div class="dashboard-calendar">
         ${weekdays.map((day) => `<div class="calendar-weekday">${day}</div>`).join("")}
         ${days.map((day) => {
@@ -1874,23 +1885,25 @@
 
   function dashboardDemandWidget() {
     const tickets = scopedTickets().filter((ticket) => ticket.status !== "ferme").sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
-    return tickets.map((ticket) => {
+    const preview = tickets.slice(0, 2).map((ticket) => {
       const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
       return `<button class="mini-row" data-action="dashboard-ticket" data-id="${escapeHtml(ticket.id)}"><strong>${escapeHtml(ticket.number || ticket.id)}</strong><span>${escapeHtml(ticket.title)}</span><small>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</small></button>`;
-    }).join("") || `<div class="empty">Aucune nouvelle demande.</div>`;
+    }).join("");
+    return dashboardMetricSummary("file", "Nouvelles demandes", tickets.length, "Nouveau", "blue", "appels") + (preview ? `<div class="dashboard-preview">${preview}</div>` : "");
   }
 
   function dashboardWorkOrderWidget() {
     const orders = scopedWorkOrders().filter((order) => order.status === "en_cours").sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)).slice(0, 6);
-    return orders.map((order) => {
+    const preview = orders.slice(0, 2).map((order) => {
       const { equipment, building } = workOrderContext(order);
       return `<button class="mini-row" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"><strong>${escapeHtml(order.number)}</strong><span>RDV ${formatDate(order.scheduledDate)}</span><small>${escapeHtml(building?.name || "-")} | ${escapeHtml(equipment?.type || "Bloc complet")}</small></button>`;
-    }).join("") || `<div class="empty">Aucun BT en cours.</div>`;
+    }).join("");
+    return dashboardMetricSummary("wrench", "Bons de travail en cours", orders.length, "En cours", "orange", "bons") + (preview ? `<div class="dashboard-preview">${preview}</div>` : "");
   }
 
   function dashboardAlertWidget() {
     const reminders = scopedReminders().filter((reminder) => reminder.status === "active" && !reminder.lastWorkOrderId).sort((a, b) => (a.nextDueDate || "").localeCompare(b.nextDueDate || "")).slice(0, 6);
-    return reminders.map((reminder) => {
+    const preview = reminders.slice(0, 1).map((reminder) => {
       const { equipment, apartment, building } = equipmentContext(reminder.equipmentId);
       return `
         <div class="mini-row">
@@ -1899,15 +1912,27 @@
           ${canCreateWorkOrders() ? `<button class="ghost-button small-action-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Créer BT</button>` : ""}
         </div>
       `;
-    }).join("") || `<div class="empty">Aucune alerte à ouvrir.</div>`;
+    }).join("");
+    return dashboardMetricSummary("alertTriangle", "Alertes à transformer en BT", reminders.length, "Action requise", "yellow", "alertes") + (preview ? `<div class="dashboard-preview">${preview}</div>` : "");
   }
 
   function dashboardRecommendationWidget() {
     const approved = scopedRecommendations().filter(({ recommendation }) => recommendation.status === "approuvee" && !recommendation.workOrderId).slice(0, 5);
-    return approved.map(({ intervention, recommendation }) => {
+    const preview = approved.slice(0, 2).map(({ intervention, recommendation }) => {
       const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
       return `<button class="mini-row" data-action="create-bt-from-recommendation" data-id="${escapeHtml(intervention.id)}"><strong>${escapeHtml(recommendation.type || "Travaux")}</strong><span>${escapeHtml(recommendation.priority || "À planifier")}</span><small>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</small></button>`;
-    }).join("") || `<div class="empty">Aucune recommandation approuvée.</div>`;
+    }).join("");
+    return dashboardMetricSummary("check", "Recommandations approuvées", approved.length, "Validé", "green", "recommandations") + (preview ? `<div class="dashboard-preview">${preview}</div>` : "");
+  }
+
+  function dashboardMetricSummary(icon, title, value, badge, tone, view) {
+    return `
+      <button class="dashboard-metric-summary tone-${escapeHtml(tone)}" data-action="view" data-view="${escapeHtml(view)}">
+        <span class="metric-icon">${iconSvg(icon)}</span>
+        <span class="metric-copy"><span>${escapeHtml(title)}</span><strong>${value}</strong></span>
+        <span class="metric-badge">${escapeHtml(badge)}</span>
+      </button>
+    `;
   }
 
   function saveDashboardLayout(layout) {

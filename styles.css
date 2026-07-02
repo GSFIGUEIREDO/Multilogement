@@ -8,6 +8,9 @@
   --brand: #116a73;
   --brand-dark: #084c52;
   --accent: #d76c2f;
+  --logo-navy: #062548;
+  --logo-gold: #f7a800;
+  --logo-teal: #007f86;
   --ok: #2f7d4f;
   --warn: #a86514;
   --danger: #b23b3b;
@@ -442,6 +445,76 @@ textarea:focus {
   padding: 24px;
 }
 
+.dashboard-template.app-shell::before {
+  background: var(--logo-navy);
+}
+
+.dashboard-template .sidebar {
+  background: var(--logo-navy);
+}
+
+.dashboard-template .logo {
+  background: linear-gradient(135deg, var(--logo-teal), var(--logo-gold));
+}
+
+.dashboard-template .main {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 248, 0.98));
+}
+
+.dashboard-template .main::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: min(42vw, 620px);
+  height: 170px;
+  background: linear-gradient(135deg, rgba(247, 168, 0, 0.16), rgba(0, 127, 134, 0.1));
+  clip-path: polygon(12% 0, 100% 0, 100% 100%, 0 70%);
+  pointer-events: none;
+}
+
+.dashboard-template .global-search,
+.dashboard-template .topbar,
+.dashboard-template .dashboard-board {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-template .primary-button {
+  background: var(--logo-teal);
+}
+
+.dashboard-template .primary-button:hover {
+  background: #00686f;
+}
+
+.dashboard-template .nav-link.active {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.dashboard-template .nav-icon {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.dashboard-template .topbar {
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+.dashboard-template .topbar h1 {
+  font-size: clamp(2rem, 4.5vw, 2.75rem);
+  font-weight: 900;
+}
+
+.dashboard-template .topbar p {
+  color: #34464d;
+  font-size: 1rem;
+}
+
+.dashboard-template .actions {
+  align-items: center;
+}
+
 .global-search {
   position: sticky;
   top: 14px;
@@ -684,14 +757,23 @@ textarea:focus {
 .dashboard-board {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
   align-items: start;
   grid-auto-flow: row dense;
 }
 
 .dashboard-widget {
   min-width: 0;
-  box-shadow: 0 10px 28px rgba(31, 54, 60, 0.06);
+  border-color: rgba(6, 37, 72, 0.08);
+  box-shadow: 0 14px 38px rgba(6, 37, 72, 0.08);
+}
+
+.dashboard-widget .panel-header {
+  min-height: 56px;
+}
+
+.dashboard-widget .panel-header h2 {
+  font-size: 1rem;
 }
 
 .dashboard-widget.widget-quarter {
@@ -731,6 +813,14 @@ textarea:focus {
   justify-content: flex-end;
 }
 
+.dashboard-header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .dashboard-edit-controls .ghost-button,
 .dashboard-edit-controls select {
   min-height: 34px;
@@ -754,7 +844,7 @@ textarea:focus {
   gap: 10px;
   align-items: center;
   justify-content: center;
-  margin-bottom: 14px;
+  margin: 0;
 }
 
 .calendar-toolbar strong {
@@ -764,7 +854,10 @@ textarea:focus {
 }
 
 .calendar-toolbar input {
-  width: 150px;
+  width: 128px;
+  min-height: 40px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .calendar-weekday {
@@ -784,8 +877,8 @@ textarea:focus {
 }
 
 .calendar-day {
-  min-height: 96px;
-  padding: 8px;
+  min-height: 86px;
+  padding: 7px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: white;
@@ -796,7 +889,7 @@ textarea:focus {
 }
 
 .calendar-day.today {
-  background: #f2fbfc;
+  background: #eef9fa;
 }
 
 .calendar-day.outside-month {
@@ -816,7 +909,7 @@ textarea:focus {
 
 .calendar-day.today .calendar-day-number {
   color: white;
-  background: #4f8feb;
+  background: var(--logo-teal);
 }
 
 .calendar-events {
@@ -848,11 +941,16 @@ textarea:focus {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: var(--brand);
+  background: var(--logo-teal);
+}
+
+.calendar-event.status-planifie {
+  background: var(--logo-gold);
+  color: #2b2100;
 }
 
 .calendar-event.status-en_cours {
-  background: #d99025;
+  background: #e67910;
 }
 
 .calendar-event.status-termine,
@@ -890,6 +988,103 @@ textarea:focus {
   min-height: 32px;
   padding: 6px 10px;
   justify-self: start;
+}
+
+.dashboard-metric-summary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.metric-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: white;
+}
+
+.metric-icon svg {
+  width: 23px !important;
+  height: 23px !important;
+}
+
+.metric-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.metric-copy span {
+  font-weight: 800;
+}
+
+.metric-copy strong {
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.metric-badge {
+  align-self: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.85rem;
+}
+
+.tone-blue .metric-icon {
+  background: #0d83d4;
+}
+
+.tone-blue .metric-badge {
+  color: #0c4777;
+  background: #dceeff;
+}
+
+.tone-orange .metric-icon {
+  background: #e87412;
+}
+
+.tone-orange .metric-badge {
+  color: #8c4d0f;
+  background: #fff0da;
+}
+
+.tone-yellow .metric-icon {
+  color: #3a2d00;
+  background: var(--logo-gold);
+}
+
+.tone-yellow .metric-badge {
+  color: #755600;
+  background: #fff2bf;
+}
+
+.tone-green .metric-icon {
+  background: #0b936a;
+}
+
+.tone-green .metric-badge {
+  color: #17613e;
+  background: #d8f3e4;
+}
+
+.dashboard-preview {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.dashboard-preview .mini-row {
+  padding: 8px;
+  background: #f8fbfb;
 }
 
 .grid {

@@ -1273,6 +1273,16 @@
     return Array.from({ length: total }, (_, index) => `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`);
   }
 
+  function monthCalendarDays(dateValue = today()) {
+    const monthDays = daysInMonth(dateValue);
+    const first = new Date(`${monthDays[0]}T12:00:00`);
+    const mondayOffset = (first.getDay() + 6) % 7;
+    const leading = Array.from({ length: mondayOffset }, (_, index) => addDateInterval(monthDays[0], index - mondayOffset, "days"));
+    const totalCells = Math.ceil((leading.length + monthDays.length) / 7) * 7;
+    const trailing = Array.from({ length: totalCells - leading.length - monthDays.length }, (_, index) => addDateInterval(monthDays[monthDays.length - 1], index + 1, "days"));
+    return [...leading, ...monthDays, ...trailing];
+  }
+
   function monthKey(dateValue) {
     return dateValue ? dateValue.slice(0, 7) : "";
   }
@@ -1744,9 +1754,10 @@
   function defaultDashboardWidgets() {
     return [
       { id: "calendar", size: "full" },
-      { id: "demands", size: "half" },
-      { id: "workorders", size: "half" },
-      { id: "alerts", size: "full" }
+      { id: "demands", size: "quarter" },
+      { id: "workorders", size: "quarter" },
+      { id: "alerts", size: "quarter" },
+      { id: "recommendations", size: "quarter" }
     ];
   }
 
@@ -1755,6 +1766,7 @@
     const saved = state.dashboardLayouts?.[userId] || [];
     const defaults = defaultDashboardWidgets();
     if (!saved.length) return defaults;
+    if (!defaults.every((widget) => saved.some((item) => item.id === widget.id))) return defaults;
     const defaultById = new Map(defaults.map((item) => [item.id, item]));
     const knownSaved = saved.filter((item) => defaultById.has(item.id)).map((item) => ({ ...defaultById.get(item.id), ...item, size: normalizeDashboardWidgetSize(item.size) }));
     const savedIds = new Set(knownSaved.map((item) => item.id));
@@ -1793,15 +1805,17 @@
   function dashboardWidget(widget, index, editMode, total) {
     const title = {
       calendar: "Calendrier des RDV",
-      demands: "Nouvelles demandes et approbations",
+      demands: "Nouvelles demandes",
       workorders: "Bons de travail en cours",
-      alerts: "Alertes à transformer en BT"
+      alerts: "Alertes à transformer en BT",
+      recommendations: "Recommandations approuvées"
     }[widget.id] || widget.id;
     const body = {
       calendar: dashboardCalendarWidget,
       demands: dashboardDemandWidget,
       workorders: dashboardWorkOrderWidget,
-      alerts: dashboardAlertWidget
+      alerts: dashboardAlertWidget,
+      recommendations: dashboardRecommendationWidget
     }[widget.id]?.() || "";
     const editControls = editMode ? `
       <div class="dashboard-edit-controls">
@@ -1826,25 +1840,31 @@
 
   function dashboardCalendarWidget() {
     const month = monthStart(state.dashboardCalendarDate || today());
-    const days = daysInMonth(month);
+    const days = monthCalendarDays(month);
     const orders = scopedWorkOrders().filter((order) => order.scheduledDate >= days[0] && order.scheduledDate <= days[days.length - 1]).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+    const currentMonth = month.slice(0, 7);
+    const weekdays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
     return `
       <div class="calendar-toolbar">
-        <button class="ghost-button" data-action="dashboard-calendar-month" data-direction="-1">Mois précédent</button>
+        <button class="icon-button" data-action="dashboard-calendar-month" data-direction="-1" aria-label="Mois précédent">${iconSvg("chevronLeft")}</button>
         <strong>${monthLabel(month.slice(0, 7))}</strong>
         <input type="month" data-action="dashboard-calendar-date" value="${escapeHtml(month.slice(0, 7))}" aria-label="Mois du calendrier">
-        <button class="ghost-button" data-action="dashboard-calendar-month" data-direction="1">Mois suivant</button>
+        <button class="icon-button" data-action="dashboard-calendar-month" data-direction="1" aria-label="Mois suivant">${iconSvg("chevronRight")}</button>
       </div>
       <div class="dashboard-calendar">
+        ${weekdays.map((day) => `<div class="calendar-weekday">${day}</div>`).join("")}
         ${days.map((day) => {
           const dayOrders = orders.filter((order) => order.scheduledDate === day);
           return `
-            <div class="calendar-day ${day === today() ? "today" : ""}">
-              <strong>${formatDate(day)}</strong>
-              ${dayOrders.slice(0, 3).map((order) => {
-                const context = workOrderContext(order);
-                return `<button class="calendar-event" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}">${escapeHtml(order.number)} - ${escapeHtml(context.building?.name || "-")}</button>`;
-              }).join("") || `<span class="meta">Aucun RDV</span>`}
+            <div class="calendar-day ${day === today() ? "today" : ""} ${day.slice(0, 7) !== currentMonth ? "outside-month" : ""}">
+              <div class="calendar-day-number">${Number(day.slice(8, 10))}</div>
+              <div class="calendar-events">
+                ${dayOrders.slice(0, 3).map((order) => {
+                  const context = workOrderContext(order);
+                  return `<button class="calendar-event status-${escapeHtml(order.status || "planifie")}" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}">${escapeHtml(order.number)} · ${escapeHtml(context.building?.name || "-")}</button>`;
+                }).join("")}
+                ${dayOrders.length > 3 ? `<span class="calendar-more">+${dayOrders.length - 3} RDV</span>` : ""}
+              </div>
             </div>
           `;
         }).join("")}
@@ -1854,25 +1874,17 @@
 
   function dashboardDemandWidget() {
     const tickets = scopedTickets().filter((ticket) => ticket.status !== "ferme").sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
-    const approved = scopedRecommendations().filter(({ recommendation }) => recommendation.status === "approuvee" && !recommendation.workOrderId).slice(0, 5);
-    const rows = [
-      ...tickets.map((ticket) => {
-        const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
-        return `<button class="mini-row" data-action="dashboard-ticket" data-id="${escapeHtml(ticket.id)}"><strong>${escapeHtml(ticket.number || ticket.id)} - ${escapeHtml(ticket.title)}</strong><span>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</span></button>`;
-      }),
-      ...approved.map(({ intervention, recommendation }) => {
-        const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
-        return `<button class="mini-row" data-action="create-bt-from-recommendation" data-id="${escapeHtml(intervention.id)}"><strong>Recommandation approuvée - ${escapeHtml(recommendation.type || "Travaux")}</strong><span>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</span></button>`;
-      })
-    ];
-    return rows.join("") || `<div class="empty">Aucune nouvelle demande.</div>`;
+    return tickets.map((ticket) => {
+      const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
+      return `<button class="mini-row" data-action="dashboard-ticket" data-id="${escapeHtml(ticket.id)}"><strong>${escapeHtml(ticket.number || ticket.id)}</strong><span>${escapeHtml(ticket.title)}</span><small>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</small></button>`;
+    }).join("") || `<div class="empty">Aucune nouvelle demande.</div>`;
   }
 
   function dashboardWorkOrderWidget() {
     const orders = scopedWorkOrders().filter((order) => order.status === "en_cours").sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)).slice(0, 6);
     return orders.map((order) => {
       const { equipment, building } = workOrderContext(order);
-      return `<button class="mini-row" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"><strong>${escapeHtml(order.number)} - RDV ${formatDate(order.scheduledDate)}</strong><span>${escapeHtml(building?.name || "-")} | ${escapeHtml(equipment?.type || "Bloc complet")}</span></button>`;
+      return `<button class="mini-row" data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"><strong>${escapeHtml(order.number)}</strong><span>RDV ${formatDate(order.scheduledDate)}</span><small>${escapeHtml(building?.name || "-")} | ${escapeHtml(equipment?.type || "Bloc complet")}</small></button>`;
     }).join("") || `<div class="empty">Aucun BT en cours.</div>`;
   }
 
@@ -1888,6 +1900,14 @@
         </div>
       `;
     }).join("") || `<div class="empty">Aucune alerte à ouvrir.</div>`;
+  }
+
+  function dashboardRecommendationWidget() {
+    const approved = scopedRecommendations().filter(({ recommendation }) => recommendation.status === "approuvee" && !recommendation.workOrderId).slice(0, 5);
+    return approved.map(({ intervention, recommendation }) => {
+      const { equipment, apartment, building } = equipmentContext(intervention.equipmentId);
+      return `<button class="mini-row" data-action="create-bt-from-recommendation" data-id="${escapeHtml(intervention.id)}"><strong>${escapeHtml(recommendation.type || "Travaux")}</strong><span>${escapeHtml(recommendation.priority || "À planifier")}</span><small>${escapeHtml(building?.name || "-")} | Apt ${escapeHtml(apartment?.number || "-")} | ${escapeHtml(equipment?.type || "-")}</small></button>`;
+    }).join("") || `<div class="empty">Aucune recommandation approuvée.</div>`;
   }
 
   function saveDashboardLayout(layout) {

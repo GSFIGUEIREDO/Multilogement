@@ -691,6 +691,7 @@ textarea:focus {
 
 .dashboard-widget {
   min-width: 0;
+  box-shadow: 0 10px 28px rgba(31, 54, 60, 0.06);
 }
 
 .dashboard-widget.widget-quarter {
@@ -740,7 +741,11 @@ textarea:focus {
 .dashboard-calendar {
   display: grid;
   grid-template-columns: repeat(7, minmax(120px, 1fr));
-  gap: 10px;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
 }
 
 .calendar-toolbar {
@@ -748,6 +753,7 @@ textarea:focus {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  justify-content: center;
   margin-bottom: 14px;
 }
 
@@ -761,23 +767,61 @@ textarea:focus {
   width: 150px;
 }
 
+.calendar-weekday {
+  padding: 10px 8px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+  background: #fafcfc;
+}
+
+.calendar-weekday:nth-child(7n) {
+  border-right: 0;
+}
+
 .calendar-day {
-  min-height: 118px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
+  min-height: 96px;
+  padding: 8px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: white;
+}
+
+.calendar-day:nth-child(7n) {
+  border-right: 0;
 }
 
 .calendar-day.today {
-  border-color: var(--brand);
-  background: #eefafa;
-  box-shadow: inset 0 0 0 2px rgba(17, 106, 115, 0.16);
+  background: #f2fbfc;
 }
 
-.calendar-day strong {
-  display: block;
-  margin-bottom: 8px;
+.calendar-day.outside-month {
+  background: #f8fbfb;
+  color: #a5b0b3;
+}
+
+.calendar-day-number {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 7px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.calendar-day.today .calendar-day-number {
+  color: white;
+  background: #4f8feb;
+}
+
+.calendar-events {
+  display: grid;
+  gap: 4px;
 }
 
 .calendar-event,
@@ -794,8 +838,35 @@ textarea:focus {
 }
 
 .calendar-event {
-  margin-top: 6px;
-  color: var(--brand-dark);
+  min-height: 24px;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--brand);
+}
+
+.calendar-event.status-en_cours {
+  background: #d99025;
+}
+
+.calendar-event.status-termine,
+.calendar-event.status-terminee {
+  background: #4b9a64;
+}
+
+.calendar-event.status-annule {
+  background: #87959a;
+}
+
+.calendar-more {
+  color: var(--muted);
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -806,6 +877,12 @@ textarea:focus {
 .mini-row span {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.mini-row small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .small-action-button {

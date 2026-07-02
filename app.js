@@ -1759,10 +1759,10 @@
   function defaultDashboardWidgets() {
     return [
       { id: "calendar", size: "full" },
-      { id: "demands", size: "quarter" },
-      { id: "workorders", size: "quarter" },
-      { id: "alerts", size: "quarter" },
-      { id: "recommendations", size: "quarter" }
+      { id: "demands", size: "half" },
+      { id: "workorders", size: "half" },
+      { id: "alerts", size: "half" },
+      { id: "recommendations", size: "half" }
     ];
   }
 
@@ -1772,10 +1772,19 @@
     const defaults = defaultDashboardWidgets();
     if (!saved.length) return defaults;
     if (!defaults.every((widget) => saved.some((item) => item.id === widget.id))) return defaults;
+    if (dashboardUsesOldCompactDefault(saved)) return defaults;
     const defaultById = new Map(defaults.map((item) => [item.id, item]));
     const knownSaved = saved.filter((item) => defaultById.has(item.id)).map((item) => ({ ...defaultById.get(item.id), ...item, size: normalizeDashboardWidgetSize(item.size) }));
     const savedIds = new Set(knownSaved.map((item) => item.id));
     return [...knownSaved, ...defaults.filter((item) => !savedIds.has(item.id))];
+  }
+
+  function dashboardUsesOldCompactDefault(layout) {
+    const metricIds = ["demands", "workorders", "alerts", "recommendations"];
+    return metricIds.every((id) => {
+      const widget = layout.find((item) => item.id === id);
+      return normalizeDashboardWidgetSize(widget?.size) === "quarter";
+    });
   }
 
   function normalizeDashboardWidgetSize(size) {

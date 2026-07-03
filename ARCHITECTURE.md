@@ -6,9 +6,11 @@ Le projet applique progressivement une combinaison de:
 
 - **MVC / Controller fin**: `server.py` recoit les requetes HTTP et sert l'interface.
 - **Service Layer**: `backend/services.py` contient les regles metier.
+- **Auth Service Layer**: `backend/auth_services.py` isole login, inscription, session et mot de passe oublie.
 - **Repository Pattern**: `backend/repositories.py` isole les operations de persistence.
 - **Database Gateway**: `backend/database.py` centralise connexion, SQL compatible SQLite/Postgres et helpers de securite.
 - **Frontend Service Layer**: `frontend/api.js` isole les appels HTTP; `frontend/storage.js` isole le stockage local.
+- **Frontend View Modules**: les vues lourdes quittent progressivement `app.js` vers `frontend/views/`.
 
 Ce choix garde le deploiement actuel simple tout en separant les responsabilites pour audit et evolution.
 
@@ -16,20 +18,25 @@ Ce choix garde le deploiement actuel simple tout en separant les responsabilites
 
 ```text
 index.html             Charge l'interface et les couches frontend
-app.js                 UI et orchestration d'ecran cote navigateur
+app.js                 Shell UI, navigation et orchestration cote navigateur
 styles.css             Styles de l'interface
 
 frontend/
   api.js               Service API cote navigateur
   storage.js           Persistence locale cote navigateur
+  views/
+    dashboard.js       Vue Tableau de bord et widgets configurables
+    reports.js         Vue Rapports et logique de presentation des rapports
 
-server.py              Controller HTTP, sessions, routes legacy
+server.py              Controller HTTP fin, routes et compatibilite legacy
 
 backend/
   database.py          Connexion DB, helpers SQL/JSON/password
   repositories.py      Lecture/ecriture etat, utilisateurs, equipements
   security.py          Filtrage du state, permissions et controle de scope
   services.py          Regles metier utilisateurs et equipements
+  auth_services.py     Login, inscription, sessions et reinitialisation mot de passe
+  state_compatibility.py Merge du state legacy et detection des collections modifiees
 ```
 
 ## Regle de dependance
@@ -50,6 +57,7 @@ app.js -> frontend/api.js -> server.py -> backend/services.py -> backend/reposit
 
 Routes deja migrees vers la nouvelle architecture:
 
+- `/api/login`, `/api/signup`, `/api/session`, `/api/logout`, `/api/password-reset/*`
 - `/api/equipment`
 - `/api/user`
 - `/api/building`
@@ -62,6 +70,8 @@ Frontend deja separe:
 
 - appels serveur dans `frontend/api.js`
 - stockage local dans `frontend/storage.js`
+- module Tableau de bord dans `frontend/views/dashboard.js`
+- module Rapports dans `frontend/views/reports.js`
 
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 
@@ -70,7 +80,7 @@ Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatib
 3. `Lieux / Appartements`
 4. `Rappels`
 5. `Documents`
-6. Decoupage progressif de `app.js` en modules de vues par domaine
+6. Decoupage progressif de `app.js` en modules de vues par domaine (`dashboard`, `buildings`, `equipment`, `tickets`, `workOrders`, `interventions`, `documents`, `recommendations`, `users`, `settings`)
 
 Chaque migration doit suivre le meme modele: service metier, repository dedie, puis controller fin.
 

@@ -2,26 +2,31 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import json
 import mimetypes
 import os
 import secrets
 import sqlite3
-import smtplib
 import time
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
 from http import HTTPStatus
-from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from backend.auth_services import AuthService, AuthServiceError, PasswordResetService, SessionService
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
 from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, UserService, WorkOrderService
+from backend.state_compatibility import (
+    MERGE_BY_ID_KEYS,
+    apply_state_changes,
+    changed_collection_keys,
+    duplicate_user_email,
+    merge_shared_state,
+    stamp_changed_items,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -31,13 +36,7 @@ SESSION_TTL_SECONDS = int(os.environ.get("CLIMAPARC_SESSION_TTL", "28800"))
 HOST = os.environ.get("CLIMAPARC_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT") or os.environ.get("CLIMAPARC_PORT", "8000"))
 USE_POSTGRES = bool(DATABASE_URL)
-PASSWORD_RESET_TTL_SECONDS = int(os.environ.get("CLIMAPARC_PASSWORD_RESET_TTL", "3600"))
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
-SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "no-reply@climaparc.ca")
 
 if USE_POSTGRES:
     import psycopg
@@ -746,70 +745,8 @@ def password_hash(password: str, salt: str | None = None) -> tuple[str, str]:
     return base64.b64encode(digest).decode("ascii"), base64.b64encode(raw_salt).decode("ascii")
 
 
-def verify_password(password: str, expected_hash: str, salt: str) -> bool:
-    actual_hash, _ = password_hash(password, salt)
-    return hmac.compare_digest(actual_hash, expected_hash)
-
-
-def token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def reset_expiry_iso() -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=PASSWORD_RESET_TTL_SECONDS)).isoformat()
-
-
 def server_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def reset_expired(value: str | None) -> bool:
-    if not value:
-        return True
-    try:
-        return datetime.fromisoformat(value) < datetime.now(timezone.utc)
-    except ValueError:
-        return True
-
-
-def save_password_reset_token(connection, reset_id: str, user_id: str, email: str, hashed_token: str, expires_at: str) -> None:
-    execute(
-        connection,
-        """
-        insert into climaparc_password_reset_tokens (
-          token_hash, reset_id, user_id, email, status, expires_at_text, updated_at
-        )
-        values (?, ?, ?, ?, ?, ?, ?)
-        on conflict(token_hash) do update set
-          reset_id = excluded.reset_id,
-          user_id = excluded.user_id,
-          email = excluded.email,
-          status = excluded.status,
-          expires_at_text = excluded.expires_at_text,
-          updated_at = excluded.updated_at
-        """,
-        (hashed_token, reset_id, user_id, email, "active", expires_at, now_value()),
-    )
-
-
-def password_reset_token_row(connection, hashed_token: str):
-    return execute(
-        connection,
-        """
-        select token_hash, reset_id, user_id, email, status, expires_at_text
-        from climaparc_password_reset_tokens
-        where token_hash = ?
-        """,
-        (hashed_token,),
-    ).fetchone()
-
-
-def mark_password_reset_token(connection, hashed_token: str, status: str) -> None:
-    execute(
-        connection,
-        "update climaparc_password_reset_tokens set status = ?, updated_at = ? where token_hash = ?",
-        (status, now_value(), hashed_token),
-    )
 
 
 def public_base_url(headers) -> str:
@@ -818,35 +755,6 @@ def public_base_url(headers) -> str:
     host = headers.get("Host", f"{HOST}:{PORT}")
     scheme = headers.get("X-Forwarded-Proto", "https" if "onrender.com" in host else "http")
     return f"{scheme}://{host}".rstrip("/")
-
-
-def send_password_reset_email(email: str, reset_url: str) -> bool:
-    if not SMTP_HOST:
-        return False
-    message = EmailMessage()
-    message["Subject"] = "Réinitialisation de votre mot de passe ClimaParc"
-    message["From"] = SMTP_FROM
-    message["To"] = email
-    message.set_content(
-        "\n".join([
-            "Bonjour,",
-            "",
-            "Vous avez demandé la réinitialisation de votre mot de passe ClimaParc.",
-            f"Utilisez ce lien dans la prochaine heure: {reset_url}",
-            "",
-            "Si vous n'avez pas demandé cette opération, vous pouvez ignorer ce message.",
-        ])
-    )
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
-            smtp.starttls()
-            if SMTP_USER or SMTP_PASSWORD:
-                smtp.login(SMTP_USER, SMTP_PASSWORD)
-            smtp.send_message(message)
-        return True
-    except Exception as error:
-        print(f"Password reset email failed: {error}")
-        return False
 
 
 def get_state(connection, lock: bool = False) -> dict | None:
@@ -872,162 +780,6 @@ def save_state(connection, state: dict) -> None:
         """,
         (json_db_value(state), now_value()),
     )
-
-
-MERGE_BY_ID_KEYS = {
-    "users",
-    "clients",
-    "buildings",
-    "apartments",
-    "equipment",
-    "tickets",
-    "workOrders",
-    "interventions",
-    "reminders",
-    "clientDocuments",
-    "serviceTypes",
-    "interventionTypes",
-    "formTemplates",
-    "roleDefinitions",
-    "dataFields",
-    "passwordResetRequests",
-}
-
-
-def item_timestamp(item: dict) -> str:
-    for key in ("serverUpdatedAt", "updatedAt", "updated_at", "modifiedAt", "createdAt", "uploadedAt", "date"):
-        value = item.get(key)
-        if value:
-            return str(value)
-    return ""
-
-
-def merge_by_id(current_items: list[Any], incoming_items: list[Any]) -> list[Any]:
-    current_items = current_items or []
-    incoming_items = incoming_items or []
-    current_map = {
-        item.get("id"): item
-        for item in current_items
-        if isinstance(item, dict) and item.get("id")
-    }
-    incoming_map = {
-        item.get("id"): item
-        for item in incoming_items
-        if isinstance(item, dict) and item.get("id")
-    }
-    ordered_ids: list[str] = []
-    for item in incoming_items + current_items:
-        if isinstance(item, dict) and item.get("id") and item["id"] not in ordered_ids:
-            ordered_ids.append(item["id"])
-
-    merged: list[Any] = []
-    for item_id in ordered_ids:
-        current = current_map.get(item_id)
-        incoming = incoming_map.get(item_id)
-        if current and incoming:
-            current_stamp = item_timestamp(current)
-            incoming_stamp = item_timestamp(incoming)
-            if current_stamp and incoming_stamp:
-                chosen = current if current_stamp > incoming_stamp else incoming
-            elif current_stamp and not incoming_stamp:
-                chosen = current
-            else:
-                chosen = incoming
-            if isinstance(current.get("attachments"), list) or isinstance(incoming.get("attachments"), list):
-                chosen = dict(chosen)
-                chosen["attachments"] = merge_by_id(current.get("attachments", []), incoming.get("attachments", []))
-            merged.append(chosen)
-        else:
-            merged.append(incoming or current)
-    return merged
-
-
-def merge_shared_state(current: dict | None, incoming: dict) -> dict:
-    if not current:
-        return incoming
-    merged = {**current, **incoming}
-    for key in MERGE_BY_ID_KEYS:
-        if isinstance(current.get(key), list) or isinstance(incoming.get(key), list):
-            merged[key] = merge_by_id(current.get(key, []), incoming.get(key, []))
-    return merged
-
-
-def apply_state_changes(current: dict | None, changes: dict) -> dict:
-    merged = dict(current or {})
-    values = changes.get("values") if isinstance(changes.get("values"), dict) else {}
-    for key, value in values.items():
-        if key in {"sessionUserId", "modal", "toast"}:
-            continue
-        merged[key] = value
-
-    upserts = changes.get("upserts") if isinstance(changes.get("upserts"), dict) else {}
-    deletes = changes.get("deletes") if isinstance(changes.get("deletes"), dict) else {}
-
-    for key in MERGE_BY_ID_KEYS:
-        current_items = merged.get(key, [])
-        if not isinstance(current_items, list):
-            current_items = []
-        remove_ids = {
-            str(item_id)
-            for item_id in deletes.get(key, [])
-            if item_id is not None
-        }
-        by_id: dict[str, Any] = {
-            str(item.get("id")): item
-            for item in current_items
-            if isinstance(item, dict) and item.get("id") is not None and str(item.get("id")) not in remove_ids
-        }
-        order: list[str] = [
-            str(item.get("id"))
-            for item in current_items
-            if isinstance(item, dict) and item.get("id") is not None and str(item.get("id")) not in remove_ids
-        ]
-        for item in upserts.get(key, []):
-            if not isinstance(item, dict) or item.get("id") is None:
-                continue
-            item_id = str(item.get("id"))
-            by_id[item_id] = item
-            if item_id not in order:
-                order.insert(0, item_id)
-        merged[key] = [by_id[item_id] for item_id in order if item_id in by_id]
-    return merged
-
-
-def stamp_changed_items(state: dict, changes: dict | None = None) -> None:
-    stamp = server_timestamp()
-    if not isinstance(changes, dict):
-        for key in MERGE_BY_ID_KEYS:
-            for item in state.get(key, []) if isinstance(state.get(key), list) else []:
-                if isinstance(item, dict) and not item.get("serverUpdatedAt"):
-                    item["serverUpdatedAt"] = stamp
-        return
-
-    upserts = changes.get("upserts") if isinstance(changes.get("upserts"), dict) else {}
-    for key, items in upserts.items():
-        if key not in MERGE_BY_ID_KEYS or not isinstance(items, list):
-            continue
-        changed_ids = {
-            str(item.get("id"))
-            for item in items
-            if isinstance(item, dict) and item.get("id") is not None
-        }
-        for item in state.get(key, []) if isinstance(state.get(key), list) else []:
-            if isinstance(item, dict) and str(item.get("id")) in changed_ids:
-                item["serverUpdatedAt"] = stamp
-
-
-def duplicate_user_email(state: dict) -> str | None:
-    seen: set[str] = set()
-    for user in state.get("users", []):
-        if not isinstance(user, dict):
-            continue
-        email = str(user.get("email", "")).strip().lower()
-        if not email:
-            continue
-        if email in seen:
-            return email
-        seen.add(email)
-    return None
 
 
 def bootstrap_password_for_user(user: dict) -> str:
@@ -1734,17 +1486,6 @@ def sync_relational_tables(connection, state: dict, collection_keys: set[str] | 
         sync_normalized_children(connection, state, collection_key)
 
 
-def changed_collection_keys(changes: dict | None) -> set[str]:
-    if not isinstance(changes, dict):
-        return set(RELATIONAL_SYNC_SPECS.keys())
-    keys: set[str] = set()
-    for section_name in ("upserts", "deletes"):
-        section = changes.get(section_name)
-        if isinstance(section, dict):
-            keys.update(key for key in section.keys() if key in RELATIONAL_SYNC_SPECS)
-    return keys
-
-
 def sync_relational_tables_safely(state: dict, collection_keys: set[str] | None = None) -> None:
     try:
         with db() as connection:
@@ -1774,38 +1515,6 @@ def ensure_bootstrap_state(seed: dict | None) -> dict:
 
 def new_id(prefix: str) -> str:
     return f"{prefix}-{secrets.token_hex(8)}"
-
-
-def create_session(user_id: str) -> str:
-    token = secrets.token_urlsafe(32)
-    with db() as connection:
-        execute(
-            connection,
-            "insert into climaparc_sessions (token, user_id, expires_at) values (?, ?, ?)",
-            (token, user_id, expires_value()),
-        )
-    return token
-
-
-def read_session(cookie_header: str | None):
-    if not cookie_header:
-        return None
-    cookie = SimpleCookie()
-    cookie.load(cookie_header)
-    token = cookie.get("climaparc_session")
-    if not token:
-        return None
-    with db() as connection:
-        execute(connection, "delete from climaparc_sessions where expires_at < ?", (now_value(),))
-        return execute(
-            connection,
-            """
-            select climaparc_users.* from climaparc_sessions
-            join climaparc_users on climaparc_users.id = climaparc_sessions.user_id
-            where climaparc_sessions.token = ? and climaparc_sessions.expires_at >= ?
-            """,
-            (token.value, now_value()),
-        ).fetchone()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1868,7 +1577,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_session(self) -> None:
-        user = read_session(self.headers.get("Cookie"))
+        user = SessionService().read(self.headers.get("Cookie"))
         if not user:
             self.json_response({"authenticated": False}, HTTPStatus.UNAUTHORIZED)
             return
@@ -1879,77 +1588,33 @@ class Handler(BaseHTTPRequestHandler):
     def handle_login(self) -> None:
         payload = self.read_json()
         state = ensure_bootstrap_state(payload.get("seed"))
-        email = str(payload.get("email", "")).lower()
-        password = str(payload.get("password", ""))
-        with db() as connection:
-            user = execute(connection, "select * from climaparc_users where email = ?", (email,)).fetchone()
-        if not user or not verify_password(password, row_get(user, "password_hash"), row_get(user, "salt")):
-            self.json_response({"error": "Courriel ou mot de passe invalide."}, HTTPStatus.UNAUTHORIZED)
+        try:
+            result = AuthService().login(payload.get("email", ""), str(payload.get("password", "")), state)
+        except AuthServiceError as error:
+            self.json_response({"error": error.message}, error.status)
             return
-        token = create_session(row_get(user, "id"))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Set-Cookie", f"climaparc_session={token}; HttpOnly; Path=/; SameSite=Lax")
+        self.send_header("Set-Cookie", f"climaparc_session={result['token']}; HttpOnly; Path=/; SameSite=Lax")
         self.end_headers()
-        self.wfile.write(json.dumps({"user": public_user(user), "state": filter_state_for_user(state, user)}, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(json.dumps({"user": result["user"], "state": result["state"]}, ensure_ascii=False).encode("utf-8"))
 
     def handle_signup(self) -> None:
         payload = self.read_json()
         state = ensure_bootstrap_state(payload.get("seed"))
-        email = str(payload.get("email", "")).strip().lower()
-        password = str(payload.get("password", ""))
-        confirm_password = str(payload.get("confirmPassword", ""))
-        company_name = str(payload.get("companyName", "")).strip()
-        name = str(payload.get("name", "")).strip()
-        phone = str(payload.get("phone", "")).strip()
-
-        if not email or not password or not company_name or not name:
-            self.json_response({"error": "Tous les champs obligatoires doivent être remplis."}, HTTPStatus.BAD_REQUEST)
+        try:
+            result = AuthService().signup(payload, state)
+        except AuthServiceError as error:
+            self.json_response({"error": error.message}, error.status)
             return
-        if password != confirm_password:
-            self.json_response({"error": "Les mots de passe ne correspondent pas."}, HTTPStatus.BAD_REQUEST)
-            return
-        if len(password) < 8:
-            self.json_response({"error": "Le mot de passe doit contenir au moins 8 caractères."}, HTTPStatus.BAD_REQUEST)
-            return
-
-        with db() as connection:
-            state = get_state(connection, lock=True) or state
-            existing = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
-            if existing:
-                self.json_response({"error": "Un compte existe déjà avec ce courriel."}, HTTPStatus.CONFLICT)
-                return
-
-            client = {
-                "id": new_id("client"),
-                "name": company_name,
-                "contact": name,
-                "email": email,
-                "phone": phone,
-            }
-            user = {
-                "id": new_id("u"),
-                "name": name,
-                "email": email,
-                "password": password,
-                "role": "client",
-                "clientId": client["id"],
-            }
-            state.setdefault("clients", []).append(client)
-            state.setdefault("users", []).append(user)
-            save_state(connection, state)
-            sync_users(connection, state)
-        sync_relational_tables_safely(state, {"clients"})
-
-        token = create_session(user["id"])
+        sync_relational_tables_safely(result["state"], {"clients"})
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Set-Cookie", f"climaparc_session={token}; HttpOnly; Path=/; SameSite=Lax")
+        self.send_header("Set-Cookie", f"climaparc_session={result['token']}; HttpOnly; Path=/; SameSite=Lax")
         self.end_headers()
-        public_new_user = public_state_user(user)
         self.wfile.write(
             json.dumps(
-                {"user": public_new_user, "state": signup_response_state(state, client, public_new_user)},
+                {"user": result["user"], "state": signup_response_state(result["state"], result["client"], result["user"])},
                 ensure_ascii=False,
             ).encode("utf-8")
         )
@@ -1957,117 +1622,28 @@ class Handler(BaseHTTPRequestHandler):
     def handle_password_reset_request(self) -> None:
         payload = self.read_json()
         state = ensure_bootstrap_state(payload.get("seed"))
-        email = str(payload.get("email", "")).strip().lower()
-        email_sent = False
-        if email:
-            with db() as connection:
-                state = get_state(connection, lock=True) or state
-                user = execute(connection, "select * from climaparc_users where email = ?", (email,)).fetchone()
-                reset_record = {
-                    "id": new_id("reset"),
-                    "email": email,
-                    "createdAt": datetime.now(timezone.utc).date().isoformat(),
-                    "status": "nouvelle",
-                    "emailSent": False,
-                }
-                if user:
-                    token = secrets.token_urlsafe(32)
-                    expires_at = reset_expiry_iso()
-                    reset_url = f"{public_base_url(self.headers)}/?resetToken={token}"
-                    email_sent = send_password_reset_email(email, reset_url)
-                    save_password_reset_token(
-                        connection,
-                        reset_record["id"],
-                        row_get(user, "id"),
-                        email,
-                        token_hash(token),
-                        expires_at,
-                    )
-                    reset_record.update({
-                        "userId": row_get(user, "id"),
-                        "expiresAt": expires_at,
-                        "status": "email_envoye" if email_sent else "email_non_configure",
-                        "emailSent": email_sent,
-                    })
-                state.setdefault("passwordResetRequests", []).insert(0, reset_record)
-                state["passwordResetRequests"] = state["passwordResetRequests"][:100]
-                save_state(connection, state)
-            sync_relational_tables_safely(state, {"passwordResetRequests"})
-        self.json_response({"ok": True, "emailSent": email_sent, "mailConfigured": bool(SMTP_HOST)})
+        result = PasswordResetService().request_reset(payload.get("email", ""), public_base_url(self.headers), state)
+        sync_relational_tables_safely(result["state"], {"passwordResetRequests"})
+        self.json_response({"ok": True, "emailSent": result["emailSent"], "mailConfigured": result["mailConfigured"]})
 
     def handle_password_reset_confirm(self) -> None:
         payload = self.read_json()
         state = ensure_bootstrap_state(payload.get("seed"))
-        token = str(payload.get("token", "")).strip()
-        password = str(payload.get("password", ""))
-        confirm_password = str(payload.get("confirmPassword", ""))
-        if not token:
-            self.json_response({"error": "Lien de réinitialisation invalide."}, HTTPStatus.BAD_REQUEST)
-            return
-        if password != confirm_password:
-            self.json_response({"error": "Les mots de passe ne correspondent pas."}, HTTPStatus.BAD_REQUEST)
-            return
-        if len(password) < 8:
-            self.json_response({"error": "Le mot de passe doit contenir au moins 8 caractères."}, HTTPStatus.BAD_REQUEST)
-            return
-
-        with db() as connection:
-            state = get_state(connection, lock=True) or state
-        hashed = token_hash(token)
-        with db() as connection:
-            reset_token = password_reset_token_row(connection, hashed)
-        if not reset_token or row_get(reset_token, "status") != "active" or reset_expired(row_get(reset_token, "expires_at_text")):
-            if reset_token:
-                with db() as connection:
-                    state = get_state(connection, lock=True) or state
-                    reset_request = next(
-                        (
-                            item for item in state.get("passwordResetRequests", [])
-                            if item.get("id") == row_get(reset_token, "reset_id")
-                        ),
-                        None,
-                    )
-                    if reset_request:
-                        reset_request["status"] = "expire"
-                        reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
-                        save_state(connection, state)
-                    mark_password_reset_token(connection, hashed, "expire")
-                sync_relational_tables_safely(state, {"passwordResetRequests"})
-            self.json_response({"error": "Lien expire ou invalide."}, HTTPStatus.BAD_REQUEST)
-            return
-        with db() as connection:
-            state = get_state(connection, lock=True) or state
-            reset_request = next(
-                (
-                    item for item in state.get("passwordResetRequests", [])
-                    if item.get("id") == row_get(reset_token, "reset_id")
-                ),
-                None,
+        try:
+            result = PasswordResetService().confirm_reset(
+                payload.get("token", ""),
+                str(payload.get("password", "")),
+                str(payload.get("confirmPassword", "")),
+                state,
             )
-            user = next((item for item in state.get("users", []) if item.get("id") == row_get(reset_token, "user_id")), None)
-            if not user:
-                self.json_response({"error": "Compte introuvable."}, HTTPStatus.BAD_REQUEST)
-                return
-            user["password"] = password
-            if reset_request:
-                reset_request["status"] = "utilise"
-                reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
-            mark_password_reset_token(connection, hashed, "utilise")
-            save_state(connection, state)
-            sync_users(connection, state)
-        sync_relational_tables_safely(state, {"passwordResetRequests"})
+        except AuthServiceError as error:
+            self.json_response({"error": error.message}, error.status)
+            return
+        sync_relational_tables_safely(result["state"], {"passwordResetRequests"})
         self.json_response({"ok": True})
-        return
 
     def handle_logout(self) -> None:
-        cookie_header = self.headers.get("Cookie")
-        if cookie_header:
-            cookie = SimpleCookie()
-            cookie.load(cookie_header)
-            token = cookie.get("climaparc_session")
-            if token:
-                with db() as connection:
-                    execute(connection, "delete from climaparc_sessions where token = ?", (token.value,))
+        SessionService().logout(self.headers.get("Cookie"))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Set-Cookie", "climaparc_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0")
@@ -2075,7 +1651,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"ok": true}')
 
     def handle_save_state(self) -> None:
-        user = read_session(self.headers.get("Cookie"))
+        user = SessionService().read(self.headers.get("Cookie"))
         if not user:
             self.json_response({"error": "Session expirée."}, HTTPStatus.UNAUTHORIZED)
             return
@@ -2115,7 +1691,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response({"ok": True, "state": filter_state_for_user(merged_state, user)})
 
     def handle_save_equipment(self) -> None:
-        user = read_session(self.headers.get("Cookie"))
+        user = SessionService().read(self.headers.get("Cookie"))
         if not user:
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return
@@ -2132,7 +1708,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": "Erreur serveur lors de la sauvegarde machine."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_save_user(self) -> None:
-        current_user = read_session(self.headers.get("Cookie"))
+        current_user = SessionService().read(self.headers.get("Cookie"))
         if not current_user:
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return
@@ -2150,7 +1726,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_delete_user(self) -> None:
-        current_user = read_session(self.headers.get("Cookie"))
+        current_user = SessionService().read(self.headers.get("Cookie"))
         if not current_user:
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return
@@ -2166,7 +1742,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": "Erreur serveur lors de la suppression utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_service_save(self, service_class, payload_key: str) -> None:
-        user = read_session(self.headers.get("Cookie"))
+        user = SessionService().read(self.headers.get("Cookie"))
         if not user:
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return

@@ -7,6 +7,28 @@
   let restoringSession = false;
   let lastLocalChangeAt = 0;
   let lastNavigationAt = 0;
+  let lastServerState = null;
+  let applyingHistoryState = false;
+  let browserHistoryReady = false;
+
+  const SHARED_COLLECTION_KEYS = [
+    "users",
+    "clients",
+    "buildings",
+    "apartments",
+    "equipment",
+    "tickets",
+    "workOrders",
+    "interventions",
+    "reminders",
+    "clientDocuments",
+    "serviceTypes",
+    "interventionTypes",
+    "formTemplates",
+    "roleDefinitions",
+    "dataFields",
+    "passwordResetRequests"
+  ];
 
   const seed = {
     sessionUserId: null,
@@ -822,15 +844,19 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
+      const changes = buildStateChanges();
+      if (!changes) return;
       const saveStartedAt = Date.now();
       fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ state: persistableState() })
+        body: JSON.stringify(changes.fullState ? { state: changes.fullState } : { changes })
       }).then((response) => response.ok ? response.json().catch(() => null) : null)
         .then((payload) => {
-          if (!payload?.state || state.modal || lastLocalChangeAt > saveStartedAt) return;
+          if (!payload?.state) return;
+          if (state.modal || lastLocalChangeAt > saveStartedAt) return;
+          rememberServerState(payload.state);
           const uiState = currentUiState();
           state = {
             ...normalizeState(payload.state),
@@ -855,15 +881,18 @@
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
+    const changes = buildStateChanges();
+    if (!changes) return;
     const response = await fetch("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ state: persistableState() })
+      body: JSON.stringify(changes.fullState ? { state: changes.fullState } : { changes })
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
     if (payload.state) {
+      rememberServerState(payload.state);
       const uiState = currentUiState();
       state = {
         ...normalizeState(payload.state),
@@ -896,6 +925,59 @@
     };
   }
 
+  function historyUiState() {
+    const ui = currentUiState();
+    return {
+      ...ui,
+      toast: "",
+      mobileMenuOpen: false
+    };
+  }
+
+  function canUseBrowserHistory() {
+    return typeof window !== "undefined" && window.history && currentUser();
+  }
+
+  function replaceBrowserHistoryState() {
+    if (!canUseBrowserHistory()) return;
+    window.history.replaceState({ climaparcUi: true, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
+    browserHistoryReady = true;
+  }
+
+  function pushBrowserHistoryState() {
+    if (!canUseBrowserHistory() || applyingHistoryState || restoringSession) return;
+    if (!browserHistoryReady) replaceBrowserHistoryState();
+    window.history.pushState({ climaparcUi: true, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
+  }
+
+  function ensureBrowserHistoryGuard() {
+    if (!canUseBrowserHistory()) return;
+    replaceBrowserHistoryState();
+    window.history.pushState({ climaparcUi: true, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
+  }
+
+  function applyBrowserHistoryState(ui) {
+    if (!ui || !currentUser()) return;
+    applyingHistoryState = true;
+    state = {
+      ...state,
+      ...ui,
+      sessionUserId: state.sessionUserId,
+      toast: "",
+      mobileMenuOpen: false
+    };
+    render();
+    applyingHistoryState = false;
+  }
+
+  function goBack(fallback = {}) {
+    if (canUseBrowserHistory() && browserHistoryReady && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    updateUiState({ modal: null, mobileMenuOpen: false, ...fallback });
+  }
+
   function persistableState() {
     return {
       ...state,
@@ -903,7 +985,13 @@
       modal: null,
       mobileMenuOpen: false,
       toast: "",
+      resetToken: "",
       activeView: "tableau",
+      selectedBuildingId: seed.selectedBuildingId,
+      selectedEquipmentId: seed.selectedEquipmentId,
+      selectedTicketId: null,
+      selectedWorkOrderId: null,
+      selectedExecutionApartmentId: null,
       globalSearch: "",
       filters: { ...seed.filters },
       workOrderFilters: { ...seed.workOrderFilters },
@@ -912,24 +1000,76 @@
     };
   }
 
+  function sharedStateSnapshot(source = state) {
+    return {
+      ...JSON.parse(JSON.stringify(source || {})),
+      sessionUserId: null,
+      modal: null,
+      mobileMenuOpen: false,
+      toast: "",
+      activeView: "tableau",
+      globalSearch: "",
+      filters: { ...seed.filters },
+      workOrderFilters: { ...seed.workOrderFilters },
+      dashboardEditMode: false
+    };
+  }
+
+  function rememberServerState(serverState) {
+    lastServerState = sharedStateSnapshot(normalizeState(serverState || seed));
+  }
+
+  function stableJson(value) {
+    return JSON.stringify(value ?? null);
+  }
+
+  function buildStateChanges() {
+    const current = sharedStateSnapshot(state);
+    const base = lastServerState ? sharedStateSnapshot(lastServerState) : null;
+    if (!base) return { fullState: current };
+    const upserts = {};
+    const deletes = {};
+    SHARED_COLLECTION_KEYS.forEach((key) => {
+      const currentItems = Array.isArray(current[key]) ? current[key] : [];
+      const baseItems = Array.isArray(base[key]) ? base[key] : [];
+      const currentById = new Map(currentItems.filter((item) => item?.id).map((item) => [item.id, item]));
+      const baseById = new Map(baseItems.filter((item) => item?.id).map((item) => [item.id, item]));
+      const changed = currentItems.filter((item) => item?.id && stableJson(item) !== stableJson(baseById.get(item.id)));
+      const removed = baseItems.filter((item) => item?.id && !currentById.has(item.id)).map((item) => item.id);
+      if (changed.length) upserts[key] = changed;
+      if (removed.length) deletes[key] = removed;
+    });
+    const values = {};
+    Object.keys(current).forEach((key) => {
+      if (SHARED_COLLECTION_KEYS.includes(key)) return;
+      if (stableJson(current[key]) !== stableJson(base[key])) values[key] = current[key];
+    });
+    if (!Object.keys(upserts).length && !Object.keys(deletes).length && !Object.keys(values).length) return null;
+    return { upserts, deletes, values };
+  }
+
   function setState(patch) {
     state = { ...state, ...patch };
     lastLocalChangeAt = Date.now();
-    if (Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal")) {
+    const isNavigationPatch = Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal");
+    if (isNavigationPatch) {
       lastNavigationAt = lastLocalChangeAt;
     }
     saveState();
     render();
+    if (isNavigationPatch) pushBrowserHistoryState();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
   }
 
   function updateUiState(patch) {
     state = { ...state, ...patch };
     lastLocalChangeAt = Date.now();
-    if (Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal")) {
+    const isNavigationPatch = Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal");
+    if (isNavigationPatch) {
       lastNavigationAt = lastLocalChangeAt;
     }
     render();
+    if (isNavigationPatch) pushBrowserHistoryState();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
   }
 
@@ -1693,7 +1833,7 @@
     const client = state.clients.find((item) => item.id === building.clientId);
     const apartments = apartmentsForBuilding(building.id);
     const actions = `
-      <button class="ghost-button" data-action="view" data-view="lieux">Retour</button>
+      <button class="ghost-button" data-action="go-back" data-fallback-view="lieux">Retour</button>
       ${can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>` : ""}
       ${currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="apartment" data-building="${building.id}">Nouvel appartement</button>` : ""}
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier le lieu</button>` : ""}
@@ -2130,7 +2270,7 @@
     const attachments = equipment.attachments || [];
     const reminders = scopedReminders().filter((item) => item.equipmentId === equipment.id);
     const actionButtons = `
-      <button class="ghost-button" data-action="view" data-view="equipements">Retour</button>
+      <button class="ghost-button" data-action="go-back" data-fallback-view="equipements">Retour</button>
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
       ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
       ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvelle demande</button>` : ""}
@@ -2678,7 +2818,7 @@
     const canEditExecution = currentUser()?.role !== "client" && (can("workorders") || can("interventions"));
     return appShell(`
       ${renderTopbar(`Execution ${order.number}`, `${building?.name || "-"} - ${type?.name || ""}`, `
-        <button class="ghost-button" data-action="view" data-view="bons">Retour</button>
+        <button class="ghost-button" data-action="go-back" data-fallback-view="bons">Retour</button>
         ${canEditExecution ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Changer le formulaire</button>` : ""}
         ${canEditExecution ? `<button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>` : ""}
       `)}
@@ -4841,7 +4981,7 @@
     return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     const form = event.target.closest("form");
     if (!form) return;
     event.preventDefault();
@@ -4856,7 +4996,7 @@
     if (formType === "apartment") saveApartment(values);
     if (formType === "ticket") createTicket(form, values);
     if (formType === "workorder") createWorkOrder(form, values);
-    if (formType === "equipment") createEquipment(values);
+    if (formType === "equipment") await createEquipment(values);
     if (formType === "reminder") saveReminder(form, values);
     if (formType === "user") createUser(form, values);
     if (formType === "dataField") saveDataField(form, values);
@@ -4882,6 +5022,7 @@
       const response = await fetch("/api/session", { credentials: "same-origin" });
       if (response.ok) {
         const payload = await response.json();
+        rememberServerState(payload.state);
         state = {
           ...normalizeState(payload.state),
           ...(lastLocalChangeAt > restoreStartedAt ? uiState : {}),
@@ -4891,6 +5032,7 @@
         };
         state.activeView = state.activeView || "tableau";
         render();
+        ensureBrowserHistoryGuard();
         startAutoRefresh();
       }
     } finally {
@@ -4906,6 +5048,7 @@
       const response = await fetch("/api/session", { credentials: "same-origin" });
       if (!response.ok) return;
       const payload = await response.json();
+      rememberServerState(payload.state);
       state = {
         ...normalizeState(payload.state),
         ...uiState,
@@ -4913,6 +5056,7 @@
         modal: uiState.modal
       };
       render();
+      replaceBrowserHistoryState();
     } finally {
       restoringSession = false;
     }
@@ -4928,6 +5072,14 @@
       if (!document.hidden) refreshStateFromServer();
     });
     window.addEventListener("focus", refreshStateFromServer);
+    window.addEventListener("popstate", (event) => {
+      if (!currentUser()) return;
+      if (event.state?.climaparcUi) {
+        applyBrowserHistoryState(event.state.ui);
+        return;
+      }
+      ensureBrowserHistoryGuard();
+    });
   }
 
   async function signup(values) {
@@ -4956,13 +5108,14 @@
           showToast(payload.error || "Création du compte impossible.");
           return;
         }
+        rememberServerState(payload.state);
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
         state.activeView = "tableau";
         state.modal = null;
         state.toast = "Compte créé.";
-        saveState();
         render();
+        ensureBrowserHistoryGuard();
         startAutoRefresh();
         scheduleToastClear();
       } catch (error) {
@@ -5063,13 +5216,14 @@
           showToast(payload.error || "Connexion impossible.");
           return;
         }
+        rememberServerState(payload.state);
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
         state.activeView = "tableau";
         state.modal = null;
         state.toast = "";
-        saveState();
         render();
+        ensureBrowserHistoryGuard();
         startAutoRefresh();
       } catch (error) {
         showToast("Serveur indisponible.");
@@ -5092,7 +5246,12 @@
       clearInterval(refreshTimer);
       refreshTimer = null;
     }
+    lastServerState = null;
+    browserHistoryReady = false;
     setState({ sessionUserId: null, activeView: "tableau", modal: null });
+    if (typeof window !== "undefined" && window.history) {
+      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+    }
   }
 
   function saveBuilding(values) {
@@ -5257,7 +5416,11 @@
     reminder.lastSeenDueDate = reminder.nextDueDate || reminder.lastSeenDueDate || "";
   }
 
-  function createEquipment(values) {
+  async function createEquipment(values) {
+    const previousEquipment = JSON.parse(JSON.stringify(state.equipment));
+    const previousSelectedEquipmentId = state.selectedEquipmentId;
+    const previousView = state.activeView;
+    const changedAt = new Date().toISOString();
     const existing = state.equipment.find((item) => item.id === values.id);
     if (existing) {
       Object.assign(existing, {
@@ -5271,9 +5434,18 @@
         lastService: values.lastService,
         nextService: values.nextService,
         status: values.status,
-        notes: values.notes
+        notes: values.notes,
+        updatedAt: changedAt
       });
       setState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Machine modifiée." });
+      try {
+        await saveStateNow();
+      } catch (error) {
+        state.equipment = previousEquipment;
+        state.selectedEquipmentId = previousSelectedEquipmentId;
+        state.activeView = previousView;
+        updateUiState({ modal: null, toast: error.message || "Machine non sauvegardée." });
+      }
       return;
     }
     const equipment = {
@@ -5288,10 +5460,19 @@
       lastService: values.lastService || "",
       nextService: values.nextService || "",
       status: values.status || "actif",
-      notes: values.notes
+      notes: values.notes,
+      updatedAt: changedAt
     };
     state.equipment.unshift(equipment);
     setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Équipement ajouté." });
+    try {
+      await saveStateNow();
+    } catch (error) {
+      state.equipment = previousEquipment;
+      state.selectedEquipmentId = previousSelectedEquipmentId;
+      state.activeView = previousView;
+      updateUiState({ modal: null, toast: error.message || "Équipement non sauvegardé." });
+    }
   }
 
   function saveReminder(form, values) {
@@ -6159,6 +6340,10 @@
       }
       if (action === "open-search-result") {
         openSearchResult(target);
+        return;
+      }
+      if (action === "go-back") {
+        goBack({ activeView: target.dataset.fallbackView || "tableau" });
         return;
       }
       if (action === "view") updateUiState({ activeView: target.dataset.view, modal: null, mobileMenuOpen: false });

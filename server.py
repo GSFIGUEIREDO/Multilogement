@@ -402,6 +402,10 @@ def reset_expiry_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=PASSWORD_RESET_TTL_SECONDS)).isoformat()
 
 
+def server_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def reset_expired(value: str | None) -> bool:
     if not value:
         return True
@@ -492,7 +496,7 @@ MERGE_BY_ID_KEYS = {
 
 
 def item_timestamp(item: dict) -> str:
-    for key in ("updatedAt", "updated_at", "modifiedAt", "createdAt", "uploadedAt", "date"):
+    for key in ("serverUpdatedAt", "updatedAt", "updated_at", "modifiedAt", "createdAt", "uploadedAt", "date"):
         value = item.get(key)
         if value:
             return str(value)
@@ -588,6 +592,29 @@ def apply_state_changes(current: dict | None, changes: dict) -> dict:
                 order.insert(0, item_id)
         merged[key] = [by_id[item_id] for item_id in order if item_id in by_id]
     return merged
+
+
+def stamp_changed_items(state: dict, changes: dict | None = None) -> None:
+    stamp = server_timestamp()
+    if not isinstance(changes, dict):
+        for key in MERGE_BY_ID_KEYS:
+            for item in state.get(key, []) if isinstance(state.get(key), list) else []:
+                if isinstance(item, dict) and not item.get("serverUpdatedAt"):
+                    item["serverUpdatedAt"] = stamp
+        return
+
+    upserts = changes.get("upserts") if isinstance(changes.get("upserts"), dict) else {}
+    for key, items in upserts.items():
+        if key not in MERGE_BY_ID_KEYS or not isinstance(items, list):
+            continue
+        changed_ids = {
+            str(item.get("id"))
+            for item in items
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        for item in state.get(key, []) if isinstance(state.get(key), list) else []:
+            if isinstance(item, dict) and str(item.get("id")) in changed_ids:
+                item["serverUpdatedAt"] = stamp
 
 
 def duplicate_user_email(state: dict) -> str | None:
@@ -897,7 +924,16 @@ def changed_collection_keys(changes: dict | None) -> set[str]:
     return keys
 
 
+def sync_relational_tables_safely(state: dict, collection_keys: set[str] | None = None) -> None:
+    try:
+        with db() as connection:
+            sync_relational_tables(connection, state, collection_keys)
+    except Exception as error:
+        print(f"Relational table sync skipped: {error}")
+
+
 def ensure_bootstrap_state(seed: dict | None) -> dict:
+    state: dict | None = None
     with db() as connection:
         state = get_state(connection)
         if state is None:
@@ -909,10 +945,9 @@ def ensure_bootstrap_state(seed: dict | None) -> dict:
             state["toast"] = ""
             save_state(connection, state)
             sync_users(connection, state)
-            sync_relational_tables(connection, state)
-        else:
-            sync_relational_tables(connection, state)
-        return state
+    if state:
+        sync_relational_tables_safely(state)
+    return state
 
 
 def new_id(prefix: str) -> str:
@@ -1058,7 +1093,7 @@ class Handler(BaseHTTPRequestHandler):
             state.setdefault("users", []).append(user)
             save_state(connection, state)
             sync_users(connection, state)
-            sync_relational_tables(connection, state, {"clients"})
+        sync_relational_tables_safely(state, {"clients"})
 
         token = create_session(user["id"])
         self.send_response(HTTPStatus.OK)
@@ -1097,7 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
                 state.setdefault("passwordResetRequests", []).insert(0, reset_record)
                 state["passwordResetRequests"] = state["passwordResetRequests"][:100]
                 save_state(connection, state)
-                sync_relational_tables(connection, state, {"passwordResetRequests"})
+            sync_relational_tables_safely(state, {"passwordResetRequests"})
         self.json_response({"ok": True, "emailSent": email_sent, "mailConfigured": bool(SMTP_HOST)})
 
     def handle_password_reset_confirm(self) -> None:
@@ -1131,7 +1166,7 @@ class Handler(BaseHTTPRequestHandler):
                 reset_request["status"] = "expire"
                 with db() as connection:
                     save_state(connection, state)
-                    sync_relational_tables(connection, state, {"passwordResetRequests"})
+                sync_relational_tables_safely(state, {"passwordResetRequests"})
             self.json_response({"error": "Lien expiré ou invalide."}, HTTPStatus.BAD_REQUEST)
             return
 
@@ -1145,7 +1180,7 @@ class Handler(BaseHTTPRequestHandler):
         with db() as connection:
             save_state(connection, state)
             sync_users(connection, state)
-            sync_relational_tables(connection, state, {"passwordResetRequests"})
+        sync_relational_tables_safely(state, {"passwordResetRequests"})
         self.json_response({"ok": True})
 
     def handle_logout(self) -> None:
@@ -1188,14 +1223,15 @@ class Handler(BaseHTTPRequestHandler):
             merged_state["sessionUserId"] = None
             merged_state["modal"] = None
             merged_state["toast"] = ""
+            stamp_changed_items(merged_state, changes if isinstance(changes, dict) else None)
             duplicate_email = duplicate_user_email(merged_state)
             if duplicate_email:
                 self.json_response({"error": f"Un utilisateur existe déjà avec le courriel {duplicate_email}."}, HTTPStatus.CONFLICT)
                 return
             save_state(connection, merged_state)
             sync_users(connection, merged_state)
-            if sync_keys or sync_keys is None:
-                sync_relational_tables(connection, merged_state, sync_keys)
+        if sync_keys or sync_keys is None:
+            sync_relational_tables_safely(merged_state, sync_keys)
         self.json_response({"ok": True, "state": merged_state})
 
     def serve_static(self, raw_path: str) -> None:

@@ -2850,6 +2850,7 @@
     const assignedTechs = (order.assignedTechnicianIds || []).map((id) => state.users.find((user) => user.id === id)?.name).filter(Boolean).join(", ");
     const progress = workOrderProgress(order);
     const scopeLabel = order.buildingId ? "Bloc complet" : `Apt ${apartment?.number || "-"} - ${equipment?.type || "-"}`;
+    const actionButtons = workOrderActionButtons(order, expanded);
     return `
       <article class="list-item ${dashboardLink ? "clickable-card" : ""}" ${dashboardLink ? `data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"` : ""}>
         <div class="actions" style="justify-content:space-between">
@@ -2862,8 +2863,22 @@
         <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
         <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisé${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysée${progress.machines > 1 ? "s" : ""}</div>
         <div class="meta">${escapeHtml(order.notes || "")}</div>
-        ${expanded ? `<div class="actions"><button class="primary-button" data-action="execute-workorder" data-id="${order.id}">Exécuter</button>${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${order.id}">Checklist</button>` : ""}${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${order.id}" data-status="termine">Terminer</button>` : ""}</div>` : ""}
+        ${actionButtons}
       </article>
+    `;
+  }
+
+  function workOrderActionButtons(order, expanded) {
+    if (!expanded) return "";
+    if (currentUser()?.role === "client") {
+      return `<div class="actions"><button class="ghost-button" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">Consulter</button></div>`;
+    }
+    return `
+      <div class="actions">
+        <button class="primary-button" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">Exécuter</button>
+        ${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${escapeHtml(order.id)}">Checklist</button>` : ""}
+        ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${escapeHtml(order.id)}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${escapeHtml(order.id)}" data-status="termine">Terminer</button>` : ""}
+      </div>
     `;
   }
 

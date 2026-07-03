@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .database import execute, json_db_value, now_value, password_hash, row_get, server_timestamp, USE_POSTGRES
+from .security import public_user, sanitize_state_for_storage
 
 
 class StateRepository:
@@ -19,6 +20,7 @@ class StateRepository:
         return hydrate_state_from_payload_tables(connection, state)
 
     def save(self, connection, state: dict) -> None:
+        state = sanitize_state_for_storage(state)
         execute(
             connection,
             """
@@ -38,8 +40,13 @@ class AuthUserRepository:
         if existing_email and row_get(existing_email, "id") != user["id"]:
             raise ValueError(f"Un utilisateur existe deja avec le courriel {email}.")
 
-        existing = execute(connection, "select salt from climaparc_users where id = ?", (user["id"],)).fetchone()
-        digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
+        existing = execute(connection, "select password_hash, salt from climaparc_users where id = ?", (user["id"],)).fetchone()
+        if not password and existing:
+            digest, salt = row_get(existing, "password_hash"), row_get(existing, "salt")
+        elif password:
+            digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
+        else:
+            raise ValueError("Mot de passe obligatoire pour un nouvel utilisateur.")
         execute(
             connection,
             """
@@ -181,7 +188,7 @@ def hydrate_state_from_payload_tables(connection, state: dict | None) -> dict | 
 
 
 def clean_public_user(user: dict) -> dict:
-    return {key: value for key, value in user.items() if key != "password"}
+    return public_user(user)
 
 
 def stamp_payload(payload: dict) -> dict:

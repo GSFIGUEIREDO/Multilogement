@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from backend.repositories import hydrate_state_from_payload_tables
+from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
 from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, UserService, WorkOrderService
 
 
@@ -678,8 +679,22 @@ def init_db() -> None:
                 )
                 """
             )
+            connection.execute(
+                """
+                create table if not exists public.climaparc_password_reset_tokens (
+                  token_hash text primary key,
+                  reset_id text not null,
+                  user_id text not null references public.climaparc_users(id) on delete cascade,
+                  email text not null,
+                  status text not null,
+                  expires_at_text text not null,
+                  updated_at timestamptz not null default now()
+                )
+                """
+            )
             connection.execute("create index if not exists climaparc_sessions_user_id_idx on public.climaparc_sessions(user_id)")
             connection.execute("create index if not exists climaparc_sessions_expires_at_idx on public.climaparc_sessions(expires_at)")
+            connection.execute("create index if not exists climaparc_password_reset_tokens_user_id_idx on public.climaparc_password_reset_tokens(user_id)")
             init_relational_tables(connection)
             return
 
@@ -707,6 +722,19 @@ def init_db() -> None:
               user_id text not null references climaparc_users(id) on delete cascade,
               expires_at integer not null
             );
+
+            create table if not exists climaparc_password_reset_tokens (
+              token_hash text primary key,
+              reset_id text not null,
+              user_id text not null references climaparc_users(id) on delete cascade,
+              email text not null,
+              status text not null,
+              expires_at_text text not null,
+              updated_at integer not null
+            );
+
+            create index if not exists climaparc_password_reset_tokens_user_id_idx
+              on climaparc_password_reset_tokens(user_id);
             """
         )
         init_relational_tables(connection)
@@ -742,6 +770,46 @@ def reset_expired(value: str | None) -> bool:
         return datetime.fromisoformat(value) < datetime.now(timezone.utc)
     except ValueError:
         return True
+
+
+def save_password_reset_token(connection, reset_id: str, user_id: str, email: str, hashed_token: str, expires_at: str) -> None:
+    execute(
+        connection,
+        """
+        insert into climaparc_password_reset_tokens (
+          token_hash, reset_id, user_id, email, status, expires_at_text, updated_at
+        )
+        values (?, ?, ?, ?, ?, ?, ?)
+        on conflict(token_hash) do update set
+          reset_id = excluded.reset_id,
+          user_id = excluded.user_id,
+          email = excluded.email,
+          status = excluded.status,
+          expires_at_text = excluded.expires_at_text,
+          updated_at = excluded.updated_at
+        """,
+        (hashed_token, reset_id, user_id, email, "active", expires_at, now_value()),
+    )
+
+
+def password_reset_token_row(connection, hashed_token: str):
+    return execute(
+        connection,
+        """
+        select token_hash, reset_id, user_id, email, status, expires_at_text
+        from climaparc_password_reset_tokens
+        where token_hash = ?
+        """,
+        (hashed_token,),
+    ).fetchone()
+
+
+def mark_password_reset_token(connection, hashed_token: str, status: str) -> None:
+    execute(
+        connection,
+        "update climaparc_password_reset_tokens set status = ?, updated_at = ? where token_hash = ?",
+        (status, now_value(), hashed_token),
+    )
 
 
 def public_base_url(headers) -> str:
@@ -794,6 +862,7 @@ def get_state(connection, lock: bool = False) -> dict | None:
 
 
 def save_state(connection, state: dict) -> None:
+    state = sanitize_state_for_storage(state)
     execute(
         connection,
         """
@@ -961,6 +1030,14 @@ def duplicate_user_email(state: dict) -> str | None:
     return None
 
 
+def bootstrap_password_for_user(user: dict) -> str:
+    role = str(user.get("role") or "").upper().replace("-", "_")
+    explicit = os.environ.get(f"CLIMAPARC_BOOTSTRAP_{role}_PASSWORD")
+    if explicit:
+        return explicit
+    return os.environ.get("CLIMAPARC_BOOTSTRAP_DEFAULT_PASSWORD", "")
+
+
 def sync_users(connection, state: dict) -> None:
     state_user_ids = {
         str(user.get("id"))
@@ -982,8 +1059,15 @@ def sync_users(connection, state: dict) -> None:
         if existing_email and row_get(existing_email, "id") != user["id"]:
             execute(connection, "delete from climaparc_sessions where user_id = ?", (row_get(existing_email, "id"),))
             execute(connection, "delete from climaparc_users where id = ?", (row_get(existing_email, "id"),))
-        existing = execute(connection, "select salt from climaparc_users where id = ?", (user["id"],)).fetchone()
-        digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
+        existing = execute(connection, "select password_hash, salt from climaparc_users where id = ?", (user["id"],)).fetchone()
+        if not password and not existing:
+            password = bootstrap_password_for_user(user)
+        if password:
+            digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
+        elif existing:
+            digest, salt = row_get(existing, "password_hash"), row_get(existing, "salt")
+        else:
+            continue
         execute(
             connection,
             """
@@ -1664,7 +1748,7 @@ def changed_collection_keys(changes: dict | None) -> set[str]:
 def sync_relational_tables_safely(state: dict, collection_keys: set[str] | None = None) -> None:
     try:
         with db() as connection:
-            sync_relational_tables(connection, state, collection_keys)
+            sync_relational_tables(connection, sanitize_state_for_storage(state), collection_keys)
     except Exception as error:
         print(f"Relational table sync skipped: {error}")
 
@@ -1682,6 +1766,7 @@ def ensure_bootstrap_state(seed: dict | None) -> dict:
             state["toast"] = ""
             save_state(connection, state)
             sync_users(connection, state)
+            state = sanitize_state_for_storage(state)
     if state:
         sync_relational_tables_safely(state)
     return state
@@ -1789,7 +1874,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         with db() as connection:
             state = get_state(connection)
-        self.json_response({"authenticated": True, "user": public_user(user), "state": state})
+        self.json_response({"authenticated": True, "user": public_user(user), "state": filter_state_for_user(state, user)})
 
     def handle_login(self) -> None:
         payload = self.read_json()
@@ -1806,7 +1891,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Set-Cookie", f"climaparc_session={token}; HttpOnly; Path=/; SameSite=Lax")
         self.end_headers()
-        self.wfile.write(json.dumps({"user": public_user(user), "state": state}, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(json.dumps({"user": public_user(user), "state": filter_state_for_user(state, user)}, ensure_ascii=False).encode("utf-8"))
 
     def handle_signup(self) -> None:
         payload = self.read_json()
@@ -1887,12 +1972,20 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 if user:
                     token = secrets.token_urlsafe(32)
+                    expires_at = reset_expiry_iso()
                     reset_url = f"{public_base_url(self.headers)}/?resetToken={token}"
                     email_sent = send_password_reset_email(email, reset_url)
+                    save_password_reset_token(
+                        connection,
+                        reset_record["id"],
+                        row_get(user, "id"),
+                        email,
+                        token_hash(token),
+                        expires_at,
+                    )
                     reset_record.update({
                         "userId": row_get(user, "id"),
-                        "tokenHash": token_hash(token),
-                        "expiresAt": reset_expiry_iso(),
+                        "expiresAt": expires_at,
                         "status": "email_envoye" if email_sent else "email_non_configure",
                         "emailSent": email_sent,
                     })
@@ -1921,34 +2014,50 @@ class Handler(BaseHTTPRequestHandler):
         with db() as connection:
             state = get_state(connection, lock=True) or state
         hashed = token_hash(token)
-        reset_request = next(
-            (
-                item for item in state.get("passwordResetRequests", [])
-                if item.get("tokenHash") == hashed and item.get("status") not in {"utilise", "expire"}
-            ),
-            None,
-        )
-        if not reset_request or reset_expired(reset_request.get("expiresAt")):
-            if reset_request:
-                reset_request["status"] = "expire"
-                with db() as connection:
-                    save_state(connection, state)
-                sync_relational_tables_safely(state, {"passwordResetRequests"})
-            self.json_response({"error": "Lien expiré ou invalide."}, HTTPStatus.BAD_REQUEST)
-            return
-
-        user = next((item for item in state.get("users", []) if item.get("id") == reset_request.get("userId")), None)
-        if not user:
-            self.json_response({"error": "Compte introuvable."}, HTTPStatus.BAD_REQUEST)
-            return
-        user["password"] = password
-        reset_request["status"] = "utilise"
-        reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
         with db() as connection:
+            reset_token = password_reset_token_row(connection, hashed)
+        if not reset_token or row_get(reset_token, "status") != "active" or reset_expired(row_get(reset_token, "expires_at_text")):
+            if reset_token:
+                with db() as connection:
+                    state = get_state(connection, lock=True) or state
+                    reset_request = next(
+                        (
+                            item for item in state.get("passwordResetRequests", [])
+                            if item.get("id") == row_get(reset_token, "reset_id")
+                        ),
+                        None,
+                    )
+                    if reset_request:
+                        reset_request["status"] = "expire"
+                        reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
+                        save_state(connection, state)
+                    mark_password_reset_token(connection, hashed, "expire")
+                sync_relational_tables_safely(state, {"passwordResetRequests"})
+            self.json_response({"error": "Lien expire ou invalide."}, HTTPStatus.BAD_REQUEST)
+            return
+        with db() as connection:
+            state = get_state(connection, lock=True) or state
+            reset_request = next(
+                (
+                    item for item in state.get("passwordResetRequests", [])
+                    if item.get("id") == row_get(reset_token, "reset_id")
+                ),
+                None,
+            )
+            user = next((item for item in state.get("users", []) if item.get("id") == row_get(reset_token, "user_id")), None)
+            if not user:
+                self.json_response({"error": "Compte introuvable."}, HTTPStatus.BAD_REQUEST)
+                return
+            user["password"] = password
+            if reset_request:
+                reset_request["status"] = "utilise"
+                reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
+            mark_password_reset_token(connection, hashed, "utilise")
             save_state(connection, state)
             sync_users(connection, state)
         sync_relational_tables_safely(state, {"passwordResetRequests"})
         self.json_response({"ok": True})
+        return
 
     def handle_logout(self) -> None:
         cookie_header = self.headers.get("Cookie")
@@ -1969,6 +2078,9 @@ class Handler(BaseHTTPRequestHandler):
         user = read_session(self.headers.get("Cookie"))
         if not user:
             self.json_response({"error": "Session expirée."}, HTTPStatus.UNAUTHORIZED)
+            return
+        if row_get(user, "role") not in {"administrateur", "equipe_interne"}:
+            self.json_response({"error": "Droits insuffisants pour la sauvegarde globale."}, HTTPStatus.FORBIDDEN)
             return
         payload = self.read_json()
         state = payload.get("state")
@@ -1991,6 +2103,7 @@ class Handler(BaseHTTPRequestHandler):
             merged_state["modal"] = None
             merged_state["toast"] = ""
             stamp_changed_items(merged_state, changes if isinstance(changes, dict) else None)
+            merged_state = sanitize_state_for_storage(merged_state)
             duplicate_email = duplicate_user_email(merged_state)
             if duplicate_email:
                 self.json_response({"error": f"Un utilisateur existe déjà avec le courriel {duplicate_email}."}, HTTPStatus.CONFLICT)
@@ -1999,7 +2112,7 @@ class Handler(BaseHTTPRequestHandler):
             sync_users(connection, merged_state)
         if sync_keys or sync_keys is None:
             sync_relational_tables_safely(merged_state, sync_keys)
-        self.json_response({"ok": True, "state": merged_state})
+        self.json_response({"ok": True, "state": filter_state_for_user(merged_state, user)})
 
     def handle_save_equipment(self) -> None:
         user = read_session(self.headers.get("Cookie"))
@@ -2008,8 +2121,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            result = EquipmentService().save(payload.get("equipment"))
+            result = EquipmentService().save(user, payload.get("equipment"))
             sync_relational_tables_safely(result.get("state", {}), {"equipment"})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
             self.json_response(result)
         except ServiceError as error:
             self.json_response({"error": error.message}, error.status)
@@ -2024,7 +2138,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            self.json_response(UserService().save(current_user, payload.get("user")))
+            result = UserService().save(current_user, payload.get("user"))
+            result["state"] = filter_state_for_user(result.get("state", {}), current_user)
+            self.json_response(result)
         except ServiceError as error:
             self.json_response({"error": error.message}, error.status)
         except ValueError as error:
@@ -2040,7 +2156,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            self.json_response(UserService().delete(current_user, str(payload.get("userId") or "")))
+            result = UserService().delete(current_user, str(payload.get("userId") or ""))
+            result["state"] = filter_state_for_user(result.get("state", {}), current_user)
+            self.json_response(result)
         except ServiceError as error:
             self.json_response({"error": error.message}, error.status)
         except Exception as error:
@@ -2054,10 +2172,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            result = service_class().save(payload.get(payload_key))
+            result = service_class().save(user, payload.get(payload_key))
             collection_key = getattr(service_class, "collection_key", "")
             if collection_key:
                 sync_relational_tables_safely(result.get("state", {}), {collection_key})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
             self.json_response(result)
         except ServiceError as error:
             self.json_response({"error": error.message}, error.status)
@@ -2109,7 +2228,7 @@ def public_user(row) -> dict:
 
 
 def public_state_user(user: dict) -> dict:
-    return {key: value for key, value in user.items() if key != "password"}
+    return state_public_user(user)
 
 
 def signup_response_state(state: dict, client: dict, user: dict) -> dict:

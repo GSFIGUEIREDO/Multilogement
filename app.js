@@ -79,7 +79,6 @@
         id: "u-admin",
         name: "Claire Dubois",
         email: "admin@climaparc.ca",
-        password: "admin123",
         role: "administrateur",
         clientId: null
       },
@@ -87,7 +86,6 @@
         id: "u-interne",
         name: "Marc Beaulieu",
         email: "operation@climaparc.ca",
-        password: "interne123",
         role: "equipe_interne",
         clientId: null
       },
@@ -95,7 +93,6 @@
         id: "u-tech",
         name: "Nadia Tremblay",
         email: "tech@climaparc.ca",
-        password: "tech123",
         role: "technicien",
         clientId: null
       },
@@ -103,7 +100,6 @@
         id: "u-client",
         name: "Sophie Martin",
         email: "client@gestionazur.ca",
-        password: "client123",
         role: "client",
         clientId: "client-azur"
       }
@@ -843,6 +839,7 @@
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
+    if (!canUseLegacyStateSave()) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
@@ -876,6 +873,7 @@
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
+    if (!canUseLegacyStateSave()) return;
     clearTimeout(saveTimer);
     saveTimer = null;
     const changes = buildStateChanges();
@@ -965,6 +963,38 @@
       };
       render();
       scheduleToastClear();
+    }
+  }
+
+  async function saveActivityBundle(equipment, intervention, order, uiPatch, successToast) {
+    if (!SERVER_ENABLED) {
+      setState({ ...uiPatch, toast: successToast });
+      return;
+    }
+    if (!state.sessionUserId || restoringSession) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    try {
+      let payload = equipment ? await api.saveEquipment(equipment) : null;
+      if (payload?.state) rememberServerState(payload.state);
+      payload = await api.saveIntervention(intervention);
+      if (payload.state) rememberServerState(payload.state);
+      payload = await api.saveWorkOrder(order);
+      if (payload.state) {
+        rememberServerState(payload.state);
+        const uiState = currentUiState();
+        state = {
+          ...normalizeState(payload.state),
+          ...uiState,
+          ...uiPatch,
+          sessionUserId: uiState.sessionUserId,
+          toast: successToast
+        };
+        render();
+        scheduleToastClear();
+      }
+    } catch (error) {
+      showToast(error.message || "Activité non sauvegardée.");
     }
   }
 
@@ -1112,6 +1142,11 @@
     });
     if (!Object.keys(upserts).length && !Object.keys(deletes).length && !Object.keys(values).length) return null;
     return { upserts, deletes, values };
+  }
+
+  function canUseLegacyStateSave() {
+    const user = state.users.find((item) => item.id === state.sessionUserId);
+    return ["administrateur", "equipe_interne"].includes(user?.role);
   }
 
   function setState(patch) {
@@ -2644,6 +2679,14 @@
       text: clean,
       createdAt: today()
     });
+  }
+
+  async function saveInterventionChange(intervention, uiPatch, successToast) {
+    try {
+      await saveDomainItemNow(api.saveIntervention, intervention, uiPatch, successToast);
+    } catch (error) {
+      showToast(error.message || "Intervention non sauvegardée.");
+    }
   }
 
   function internalRecommendationActions(interventionId, recommendation) {
@@ -4464,7 +4507,7 @@
           <div class="field"><label>Courriel</label><input name="email" type="email" value="${escapeHtml(user.email || "")}" required></div>
         </div>
         <div class="split">
-          <div class="field"><label>Mot de passe</label><input name="password" value="${escapeHtml(user.password || "temp123")}" required></div>
+          <div class="field"><label>Mot de passe</label><input name="password" ${user.id ? `value="" placeholder="Laisser vide pour conserver"` : `value="temp123" required`}></div>
           ${isClientUserForm
             ? `<div class="field"><label>Profil</label><input value="Client" readonly></div>`
             : `<div class="field"><label>Profil</label><select name="role">${roles}</select></div>`}
@@ -5098,12 +5141,12 @@
     if (formType === "interventionType") saveInterventionType(values);
     if (formType === "formTemplate") saveFormTemplate(form, values);
     if (formType === "role") saveRole(form, values);
-    if (formType === "checklist") saveChecklist(form, values);
-    if (formType === "fieldIntervention") saveFieldIntervention(form, values);
-    if (formType === "recommendationReview") saveRecommendationReview(values);
-    if (formType === "recommendationReply") saveRecommendationReply(values);
-    if (formType === "clientRecommendationMessage") saveClientRecommendationMessage(values);
-    if (formType === "clientDocument") saveClientDocument(form, values);
+    if (formType === "checklist") await saveChecklist(form, values);
+    if (formType === "fieldIntervention") await saveFieldIntervention(form, values);
+    if (formType === "recommendationReview") await saveRecommendationReview(values);
+    if (formType === "recommendationReply") await saveRecommendationReply(values);
+    if (formType === "clientRecommendationMessage") await saveClientRecommendationMessage(values);
+    if (formType === "clientDocument") await saveClientDocument(form, values);
   }
 
   async function restoreSession() {
@@ -5670,7 +5713,6 @@
       Object.assign(existing, {
         name: values.name,
         email: values.email,
-        password: values.password,
         role,
         clientId,
         clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
@@ -5679,9 +5721,10 @@
         parentUserId: existing.parentUserId || (isClientManager ? creator.id : ""),
         updatedAt: changedAt
       });
+      const userPayload = { ...existing, password: values.password || "" };
       updateUiState({ modal: null, activeView: "utilisateurs", toast: "Sauvegarde de l'utilisateur..." });
       try {
-        await saveUserNow(existing, "Utilisateur modifié.");
+        await saveUserNow(userPayload, "Utilisateur modifié.");
       } catch (error) {
         state.users = previousUsers;
         updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non sauvegardé." });
@@ -5692,7 +5735,6 @@
       id: uid("u"),
       name: values.name,
       email: values.email,
-      password: values.password,
       role,
       clientId,
       clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
@@ -5701,10 +5743,11 @@
       parentUserId: isClientManager ? creator.id : "",
       updatedAt: changedAt
     };
+    const newUserPayload = { ...newUser, password: values.password };
     state.users.push(newUser);
     updateUiState({ modal: null, activeView: "utilisateurs", toast: "Sauvegarde de l'utilisateur..." });
     try {
-      await saveUserNow(newUser, "Utilisateur créé.");
+      await saveUserNow(newUserPayload, "Utilisateur créé.");
     } catch (error) {
       state.users = previousUsers;
       updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non sauvegardé." });
@@ -5922,7 +5965,7 @@
     setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Rôle modifié." : "Rôle créé." });
   }
 
-  function saveChecklist(form, values) {
+  async function saveChecklist(form, values) {
     const orderId = form.dataset.orderId;
     const order = state.workOrders.find((item) => item.id === orderId);
     const type = state.interventionTypes.find((item) => item.id === order.typeId);
@@ -5953,7 +5996,7 @@
       next.setMonth(next.getMonth() + 6);
       equipment.nextService = next.toISOString().slice(0, 10);
     }
-    setState({ modal: null, activeView: "bons", toast: "Checklist enregistrée." });
+    await saveActivityBundle(equipment, intervention, order, { modal: null, activeView: "bons" }, "Checklist enregistrée.");
   }
 
   async function saveFieldIntervention(form, values) {
@@ -6069,19 +6112,23 @@
     const progress = workOrderProgress(order);
     if (progress.totalApartments && progress.doneApartments === progress.totalApartments) order.status = "termine";
     if (["interieure", "exterieure"].includes(values.afterSave)) {
-      setState({
-        modal: { type: "fieldIntervention", orderId: order.id, apartmentId, unitKind: values.afterSave },
+      await saveActivityBundle(equipment, intervention, order, {
         activeView: "execution",
         selectedWorkOrderId: order.id,
         selectedExecutionApartmentId: apartmentId,
-        toast: values.afterSave === "exterieure" ? "Activité enregistrée. Nouvelle unité extérieure prête." : "Activité enregistrée. Nouvelle unité intérieure prête."
-      });
+        modal: { type: "fieldIntervention", orderId: order.id, apartmentId, unitKind: values.afterSave }
+      }, values.afterSave === "exterieure" ? "Activité enregistrée. Nouvelle unité extérieure prête." : "Activité enregistrée. Nouvelle unité intérieure prête.");
       return;
     }
-    setState({ modal: null, activeView: "execution", selectedWorkOrderId: order.id, selectedExecutionApartmentId: apartmentId, toast: "Formulaire terrain enregistre." });
+    await saveActivityBundle(equipment, intervention, order, {
+      modal: null,
+      activeView: "execution",
+      selectedWorkOrderId: order.id,
+      selectedExecutionApartmentId: apartmentId
+    }, "Formulaire terrain enregistre.");
   }
 
-  function saveRecommendationReview(values) {
+  async function saveRecommendationReview(values) {
     const intervention = state.interventions.find((item) => item.id === values.interventionId);
     if (!intervention?.recommendation) return;
     if (values.status === "envoyee" && (!values.price || !values.delay)) {
@@ -6108,10 +6155,10 @@
     if (values.clientMessage && (values.clientMessage !== previousMessage || intervention.recommendation.status === "envoyee")) {
       addRecommendationMessage(intervention.recommendation, "interne", values.clientMessage);
     }
-    setState({ modal: null, activeView: "recommandations", toast: "Recommandation enregistrée." });
+    await saveInterventionChange(intervention, { activeView: "recommandations" }, "Recommandation enregistrée.");
   }
 
-  function sendRecommendationToClient(interventionId) {
+  async function sendRecommendationToClient(interventionId) {
     const intervention = state.interventions.find((item) => item.id === interventionId);
     const recommendation = intervention?.recommendation;
     if (!recommendation) return;
@@ -6124,10 +6171,10 @@
     recommendation.sentAt = today();
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
     addRecommendationMessage(recommendation, "interne", recommendation.clientMessage || recommendation.description);
-    setState({ activeView: "recommandations", toast: "Recommandation envoyée au client." });
+    await saveInterventionChange(intervention, { activeView: "recommandations" }, "Recommandation envoyée au client.");
   }
 
-  function saveRecommendationReply(values) {
+  async function saveRecommendationReply(values) {
     const intervention = state.interventions.find((item) => item.id === values.interventionId);
     const recommendation = intervention?.recommendation;
     if (!recommendation) return;
@@ -6136,10 +6183,10 @@
     recommendation.sentAt = today();
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
     addRecommendationMessage(recommendation, "interne", values.reply);
-    setState({ modal: null, activeView: "recommandations", toast: "Réponse envoyée au client." });
+    await saveInterventionChange(intervention, { activeView: "recommandations" }, "Réponse envoyée au client.");
   }
 
-  function clientRecommendationDecision(interventionId, status) {
+  async function clientRecommendationDecision(interventionId, status) {
     const intervention = state.interventions.find((item) => item.id === interventionId);
     const recommendation = intervention?.recommendation;
     if (!recommendation || recommendation.status !== "envoyee") return;
@@ -6148,10 +6195,10 @@
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     if (status === "approuvee") addRecommendationMessage(recommendation, "client", "Recommandation approuvée.");
-    setState({ activeView: "recommandations", toast: status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée." });
+    await saveInterventionChange(intervention, { activeView: "recommandations" }, status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
   }
 
-  function saveClientRecommendationMessage(values) {
+  async function saveClientRecommendationMessage(values) {
     const intervention = state.interventions.find((item) => item.id === values.interventionId);
     const recommendation = intervention?.recommendation;
     if (!recommendation || recommendation.status !== "envoyee") return;
@@ -6160,11 +6207,7 @@
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     addRecommendationMessage(recommendation, "client", values.clientComment);
-    setState({
-      modal: null,
-      activeView: "recommandations",
-      toast: recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée."
-    });
+    await saveInterventionChange(intervention, { activeView: "recommandations" }, recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
   }
 
   async function saveClientDocument(form, values) {

@@ -28,6 +28,7 @@ server.py              Controller HTTP, sessions, routes legacy
 backend/
   database.py          Connexion DB, helpers SQL/JSON/password
   repositories.py      Lecture/ecriture etat, utilisateurs, equipements
+  security.py          Filtrage du state, permissions et controle de scope
   services.py          Regles metier utilisateurs et equipements
 ```
 
@@ -72,6 +73,17 @@ Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatib
 6. Decoupage progressif de `app.js` en modules de vues par domaine
 
 Chaque migration doit suivre le meme modele: service metier, repository dedie, puis controller fin.
+
+## Securite et isolation des donnees
+
+Le backend doit toujours appliquer les droits cote serveur, meme si l'interface cache deja certaines actions.
+
+- `backend/security.py` filtre le state retourne selon `role`, `clientId`, `allowedBuildingIds` et `portalRights`.
+- Les clients et techniciens ne recoivent pas le state global. Ils recoivent uniquement les clients, lieux, appartements, equipements, demandes, bons, interventions, documents et rappels autorises.
+- `/api/state` est reserve aux profils `administrateur` et `equipe_interne` comme route de compatibilite temporaire.
+- Les routes metier (`/api/equipment`, `/api/user`, `/api/building`, `/api/apartment`, `/api/ticket`, `/api/work-order`, `/api/intervention`) passent l'utilisateur courant aux services, qui appliquent le controle de scope.
+- Les mots de passe ne doivent jamais etre stockes dans `climaparc_state`, les payloads relationnels, les seeds publics ou les reponses API. Ils passent uniquement par la table d'authentification avec hash et sel.
+- Les tokens de reinitialisation sont stockes dans `climaparc_password_reset_tokens`; le state ne garde que le suivi public de la demande.
 
 ## Normalisation de la base
 

@@ -20,10 +20,6 @@ En mode en ligne de production, les données sont conservées dans Supabase/Post
 
 ## Comptes de démonstration
 
-- Administrateur: `admin@climaparc.ca` / `admin123`
-- Équipe interne: `operation@climaparc.ca` / `interne123`
-- Technicien: `tech@climaparc.ca` / `tech123`
-- Client: `client@gestionazur.ca` / `client123`
 
 ## Fonctions incluses
 

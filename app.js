@@ -902,6 +902,39 @@
     }
   }
 
+  async function saveEquipmentNow(equipment, successToast) {
+    if (!SERVER_ENABLED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      return;
+    }
+    if (!state.sessionUserId || restoringSession) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const response = await fetch("/api/equipment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ equipment })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
+    if (payload.state) {
+      rememberServerState(payload.state);
+      const uiState = currentUiState();
+      state = {
+        ...normalizeState(payload.state),
+        ...uiState,
+        sessionUserId: uiState.sessionUserId,
+        selectedEquipmentId: equipment.id,
+        activeView: "detail",
+        modal: null,
+        toast: successToast
+      };
+      render();
+      scheduleToastClear();
+    }
+  }
+
   function currentUiState() {
     return {
       sessionUserId: state.sessionUserId,
@@ -5437,9 +5470,9 @@
         notes: values.notes,
         updatedAt: changedAt
       });
-      setState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Machine modifiée." });
+      updateUiState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Sauvegarde de la machine..." });
       try {
-        await saveStateNow();
+        await saveEquipmentNow(existing, "Machine modifiée.");
       } catch (error) {
         state.equipment = previousEquipment;
         state.selectedEquipmentId = previousSelectedEquipmentId;
@@ -5464,9 +5497,9 @@
       updatedAt: changedAt
     };
     state.equipment.unshift(equipment);
-    setState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Équipement ajouté." });
+    updateUiState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Sauvegarde de la machine..." });
     try {
-      await saveStateNow();
+      await saveEquipmentNow(equipment, "Équipement ajouté.");
     } catch (error) {
       state.equipment = previousEquipment;
       state.selectedEquipmentId = previousSelectedEquipmentId;

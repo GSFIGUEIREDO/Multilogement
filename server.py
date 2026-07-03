@@ -1019,6 +1019,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/state":
             self.handle_save_state()
             return
+        if parsed.path == "/api/equipment":
+            self.handle_save_equipment()
+            return
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_session(self) -> None:
@@ -1233,6 +1236,45 @@ class Handler(BaseHTTPRequestHandler):
         if sync_keys or sync_keys is None:
             sync_relational_tables_safely(merged_state, sync_keys)
         self.json_response({"ok": True, "state": merged_state})
+
+    def handle_save_equipment(self) -> None:
+        user = read_session(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        equipment = payload.get("equipment")
+        if not isinstance(equipment, dict) or not equipment.get("id"):
+            self.json_response({"error": "Machine invalide."}, HTTPStatus.BAD_REQUEST)
+            return
+        equipment = dict(equipment)
+        equipment["serverUpdatedAt"] = server_timestamp()
+        with db() as connection:
+            state = get_state(connection, lock=True)
+            if not state:
+                self.json_response({"error": "Etat introuvable."}, HTTPStatus.BAD_REQUEST)
+                return
+            items = state.setdefault("equipment", [])
+            if not isinstance(items, list):
+                items = []
+                state["equipment"] = items
+            existing_index = next(
+                (index for index, item in enumerate(items) if isinstance(item, dict) and item.get("id") == equipment["id"]),
+                -1,
+            )
+            if existing_index >= 0:
+                existing = items[existing_index]
+                if isinstance(existing, dict) and existing.get("attachments") and not equipment.get("attachments"):
+                    equipment["attachments"] = existing.get("attachments")
+                items[existing_index] = equipment
+            else:
+                items.insert(0, equipment)
+            state["sessionUserId"] = None
+            state["modal"] = None
+            state["toast"] = ""
+            save_state(connection, state)
+        sync_relational_tables_safely(state, {"equipment"})
+        self.json_response({"ok": True, "state": state, "equipment": equipment})
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

@@ -27,7 +27,7 @@ if USE_POSTGRES:
 
 def connect():
     if USE_POSTGRES:
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        return psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection

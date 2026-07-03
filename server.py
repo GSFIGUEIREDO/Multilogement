@@ -283,6 +283,143 @@ def init_relational_tables(connection) -> None:
           updated_at {updated_column}
         )
         """,
+        f"""
+        create table if not exists {rel_table("climaparc_building_contacts")} (
+          building_id text not null,
+          contact_role text not null,
+          name text,
+          phone text,
+          phone_poste text,
+          email text,
+          updated_at {updated_column},
+          primary key (building_id, contact_role)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_work_order_technicians")} (
+          work_order_id text not null,
+          user_id text not null,
+          is_primary {bool_column},
+          updated_at {updated_column},
+          primary key (work_order_id, user_id)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_data_field_options")} (
+          data_field_id text not null,
+          option_id text not null,
+          label text not null default '',
+          value text not null default '',
+          sort_order integer not null default 0,
+          active {bool_column},
+          updated_at {updated_column},
+          primary key (data_field_id, option_id)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_form_template_fields")} (
+          template_id text not null,
+          field_id text not null,
+          section_id text,
+          label text not null default '',
+          field_type text not null default 'text',
+          is_required {bool_column},
+          layout text,
+          unit_scope text,
+          data_field_id text,
+          show_when_field_id text,
+          show_when_value text,
+          default_value text,
+          sort_order integer not null default 0,
+          updated_at {updated_column},
+          primary key (template_id, field_id)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_form_template_field_options")} (
+          template_id text not null,
+          field_id text not null,
+          option_id text not null,
+          label text not null default '',
+          value text not null default '',
+          go_to text,
+          is_default {bool_column},
+          sort_order integer not null default 0,
+          updated_at {updated_column},
+          primary key (template_id, field_id, option_id)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_role_permissions")} (
+          role_id text not null,
+          permission text not null,
+          enabled {bool_column},
+          updated_at {updated_column},
+          primary key (role_id, permission)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_intervention_responses")} (
+          intervention_id text not null,
+          field_key text not null,
+          field_label text,
+          response_text text,
+          updated_at {updated_column},
+          primary key (intervention_id, field_key)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_intervention_response_values")} (
+          intervention_id text not null,
+          field_key text not null,
+          value_index integer not null,
+          value_text text,
+          updated_at {updated_column},
+          primary key (intervention_id, field_key, value_index)
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_equipment_attachments")} (
+          id text primary key,
+          equipment_id text not null,
+          source_intervention_id text,
+          source_work_order_id text,
+          name text,
+          file_name text,
+          file_type text,
+          file_size integer,
+          uploaded_at text,
+          uploaded_by text,
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_intervention_attachments")} (
+          id text primary key,
+          intervention_id text not null,
+          equipment_id text,
+          work_order_id text,
+          name text,
+          file_name text,
+          file_type text,
+          file_size integer,
+          uploaded_at text,
+          uploaded_by text,
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_recommendation_messages")} (
+          id text primary key,
+          intervention_id text not null,
+          author_id text,
+          author_role text,
+          author_name text,
+          message_text text,
+          created_at_text text,
+          updated_at {updated_column}
+        )
+        """,
     ]
     for statement in table_statements:
         connection.execute(statement)
@@ -312,6 +449,16 @@ def init_relational_tables(connection) -> None:
         ("climaparc_client_documents_client_id_idx", "climaparc_client_documents", "client_id"),
         ("climaparc_client_documents_building_id_idx", "climaparc_client_documents", "building_id"),
         ("climaparc_client_documents_equipment_id_idx", "climaparc_client_documents", "equipment_id"),
+        ("climaparc_building_contacts_role_idx", "climaparc_building_contacts", "contact_role"),
+        ("climaparc_work_order_technicians_user_id_idx", "climaparc_work_order_technicians", "user_id"),
+        ("climaparc_data_field_options_label_idx", "climaparc_data_field_options", "label"),
+        ("climaparc_form_template_fields_template_id_idx", "climaparc_form_template_fields", "template_id"),
+        ("climaparc_form_template_field_options_field_id_idx", "climaparc_form_template_field_options", "field_id"),
+        ("climaparc_role_permissions_permission_idx", "climaparc_role_permissions", "permission"),
+        ("climaparc_intervention_responses_field_key_idx", "climaparc_intervention_responses", "field_key"),
+        ("climaparc_equipment_attachments_equipment_id_idx", "climaparc_equipment_attachments", "equipment_id"),
+        ("climaparc_intervention_attachments_intervention_id_idx", "climaparc_intervention_attachments", "intervention_id"),
+        ("climaparc_recommendation_messages_intervention_id_idx", "climaparc_recommendation_messages", "intervention_id"),
     ]
     for index_name, table, columns in index_statements:
         connection.execute(f"create index if not exists {index_name} on {rel_table(table)}({columns})")
@@ -706,6 +853,43 @@ def int_db_value(value: Any) -> int | None:
         return None
 
 
+def stable_child_id(prefix: str, *parts: Any) -> str:
+    raw = "|".join(str(part or "") for part in parts)
+    return f"{prefix}-{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]}"
+
+
+def normalized_option(option: Any, index: int) -> dict[str, Any]:
+    if isinstance(option, dict):
+        label = str(option.get("label") or option.get("value") or option.get("id") or "").strip()
+        value = str(option.get("value") or label).strip()
+        option_id = str(option.get("id") or stable_child_id("opt", value or label, index))
+        return {
+            "id": option_id,
+            "label": label,
+            "value": value,
+            "active": option.get("active") is not False,
+            "isDefault": bool(option.get("isDefault") or option.get("default")),
+            "goTo": option.get("goTo") or option.get("branchTo") or "",
+        }
+    label = str(option or "").strip()
+    return {
+        "id": stable_child_id("opt", label, index),
+        "label": label,
+        "value": label,
+        "active": True,
+        "isDefault": False,
+        "goTo": "",
+    }
+
+
+def response_values(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item not in (None, "")]
+    if value in (None, ""):
+        return []
+    return [str(value)]
+
+
 RELATIONAL_SYNC_SPECS = {
     "clients": {
         "table": "climaparc_clients",
@@ -911,10 +1095,380 @@ def sync_collection_table(connection, state: dict, collection_key: str) -> None:
             execute(connection, f"delete from {table} where id = ?", (item_id,))
 
 
+def sync_building_contacts(connection, buildings: list[Any]) -> None:
+    for building in buildings:
+        if not isinstance(building, dict) or not building.get("id"):
+            continue
+        building_id = str(building["id"])
+        execute(connection, f"delete from {rel_table('climaparc_building_contacts')} where building_id = ?", (building_id,))
+        contacts = [
+            ("onsite", building.get("onsiteContactName"), building.get("onsiteContactPhone"), building.get("onsiteContactPoste"), building.get("onsiteContactEmail")),
+            ("billing", building.get("billingContactName"), building.get("billingContactPhone"), building.get("billingContactPoste"), building.get("billingContactEmail")),
+        ]
+        for role, name, phone, poste, email in contacts:
+            if not any([name, phone, poste, email]):
+                continue
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_building_contacts')} (
+                  building_id, contact_role, name, phone, phone_poste, email, updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?)
+                on conflict(building_id, contact_role) do update set
+                  name = excluded.name,
+                  phone = excluded.phone,
+                  phone_poste = excluded.phone_poste,
+                  email = excluded.email,
+                  updated_at = excluded.updated_at
+                """,
+                (building_id, role, name, phone, poste, email, now_value()),
+            )
+
+
+def sync_work_order_technicians(connection, work_orders: list[Any]) -> None:
+    for order in work_orders:
+        if not isinstance(order, dict) or not order.get("id"):
+            continue
+        order_id = str(order["id"])
+        execute(connection, f"delete from {rel_table('climaparc_work_order_technicians')} where work_order_id = ?", (order_id,))
+        technician_ids: list[str] = []
+        if order.get("technicianId"):
+            technician_ids.append(str(order["technicianId"]))
+        for user_id in order.get("assignedTechnicianIds", []) if isinstance(order.get("assignedTechnicianIds"), list) else []:
+            if user_id and str(user_id) not in technician_ids:
+                technician_ids.append(str(user_id))
+        for user_id in technician_ids:
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_work_order_technicians')} (
+                  work_order_id, user_id, is_primary, updated_at
+                )
+                values (?, ?, ?, ?)
+                on conflict(work_order_id, user_id) do update set
+                  is_primary = excluded.is_primary,
+                  updated_at = excluded.updated_at
+                """,
+                (order_id, user_id, user_id == str(order.get("technicianId") or ""), now_value()),
+            )
+
+
+def sync_data_field_options(connection, data_fields: list[Any]) -> None:
+    for field in data_fields:
+        if not isinstance(field, dict) or not field.get("id"):
+            continue
+        field_id = str(field["id"])
+        execute(connection, f"delete from {rel_table('climaparc_data_field_options')} where data_field_id = ?", (field_id,))
+        for index, raw_option in enumerate(field.get("options", []) if isinstance(field.get("options"), list) else []):
+            option = normalized_option(raw_option, index)
+            if not option["label"]:
+                continue
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_data_field_options')} (
+                  data_field_id, option_id, label, value, sort_order, active, updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?)
+                on conflict(data_field_id, option_id) do update set
+                  label = excluded.label,
+                  value = excluded.value,
+                  sort_order = excluded.sort_order,
+                  active = excluded.active,
+                  updated_at = excluded.updated_at
+                """,
+                (field_id, option["id"], option["label"], option["value"], index, option["active"], now_value()),
+            )
+
+
+def sync_form_template_children(connection, templates: list[Any]) -> None:
+    for template in templates:
+        if not isinstance(template, dict) or not template.get("id"):
+            continue
+        template_id = str(template["id"])
+        execute(connection, f"delete from {rel_table('climaparc_form_template_fields')} where template_id = ?", (template_id,))
+        execute(connection, f"delete from {rel_table('climaparc_form_template_field_options')} where template_id = ?", (template_id,))
+        current_section_id = ""
+        for index, field in enumerate(template.get("fields", []) if isinstance(template.get("fields"), list) else []):
+            if not isinstance(field, dict):
+                continue
+            field_id = str(field.get("id") or stable_child_id("field", template_id, index))
+            if field.get("type") == "section":
+                current_section_id = field_id
+            show_when = field.get("showWhen") if isinstance(field.get("showWhen"), dict) else {}
+            default_value = field.get("defaultValue")
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_form_template_fields')} (
+                  template_id, field_id, section_id, label, field_type, is_required, layout,
+                  unit_scope, data_field_id, show_when_field_id, show_when_value, default_value,
+                  sort_order, updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(template_id, field_id) do update set
+                  section_id = excluded.section_id,
+                  label = excluded.label,
+                  field_type = excluded.field_type,
+                  is_required = excluded.is_required,
+                  layout = excluded.layout,
+                  unit_scope = excluded.unit_scope,
+                  data_field_id = excluded.data_field_id,
+                  show_when_field_id = excluded.show_when_field_id,
+                  show_when_value = excluded.show_when_value,
+                  default_value = excluded.default_value,
+                  sort_order = excluded.sort_order,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    template_id,
+                    field_id,
+                    "" if field.get("type") == "section" else current_section_id,
+                    field.get("label", ""),
+                    field.get("type", "text"),
+                    bool(field.get("required")),
+                    field.get("layout", "full"),
+                    field.get("unitScope", "all"),
+                    field.get("dataFieldId", ""),
+                    show_when.get("fieldId", ""),
+                    show_when.get("value", ""),
+                    json.dumps(default_value, ensure_ascii=False) if isinstance(default_value, (dict, list)) else scalar_db_value(default_value),
+                    index,
+                    now_value(),
+                ),
+            )
+            for option_index, raw_option in enumerate(field.get("options", []) if isinstance(field.get("options"), list) else []):
+                option = normalized_option(raw_option, option_index)
+                if not option["label"]:
+                    continue
+                branch_target = ""
+                branch_rules = field.get("branchRules") if isinstance(field.get("branchRules"), dict) else {}
+                if option["value"] in branch_rules:
+                    branch_target = str(branch_rules[option["value"]] or "")
+                execute(
+                    connection,
+                    f"""
+                    insert into {rel_table('climaparc_form_template_field_options')} (
+                      template_id, field_id, option_id, label, value, go_to, is_default,
+                      sort_order, updated_at
+                    )
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    on conflict(template_id, field_id, option_id) do update set
+                      label = excluded.label,
+                      value = excluded.value,
+                      go_to = excluded.go_to,
+                      is_default = excluded.is_default,
+                      sort_order = excluded.sort_order,
+                      updated_at = excluded.updated_at
+                    """,
+                    (template_id, field_id, option["id"], option["label"], option["value"], option["goTo"] or branch_target, option["isDefault"], option_index, now_value()),
+                )
+
+
+def sync_role_permissions(connection, roles: list[Any]) -> None:
+    for role in roles:
+        if not isinstance(role, dict) or not role.get("id"):
+            continue
+        role_id = str(role["id"])
+        execute(connection, f"delete from {rel_table('climaparc_role_permissions')} where role_id = ?", (role_id,))
+        rights = role.get("rights", [])
+        if not isinstance(rights, list):
+            rights = []
+        for permission in rights:
+            if not permission:
+                continue
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_role_permissions')} (
+                  role_id, permission, enabled, updated_at
+                )
+                values (?, ?, ?, ?)
+                on conflict(role_id, permission) do update set
+                  enabled = excluded.enabled,
+                  updated_at = excluded.updated_at
+                """,
+                (role_id, str(permission), True, now_value()),
+            )
+
+
+def sync_intervention_children(connection, interventions: list[Any]) -> None:
+    for intervention in interventions:
+        if not isinstance(intervention, dict) or not intervention.get("id"):
+            continue
+        intervention_id = str(intervention["id"])
+        execute(connection, f"delete from {rel_table('climaparc_intervention_responses')} where intervention_id = ?", (intervention_id,))
+        execute(connection, f"delete from {rel_table('climaparc_intervention_response_values')} where intervention_id = ?", (intervention_id,))
+        execute(connection, f"delete from {rel_table('climaparc_intervention_attachments')} where intervention_id = ?", (intervention_id,))
+        execute(connection, f"delete from {rel_table('climaparc_recommendation_messages')} where intervention_id = ?", (intervention_id,))
+        responses = intervention.get("formResponses") if isinstance(intervention.get("formResponses"), dict) else {}
+        for field_key, raw_value in responses.items():
+            field_key_text = str(field_key)
+            values = response_values(raw_value)
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_intervention_responses')} (
+                  intervention_id, field_key, field_label, response_text, updated_at
+                )
+                values (?, ?, ?, ?, ?)
+                on conflict(intervention_id, field_key) do update set
+                  field_label = excluded.field_label,
+                  response_text = excluded.response_text,
+                  updated_at = excluded.updated_at
+                """,
+                (intervention_id, field_key_text, field_key_text, ", ".join(values), now_value()),
+            )
+            for index, value in enumerate(values):
+                execute(
+                    connection,
+                    f"""
+                    insert into {rel_table('climaparc_intervention_response_values')} (
+                      intervention_id, field_key, value_index, value_text, updated_at
+                    )
+                    values (?, ?, ?, ?, ?)
+                    on conflict(intervention_id, field_key, value_index) do update set
+                      value_text = excluded.value_text,
+                      updated_at = excluded.updated_at
+                    """,
+                    (intervention_id, field_key_text, index, value, now_value()),
+                )
+        for file in intervention.get("attachments", []) if isinstance(intervention.get("attachments"), list) else []:
+            if not isinstance(file, dict):
+                continue
+            file_id = str(file.get("id") or stable_child_id("file", intervention_id, file.get("name"), file.get("uploadedAt")))
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_intervention_attachments')} (
+                  id, intervention_id, equipment_id, work_order_id, name, file_name,
+                  file_type, file_size, uploaded_at, uploaded_by, updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(id) do update set
+                  intervention_id = excluded.intervention_id,
+                  equipment_id = excluded.equipment_id,
+                  work_order_id = excluded.work_order_id,
+                  name = excluded.name,
+                  file_name = excluded.file_name,
+                  file_type = excluded.file_type,
+                  file_size = excluded.file_size,
+                  uploaded_at = excluded.uploaded_at,
+                  uploaded_by = excluded.uploaded_by,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    file_id,
+                    intervention_id,
+                    intervention.get("equipmentId", ""),
+                    intervention.get("workOrderId", ""),
+                    file.get("name", ""),
+                    file.get("fileName", ""),
+                    file.get("fileType", ""),
+                    int_db_value(file.get("fileSize")),
+                    file.get("uploadedAt", ""),
+                    file.get("uploadedBy", ""),
+                    now_value(),
+                ),
+            )
+        recommendation = intervention.get("recommendation") if isinstance(intervention.get("recommendation"), dict) else {}
+        for index, message in enumerate(recommendation.get("messages", []) if isinstance(recommendation.get("messages"), list) else []):
+            if not isinstance(message, dict) or not message.get("text"):
+                continue
+            message_id = str(message.get("id") or stable_child_id("msg", intervention_id, index, message.get("createdAt")))
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_recommendation_messages')} (
+                  id, intervention_id, author_id, author_role, author_name, message_text,
+                  created_at_text, updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(id) do update set
+                  intervention_id = excluded.intervention_id,
+                  author_id = excluded.author_id,
+                  author_role = excluded.author_role,
+                  author_name = excluded.author_name,
+                  message_text = excluded.message_text,
+                  created_at_text = excluded.created_at_text,
+                  updated_at = excluded.updated_at
+                """,
+                (message_id, intervention_id, message.get("authorId", ""), message.get("authorRole", ""), message.get("authorName", ""), message.get("text", ""), message.get("createdAt", ""), now_value()),
+            )
+
+
+def sync_equipment_attachments(connection, equipment_items: list[Any]) -> None:
+    for equipment in equipment_items:
+        if not isinstance(equipment, dict) or not equipment.get("id"):
+            continue
+        equipment_id = str(equipment["id"])
+        execute(connection, f"delete from {rel_table('climaparc_equipment_attachments')} where equipment_id = ?", (equipment_id,))
+        for file in equipment.get("attachments", []) if isinstance(equipment.get("attachments"), list) else []:
+            if not isinstance(file, dict):
+                continue
+            file_id = str(file.get("id") or stable_child_id("file", equipment_id, file.get("name"), file.get("uploadedAt")))
+            execute(
+                connection,
+                f"""
+                insert into {rel_table('climaparc_equipment_attachments')} (
+                  id, equipment_id, source_intervention_id, source_work_order_id, name,
+                  file_name, file_type, file_size, uploaded_at, uploaded_by, updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(id) do update set
+                  equipment_id = excluded.equipment_id,
+                  source_intervention_id = excluded.source_intervention_id,
+                  source_work_order_id = excluded.source_work_order_id,
+                  name = excluded.name,
+                  file_name = excluded.file_name,
+                  file_type = excluded.file_type,
+                  file_size = excluded.file_size,
+                  uploaded_at = excluded.uploaded_at,
+                  uploaded_by = excluded.uploaded_by,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    file_id,
+                    equipment_id,
+                    file.get("sourceInterventionId", ""),
+                    file.get("sourceWorkOrderId", ""),
+                    file.get("name", ""),
+                    file.get("fileName", ""),
+                    file.get("fileType", ""),
+                    int_db_value(file.get("fileSize")),
+                    file.get("uploadedAt", ""),
+                    file.get("uploadedBy", ""),
+                    now_value(),
+                ),
+            )
+
+
+def sync_normalized_children(connection, state: dict, collection_key: str) -> None:
+    items = state.get(collection_key)
+    if not isinstance(items, list):
+        return
+    if collection_key == "buildings":
+        sync_building_contacts(connection, items)
+    elif collection_key == "workOrders":
+        sync_work_order_technicians(connection, items)
+    elif collection_key == "dataFields":
+        sync_data_field_options(connection, items)
+    elif collection_key == "formTemplates":
+        sync_form_template_children(connection, items)
+    elif collection_key == "roleDefinitions":
+        sync_role_permissions(connection, items)
+    elif collection_key == "interventions":
+        sync_intervention_children(connection, items)
+    elif collection_key == "equipment":
+        sync_equipment_attachments(connection, items)
+
+
 def sync_relational_tables(connection, state: dict, collection_keys: set[str] | None = None) -> None:
     keys = set(RELATIONAL_SYNC_SPECS.keys()) if collection_keys is None else collection_keys
     for collection_key in keys:
         sync_collection_table(connection, state, collection_key)
+        sync_normalized_children(connection, state, collection_key)
 
 
 def changed_collection_keys(changes: dict | None) -> set[str]:
@@ -1266,7 +1820,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            self.json_response(EquipmentService().save(payload.get("equipment")))
+            result = EquipmentService().save(payload.get("equipment"))
+            sync_relational_tables_safely(result.get("state", {}), {"equipment"})
+            self.json_response(result)
         except ServiceError as error:
             self.json_response({"error": error.message}, error.status)
         except Exception as error:
@@ -1296,7 +1852,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            self.json_response(service_class().save(payload.get(payload_key)))
+            result = service_class().save(payload.get(payload_key))
+            collection_key = getattr(service_class, "collection_key", "")
+            if collection_key:
+                sync_relational_tables_safely(result.get("state", {}), {collection_key})
+            self.json_response(result)
         except ServiceError as error:
             self.json_response({"error": error.message}, error.status)
         except Exception as error:

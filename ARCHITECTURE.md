@@ -51,6 +51,11 @@ Routes deja migrees vers la nouvelle architecture:
 
 - `/api/equipment`
 - `/api/user`
+- `/api/building`
+- `/api/apartment`
+- `/api/ticket`
+- `/api/work-order`
+- `/api/intervention`
 
 Frontend deja separe:
 
@@ -67,3 +72,27 @@ Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatib
 6. Decoupage progressif de `app.js` en modules de vues par domaine
 
 Chaque migration doit suivre le meme modele: service metier, repository dedie, puis controller fin.
+
+## Normalisation de la base
+
+Le modele relationnel applique progressivement la 3e forme normale:
+
+- **1FN**: les listes et groupes repetes sont sortis du JSON vers des tables enfants.
+- **2FN**: les tables de liaison utilisent une cle composee ou une cle dediee ou chaque attribut depend de toute la cle.
+- **3FN**: les attributs descriptifs dependent de leur propre entite, pas d'un autre attribut non-cle.
+
+Tables enfants normalisees ajoutees:
+
+- `climaparc_building_contacts`: contacts sur place et facturation par lieu.
+- `climaparc_work_order_technicians`: plusieurs techniciens par bon de travail.
+- `climaparc_data_field_options`: options centralisees des champs de donnees.
+- `climaparc_form_template_fields`: questions des formulaires.
+- `climaparc_form_template_field_options`: options et branchements par question.
+- `climaparc_role_permissions`: droits par role.
+- `climaparc_intervention_responses`: reponses par intervention et question.
+- `climaparc_intervention_response_values`: valeurs multiples d'une reponse.
+- `climaparc_equipment_attachments`: fichiers rattaches a une machine.
+- `climaparc_intervention_attachments`: fichiers rattaches a une intervention.
+- `climaparc_recommendation_messages`: conversation autour d'une recommandation.
+
+La colonne `payload` reste presente comme couche de compatibilite avec l'interface actuelle. Elle ne doit plus etre consideree comme le modele cible pour les rapports, filtres avances ou integrations futures. Les nouveaux rapports et recherches doivent lire prioritairement les tables normalisees.

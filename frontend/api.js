@@ -37,6 +37,21 @@
     saveUser(user) {
       return post("/api/user", { user });
     },
+    saveBuilding(building) {
+      return post("/api/building", { building });
+    },
+    saveApartment(apartment) {
+      return post("/api/apartment", { apartment });
+    },
+    saveTicket(ticket) {
+      return post("/api/ticket", { ticket });
+    },
+    saveWorkOrder(workOrder) {
+      return post("/api/work-order", { workOrder });
+    },
+    saveIntervention(intervention) {
+      return post("/api/intervention", { intervention });
+    },
     signup(seed, values) {
       return post("/api/signup", { seed, ...values });
     },

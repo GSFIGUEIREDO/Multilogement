@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from backend.services import EquipmentService, ServiceError, UserService
+from backend.repositories import hydrate_state_from_payload_tables
+from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, UserService, WorkOrderService
 
 
 ROOT = Path(__file__).resolve().parent
@@ -462,7 +463,8 @@ def get_state(connection, lock: bool = False) -> dict | None:
     if not row:
         return None
     value = row_get(row, "state_json")
-    return json.loads(value) if isinstance(value, str) else value
+    state = json.loads(value) if isinstance(value, str) else value
+    return hydrate_state_from_payload_tables(connection, state)
 
 
 def save_state(connection, state: dict) -> None:
@@ -1027,6 +1029,21 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/user":
             self.handle_save_user()
             return
+        if parsed.path == "/api/building":
+            self.handle_service_save(BuildingService, "building")
+            return
+        if parsed.path == "/api/apartment":
+            self.handle_service_save(ApartmentService, "apartment")
+            return
+        if parsed.path == "/api/ticket":
+            self.handle_service_save(TicketService, "ticket")
+            return
+        if parsed.path == "/api/work-order":
+            self.handle_service_save(WorkOrderService, "workOrder")
+            return
+        if parsed.path == "/api/intervention":
+            self.handle_service_save(InterventionService, "intervention")
+            return
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_session(self) -> None:
@@ -1271,6 +1288,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"User save failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_service_save(self, service_class, payload_key: str) -> None:
+        user = read_session(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            self.json_response(service_class().save(payload.get(payload_key)))
+        except ServiceError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"{payload_key} save failed: {error}")
+            self.json_response({"error": f"Erreur serveur lors de la sauvegarde {payload_key}."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

@@ -15,7 +15,8 @@ class StateRepository:
         if not row:
             return None
         value = row_get(row, "state_json")
-        return json.loads(value) if isinstance(value, str) else value
+        state = json.loads(value) if isinstance(value, str) else value
+        return hydrate_state_from_payload_tables(connection, state)
 
     def save(self, connection, state: dict) -> None:
         execute(
@@ -108,6 +109,71 @@ class EquipmentRepository:
                 now_value(),
             ),
         )
+
+
+class PayloadTableRepository:
+    def __init__(self, table: str, column_map: list[tuple[str, str]]):
+        self.table = table
+        self.column_map = column_map
+
+    def upsert(self, connection, payload: dict) -> None:
+        columns = ["id", *[column for column, _ in self.column_map], "payload", "updated_at"]
+        placeholders = ", ".join("?" for _ in columns)
+        updates = ", ".join(f"{column} = excluded.{column}" for column in columns if column != "id")
+        values = [payload["id"]]
+        values.extend(payload.get(source) for _, source in self.column_map)
+        values.extend([json_db_value(payload), now_value()])
+        execute(
+            connection,
+            f"""
+            insert into {self.table} ({", ".join(columns)})
+            values ({placeholders})
+            on conflict(id) do update set {updates}
+            """,
+            tuple(values),
+        )
+
+
+PAYLOAD_TABLE_COLLECTIONS = {
+    "clients": "climaparc_clients",
+    "buildings": "climaparc_buildings",
+    "apartments": "climaparc_apartments",
+    "equipment": "climaparc_equipment",
+    "tickets": "climaparc_tickets",
+    "workOrders": "climaparc_work_orders",
+    "interventions": "climaparc_interventions",
+    "reminders": "climaparc_reminders",
+    "clientDocuments": "climaparc_client_documents",
+    "serviceTypes": "climaparc_service_types",
+    "interventionTypes": "climaparc_intervention_types",
+    "formTemplates": "climaparc_form_templates",
+    "roleDefinitions": "climaparc_role_definitions",
+    "dataFields": "climaparc_data_fields",
+    "passwordResetRequests": "climaparc_password_reset_requests",
+}
+
+
+def decode_payload(value: Any) -> dict | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+def hydrate_state_from_payload_tables(connection, state: dict | None) -> dict | None:
+    if not isinstance(state, dict):
+        return state
+    for collection_key, table in PAYLOAD_TABLE_COLLECTIONS.items():
+        try:
+            rows = execute(connection, f"select payload from {table} order by updated_at desc").fetchall()
+        except Exception:
+            continue
+        payloads = [payload for payload in (decode_payload(row_get(row, "payload")) for row in rows) if payload]
+        if payloads:
+            state[collection_key] = payloads
+    return state
 
 
 def clean_public_user(user: dict) -> dict:

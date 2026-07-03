@@ -943,6 +943,31 @@
     }
   }
 
+  async function saveDomainItemNow(apiCall, item, uiPatch, successToast) {
+    if (!SERVER_ENABLED) {
+      storage.write(STORAGE_KEY, state);
+      return;
+    }
+    if (!state.sessionUserId || restoringSession) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const payload = await apiCall(item);
+    if (payload.state) {
+      rememberServerState(payload.state);
+      const uiState = currentUiState();
+      state = {
+        ...normalizeState(payload.state),
+        ...uiState,
+        ...uiPatch,
+        sessionUserId: uiState.sessionUserId,
+        modal: null,
+        toast: successToast
+      };
+      render();
+      scheduleToastClear();
+    }
+  }
+
   function currentUiState() {
     return {
       sessionUserId: state.sessionUserId,
@@ -5033,13 +5058,13 @@
     if (formType === "signup") signup(values);
     if (formType === "forgotPassword") requestPasswordReset(values);
     if (formType === "resetPassword") resetPassword(values);
-    if (formType === "building") saveBuilding(values);
-    if (formType === "apartment") saveApartment(values);
-    if (formType === "ticket") createTicket(form, values);
-    if (formType === "workorder") createWorkOrder(form, values);
+    if (formType === "building") await saveBuilding(values);
+    if (formType === "apartment") await saveApartment(values);
+    if (formType === "ticket") await createTicket(form, values);
+    if (formType === "workorder") await createWorkOrder(form, values);
     if (formType === "equipment") await createEquipment(values);
     if (formType === "reminder") saveReminder(form, values);
-    if (formType === "user") createUser(form, values);
+    if (formType === "user") await createUser(form, values);
     if (formType === "dataField") saveDataField(form, values);
     if (formType === "serviceType") saveServiceType(values);
     if (formType === "interventionType") saveInterventionType(values);
@@ -5254,7 +5279,8 @@
     }
   }
 
-  function saveBuilding(values) {
+  async function saveBuilding(values) {
+    const previousBuildings = JSON.parse(JSON.stringify(state.buildings));
     const payload = {
       id: values.id || uid("b"),
       clientId: values.clientId,
@@ -5273,10 +5299,18 @@
     const index = state.buildings.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.buildings[index] = payload;
     else state.buildings.unshift(payload);
-    setState({ modal: null, selectedBuildingId: payload.id, activeView: "lieu_detail", toast: index >= 0 ? "Lieu modifié." : "Lieu créé." });
+    const uiPatch = { selectedBuildingId: payload.id, activeView: "lieu_detail" };
+    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde du lieu..." });
+    try {
+      await saveDomainItemNow(api.saveBuilding, payload, uiPatch, index >= 0 ? "Lieu modifié." : "Lieu créé.");
+    } catch (error) {
+      state.buildings = previousBuildings;
+      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Lieu non sauvegardé." });
+    }
   }
 
-  function saveApartment(values) {
+  async function saveApartment(values) {
+    const previousApartments = JSON.parse(JSON.stringify(state.apartments));
     const payload = {
       id: values.id || uid("apt"),
       buildingId: values.buildingId,
@@ -5286,7 +5320,14 @@
     const index = state.apartments.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.apartments[index] = payload;
     else state.apartments.push(payload);
-    setState({ modal: null, selectedBuildingId: payload.buildingId, activeView: "lieu_detail", toast: index >= 0 ? "Appartement modifié." : "Appartement créé." });
+    const uiPatch = { selectedBuildingId: payload.buildingId, activeView: "lieu_detail" };
+    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde de l'appartement..." });
+    try {
+      await saveDomainItemNow(api.saveApartment, payload, uiPatch, index >= 0 ? "Appartement modifié." : "Appartement créé.");
+    } catch (error) {
+      state.apartments = previousApartments;
+      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Appartement non sauvegardé." });
+    }
   }
 
   function deleteApartment(id) {
@@ -5309,10 +5350,13 @@
     });
   }
 
-  function createTicket(form, values) {
+  async function createTicket(form, values) {
+    const previousTickets = JSON.parse(JSON.stringify(state.tickets));
     const { building, apartment } = equipmentContext(values.equipmentId);
     const serviceType = state.serviceTypes.find((item) => item.id === values.serviceTypeId) || state.serviceTypes[0];
     const existing = state.tickets.find((item) => item.id === values.id);
+    let payload;
+    let successToast;
     if (existing) {
       const closedAt = values.status === "ferme" ? existing.closedAt || today() : "";
       Object.assign(existing, {
@@ -5326,30 +5370,42 @@
         status: values.status,
         closedAt
       });
-      setState({ modal: null, activeView: "appels", toast: "Demande client modifiée." });
-      return;
+      payload = existing;
+      successToast = "Demande client modifiée.";
+    } else {
+      payload = {
+        id: uid("tk"),
+        number: nextTicketNumber(),
+        clientId: currentUser().role === "client" ? currentUser().clientId : clientForBuilding(building.id)?.id,
+        buildingId: building.id,
+        apartmentId: apartment.id,
+        equipmentId: values.equipmentId,
+        serviceTypeId: values.serviceTypeId || serviceType?.id || "",
+        title: values.title,
+        description: values.description,
+        priority: values.priority || serviceType?.defaultPriority || "normale",
+        status: values.status || "ouvert",
+        createdAt: today(),
+        closedAt: values.status === "ferme" ? today() : "",
+        createdBy: currentUser().id
+      };
+      state.tickets.unshift(payload);
+      successToast = "Demande client créée.";
     }
-    const ticket = {
-      id: uid("tk"),
-      number: nextTicketNumber(),
-      clientId: currentUser().role === "client" ? currentUser().clientId : clientForBuilding(building.id)?.id,
-      buildingId: building.id,
-      apartmentId: apartment.id,
-      equipmentId: values.equipmentId,
-      serviceTypeId: values.serviceTypeId || serviceType?.id || "",
-      title: values.title,
-      description: values.description,
-      priority: values.priority || serviceType?.defaultPriority || "normale",
-      status: values.status || "ouvert",
-      createdAt: today(),
-      closedAt: values.status === "ferme" ? today() : "",
-      createdBy: currentUser().id
-    };
-    state.tickets.unshift(ticket);
-    setState({ modal: null, activeView: "appels", toast: "Demande client créée." });
+    const uiPatch = { activeView: "appels" };
+    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde de la demande..." });
+    try {
+      await saveDomainItemNow(api.saveTicket, payload, uiPatch, successToast);
+    } catch (error) {
+      state.tickets = previousTickets;
+      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Demande client non sauvegardée." });
+    }
   }
 
-  function createWorkOrder(form, values) {
+  async function createWorkOrder(form, values) {
+    const previousWorkOrders = JSON.parse(JSON.stringify(state.workOrders));
+    const previousTickets = JSON.parse(JSON.stringify(state.tickets));
+    const previousReminders = JSON.parse(JSON.stringify(state.reminders));
     const scope = values.scope || "equipment";
     const assignedTechnicianIds = Array.from(form.querySelectorAll('[name="assignedTechnicianIds"]:checked')).map((input) => input.value);
     const technicianId = values.technicianId || assignedTechnicianIds[0] || "";
@@ -5362,6 +5418,9 @@
       return;
     }
     const existing = state.workOrders.find((item) => item.id === values.id);
+    let payload;
+    let successToast;
+    let linkedTicket = null;
     if (existing) {
       Object.assign(existing, {
         scope,
@@ -5378,34 +5437,62 @@
         sourceReminderId: values.sourceReminderId || existing.sourceReminderId || ""
       });
       if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, existing.id);
-      setState({ modal: null, activeView: "bons", toast: "Bon de travail modifié." });
-      return;
+      payload = existing;
+      successToast = "Bon de travail modifié.";
+    } else {
+      const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
+      payload = {
+        id: uid("wo"),
+        number,
+        ticketId: values.ticketId || null,
+        scope,
+        buildingId: scope === "building" ? values.buildingId : "",
+        equipmentId: scope === "equipment" ? values.equipmentId : "",
+        typeId: values.typeId,
+        formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
+        technicianId,
+        assignedTeam: "",
+        assignedTechnicianIds,
+        scheduledDate: values.scheduledDate,
+        status: values.status,
+        notes: values.notes,
+        sourceReminderId: values.sourceReminderId || ""
+      };
+      state.workOrders.unshift(payload);
+      if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, payload.id);
+      if (values.ticketId) {
+        linkedTicket = state.tickets.find((item) => item.id === values.ticketId);
+        if (linkedTicket) linkedTicket.status = "en_cours";
+      }
+      successToast = "Bon de travail créé.";
     }
-    const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
-    const order = {
-      id: uid("wo"),
-      number,
-      ticketId: values.ticketId || null,
-      scope,
-      buildingId: scope === "building" ? values.buildingId : "",
-      equipmentId: scope === "equipment" ? values.equipmentId : "",
-      typeId: values.typeId,
-      formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
-      technicianId,
-      assignedTeam: "",
-      assignedTechnicianIds,
-      scheduledDate: values.scheduledDate,
-      status: values.status,
-      notes: values.notes,
-      sourceReminderId: values.sourceReminderId || ""
-    };
-    state.workOrders.unshift(order);
-    if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, order.id);
-    if (values.ticketId) {
-      const ticket = state.tickets.find((item) => item.id === values.ticketId);
-      if (ticket) ticket.status = "en_cours";
+    const uiPatch = { activeView: "bons" };
+    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde du bon de travail..." });
+    try {
+      await saveDomainItemNow(api.saveWorkOrder, payload, uiPatch, successToast);
+      if (linkedTicket) {
+        const ticketPayload = await api.saveTicket(linkedTicket);
+        if (ticketPayload.state) {
+          rememberServerState(ticketPayload.state);
+          const uiState = currentUiState();
+          state = {
+            ...normalizeState(ticketPayload.state),
+            ...uiState,
+            ...uiPatch,
+            sessionUserId: uiState.sessionUserId,
+            modal: null,
+            toast: successToast
+          };
+          render();
+          scheduleToastClear();
+        }
+      }
+    } catch (error) {
+      state.workOrders = previousWorkOrders;
+      state.tickets = previousTickets;
+      state.reminders = previousReminders;
+      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Bon de travail non sauvegardé." });
     }
-    setState({ modal: null, activeView: "bons", toast: "Bon de travail créé." });
   }
 
   function markReminderWorkOrderOpened(reminderId, orderId) {
@@ -6075,10 +6162,12 @@
     });
   }
 
-  function createWorkOrderFromRecommendation(interventionId) {
+  async function createWorkOrderFromRecommendation(interventionId) {
     const intervention = state.interventions.find((item) => item.id === interventionId);
     const recommendation = intervention?.recommendation;
     if (!intervention || recommendation?.status !== "approuvee") return;
+    const previousWorkOrders = JSON.parse(JSON.stringify(state.workOrders));
+    const previousInterventions = JSON.parse(JSON.stringify(state.interventions));
     const repairType = state.interventionTypes.find((item) => /réparation|reparation|diagnostic/i.test(item.name)) || state.interventionTypes[0];
     const technician = state.users.find((user) => user.role === "technicien");
     const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
@@ -6098,7 +6187,30 @@
     };
     state.workOrders.unshift(order);
     recommendation.workOrderId = order.id;
-    setState({ activeView: "bons", toast: `BT créé: ${order.number}` });
+    const uiPatch = { activeView: "bons" };
+    updateUiState({ ...uiPatch, toast: "Création du BT..." });
+    try {
+      await saveDomainItemNow(api.saveWorkOrder, order, uiPatch, `BT créé: ${order.number}`);
+      const interventionPayload = await api.saveIntervention(intervention);
+      if (interventionPayload.state) {
+        rememberServerState(interventionPayload.state);
+        const uiState = currentUiState();
+        state = {
+          ...normalizeState(interventionPayload.state),
+          ...uiState,
+          ...uiPatch,
+          sessionUserId: uiState.sessionUserId,
+          modal: null,
+          toast: `BT créé: ${order.number}`
+        };
+        render();
+        scheduleToastClear();
+      }
+    } catch (error) {
+      state.workOrders = previousWorkOrders;
+      state.interventions = previousInterventions;
+      updateUiState({ ...uiPatch, toast: error.message || "BT non créé." });
+    }
   }
 
   function resolveActivityApartment(order, values) {

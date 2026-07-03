@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 from .database import connect, row_get
-from .repositories import AuthUserRepository, EquipmentRepository, StateRepository, clean_public_user, stamp_payload
+from .repositories import AuthUserRepository, EquipmentRepository, PayloadTableRepository, StateRepository, clean_public_user, stamp_payload
 
 
 class ServiceError(Exception):
@@ -57,6 +57,127 @@ class EquipmentService:
         state["sessionUserId"] = None
         state["modal"] = None
         state["toast"] = ""
+
+
+class CollectionItemService:
+    collection_key = ""
+    entity_label = "Element"
+    table = ""
+    column_map: list[tuple[str, str]] = []
+
+    def __init__(self, state_repository: StateRepository | None = None, payload_repository: PayloadTableRepository | None = None):
+        self.state_repository = state_repository or StateRepository()
+        self.payload_repository = payload_repository or PayloadTableRepository(self.table, self.column_map)
+
+    def save(self, payload: dict) -> dict:
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise ServiceError(f"{self.entity_label} invalide.")
+        item = stamp_payload(payload)
+        with connect() as connection:
+            state = self.state_repository.get(connection, lock=True)
+            if not state:
+                raise ServiceError("Etat introuvable.")
+            collection = state.setdefault(self.collection_key, [])
+            if not isinstance(collection, list):
+                collection = []
+                state[self.collection_key] = collection
+            existing_index = next(
+                (index for index, current in enumerate(collection) if isinstance(current, dict) and current.get("id") == item["id"]),
+                -1,
+            )
+            if existing_index >= 0:
+                collection[existing_index] = item
+            else:
+                collection.insert(0, item)
+            self._clear_ui_state(state)
+            self.payload_repository.upsert(connection, item)
+            self.state_repository.save(connection, state)
+        return {"ok": True, "state": state, "item": item}
+
+    @staticmethod
+    def _clear_ui_state(state: dict) -> None:
+        state["sessionUserId"] = None
+        state["modal"] = None
+        state["toast"] = ""
+
+
+class BuildingService(CollectionItemService):
+    collection_key = "buildings"
+    entity_label = "Lieu"
+    table = "climaparc_buildings"
+    column_map = [
+        ("client_id", "clientId"),
+        ("name", "name"),
+        ("address", "address"),
+        ("onsite_contact_name", "onsiteContactName"),
+        ("onsite_contact_email", "onsiteContactEmail"),
+        ("billing_contact_name", "billingContactName"),
+        ("billing_contact_email", "billingContactEmail"),
+    ]
+
+
+class ApartmentService(CollectionItemService):
+    collection_key = "apartments"
+    entity_label = "Appartement"
+    table = "climaparc_apartments"
+    column_map = [
+        ("building_id", "buildingId"),
+        ("number", "number"),
+        ("occupant", "occupant"),
+    ]
+
+
+class TicketService(CollectionItemService):
+    collection_key = "tickets"
+    entity_label = "Demande client"
+    table = "climaparc_tickets"
+    column_map = [
+        ("number", "number"),
+        ("client_id", "clientId"),
+        ("building_id", "buildingId"),
+        ("apartment_id", "apartmentId"),
+        ("equipment_id", "equipmentId"),
+        ("title", "title"),
+        ("priority", "priority"),
+        ("status", "status"),
+        ("service_type_id", "serviceTypeId"),
+        ("created_at_text", "createdAt"),
+        ("closed_at_text", "closedAt"),
+    ]
+
+
+class WorkOrderService(CollectionItemService):
+    collection_key = "workOrders"
+    entity_label = "Bon de travail"
+    table = "climaparc_work_orders"
+    column_map = [
+        ("number", "number"),
+        ("ticket_id", "ticketId"),
+        ("building_id", "buildingId"),
+        ("apartment_id", "apartmentId"),
+        ("equipment_id", "equipmentId"),
+        ("type_id", "typeId"),
+        ("status", "status"),
+        ("scheduled_date", "scheduledDate"),
+        ("technician_id", "technicianId"),
+    ]
+
+
+class InterventionService(CollectionItemService):
+    collection_key = "interventions"
+    entity_label = "Intervention"
+    table = "climaparc_interventions"
+    column_map = [
+        ("work_order_id", "workOrderId"),
+        ("apartment_id", "apartmentId"),
+        ("equipment_id", "equipmentId"),
+        ("technician_id", "technicianId"),
+        ("form_template_id", "formTemplateId"),
+        ("status", "status"),
+        ("activity_status", "activityStatus"),
+        ("machine_status", "machineStatus"),
+        ("date_text", "date"),
+    ]
 
 
 class UserService:

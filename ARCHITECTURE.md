@@ -4,42 +4,66 @@
 
 Le projet applique progressivement une combinaison de:
 
-- **MVC / Controller fin**: `server.py` reçoit les requêtes HTTP et sert l'interface.
-- **Service Layer**: `backend/services.py` contient les règles métier.
-- **Repository Pattern**: `backend/repositories.py` isole les opérations de persistance.
-- **Database Gateway**: `backend/database.py` centralise connexion, SQL compatible SQLite/Postgres et helpers de sécurité.
+- **MVC / Controller fin**: `server.py` recoit les requetes HTTP et sert l'interface.
+- **Service Layer**: `backend/services.py` contient les regles metier.
+- **Repository Pattern**: `backend/repositories.py` isole les operations de persistence.
+- **Database Gateway**: `backend/database.py` centralise connexion, SQL compatible SQLite/Postgres et helpers de securite.
+- **Frontend Service Layer**: `frontend/api.js` isole les appels HTTP; `frontend/storage.js` isole le stockage local.
 
-Ce choix garde le déploiement actuel simple tout en séparant les responsabilités pour audit et évolution.
+Ce choix garde le deploiement actuel simple tout en separant les responsabilites pour audit et evolution.
 
 ## Organisation
 
 ```text
-index.html          Interface livrée au navigateur
-app.js              UI / logique d'écran côté navigateur
-styles.css          Styles de l'interface
-server.py           Controller HTTP, sessions, routes legacy
+index.html             Charge l'interface et les couches frontend
+app.js                 UI et orchestration d'ecran cote navigateur
+styles.css             Styles de l'interface
+
+frontend/
+  api.js               Service API cote navigateur
+  storage.js           Persistence locale cote navigateur
+
+server.py              Controller HTTP, sessions, routes legacy
+
 backend/
-  database.py       Connexion DB, helpers SQL/JSON/password
-  repositories.py   Lecture/écriture état, utilisateurs, équipements
-  services.py       Règles métier utilisateurs et équipements
+  database.py          Connexion DB, helpers SQL/JSON/password
+  repositories.py      Lecture/ecriture etat, utilisateurs, equipements
+  services.py          Regles metier utilisateurs et equipements
 ```
 
-## Règle de dépendance
+## Regle de dependance
 
 ```text
-UI -> HTTP Controller -> Services -> Repositories -> Database
+UI -> Frontend Services -> HTTP Controller -> Backend Services -> Repositories -> Database
 ```
 
-La couche UI ne doit pas écrire directement dans la base. Le controller ne doit pas contenir de règles métier complexes. Toute nouvelle fonctionnalité devrait d'abord créer un service, puis un repository si elle doit persister des données.
+La couche UI ne doit pas appeler `fetch` directement ni manipuler `localStorage` directement.
+Le controller ne doit pas contenir de regles metier complexes.
+Toute nouvelle fonctionnalite persistante devrait suivre ce modele:
 
-## Migration progressive
+```text
+app.js -> frontend/api.js -> server.py -> backend/services.py -> backend/repositories.py -> backend/database.py
+```
 
-Le projet conserve encore un état JSON central (`climaparc_state`) pour compatibilité. Les nouvelles routes critiques (`/api/equipment`, `/api/user`) passent déjà par la nouvelle architecture. Les prochaines migrations recommandées sont:
+## Etat actuel
+
+Routes deja migrees vers la nouvelle architecture:
+
+- `/api/equipment`
+- `/api/user`
+
+Frontend deja separe:
+
+- appels serveur dans `frontend/api.js`
+- stockage local dans `frontend/storage.js`
+
+Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 
 1. `Demandes des clients`
 2. `Bons de travail`
 3. `Lieux / Appartements`
 4. `Rappels`
 5. `Documents`
+6. Decoupage progressif de `app.js` en modules de vues par domaine
 
-Chaque migration doit suivre le même modèle: service métier, repository dédié, puis controller fin.
+Chaque migration doit suivre le meme modele: service metier, repository dedie, puis controller fin.

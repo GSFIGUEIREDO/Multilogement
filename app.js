@@ -1,6 +1,8 @@
 ﻿(function () {
   const STORAGE_KEY = "climaparc_hvac_v2";
   const SERVER_ENABLED = typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:");
+  const api = window.ClimaParcApi;
+  const storage = window.ClimaParcStorage;
   let saveTimer = null;
   let toastTimer = null;
   let refreshTimer = null;
@@ -521,12 +523,12 @@
       return normalizeState(JSON.parse(JSON.stringify(seed)));
     }
     try {
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      const stored = storage.read(STORAGE_KEY);
       if (stored && stored.users && stored.equipment) {
         return normalizeState(stored);
       }
     } catch (error) {
-      localStorage.removeItem(STORAGE_KEY);
+      storage.remove(STORAGE_KEY);
     }
     return normalizeState(JSON.parse(JSON.stringify(seed)));
   }
@@ -837,7 +839,7 @@
 
   function saveState() {
     if (!SERVER_ENABLED) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      storage.write(STORAGE_KEY, state);
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
@@ -847,12 +849,7 @@
       const changes = buildStateChanges();
       if (!changes) return;
       const saveStartedAt = Date.now();
-      fetch("/api/state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(changes.fullState ? { state: changes.fullState } : { changes })
-      }).then((response) => response.ok ? response.json().catch(() => null) : null)
+      api.saveState(changes.fullState ? { state: changes.fullState } : { changes })
         .then((payload) => {
           if (!payload?.state) return;
           if (state.modal || lastLocalChangeAt > saveStartedAt) return;
@@ -875,7 +872,7 @@
 
   async function saveStateNow() {
     if (!SERVER_ENABLED) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      storage.write(STORAGE_KEY, state);
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
@@ -883,14 +880,7 @@
     saveTimer = null;
     const changes = buildStateChanges();
     if (!changes) return;
-    const response = await fetch("/api/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(changes.fullState ? { state: changes.fullState } : { changes })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `Sauvegarde impossible (HTTP ${response.status}).`);
+    const payload = await api.saveState(changes.fullState ? { state: changes.fullState } : { changes });
     if (payload.state) {
       rememberServerState(payload.state);
       const uiState = currentUiState();
@@ -904,20 +894,13 @@
 
   async function saveEquipmentNow(equipment, successToast) {
     if (!SERVER_ENABLED) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      storage.write(STORAGE_KEY, state);
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
-    const response = await fetch("/api/equipment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ equipment })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `Sauvegarde impossible (HTTP ${response.status}).`);
+    const payload = await api.saveEquipment(equipment);
     if (payload.state) {
       rememberServerState(payload.state);
       const uiState = currentUiState();
@@ -937,20 +920,13 @@
 
   async function saveUserNow(user, successToast) {
     if (!SERVER_ENABLED) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      storage.write(STORAGE_KEY, state);
       return;
     }
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
-    const response = await fetch("/api/user", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ user })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `Sauvegarde impossible (HTTP ${response.status}).`);
+    const payload = await api.saveUser(user);
     if (payload.state) {
       rememberServerState(payload.state);
       const uiState = currentUiState();
@@ -5084,22 +5060,21 @@
     const uiState = currentUiState();
     restoringSession = true;
     try {
-      const response = await fetch("/api/session", { credentials: "same-origin" });
-      if (response.ok) {
-        const payload = await response.json();
-        rememberServerState(payload.state);
-        state = {
-          ...normalizeState(payload.state),
-          ...(lastLocalChangeAt > restoreStartedAt ? uiState : {}),
-          sessionUserId: payload.user.id,
-          modal: lastLocalChangeAt > restoreStartedAt ? uiState.modal : null,
-          toast: ""
-        };
-        state.activeView = state.activeView || "tableau";
-        render();
-        ensureBrowserHistoryGuard();
-        startAutoRefresh();
-      }
+      const payload = await api.session();
+      rememberServerState(payload.state);
+      state = {
+        ...normalizeState(payload.state),
+        ...(lastLocalChangeAt > restoreStartedAt ? uiState : {}),
+        sessionUserId: payload.user.id,
+        modal: lastLocalChangeAt > restoreStartedAt ? uiState.modal : null,
+        toast: ""
+      };
+      state.activeView = state.activeView || "tableau";
+      render();
+      ensureBrowserHistoryGuard();
+      startAutoRefresh();
+    } catch (error) {
+      // No active server session.
     } finally {
       restoringSession = false;
     }
@@ -5110,9 +5085,7 @@
     restoringSession = true;
     const uiState = currentUiState();
     try {
-      const response = await fetch("/api/session", { credentials: "same-origin" });
-      if (!response.ok) return;
-      const payload = await response.json();
+      const payload = await api.session();
       rememberServerState(payload.state);
       state = {
         ...normalizeState(payload.state),
@@ -5122,6 +5095,8 @@
       };
       render();
       replaceBrowserHistoryState();
+    } catch (error) {
+      // Keep the current UI state if the refresh cannot reach the server.
     } finally {
       restoringSession = false;
     }
@@ -5162,17 +5137,7 @@
     }
     if (SERVER_ENABLED) {
       try {
-        const response = await fetch("/api/signup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ ...values, seed })
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          showToast(payload.error || "Création du compte impossible.");
-          return;
-        }
+        const payload = await api.signup(seed, values);
         rememberServerState(payload.state);
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
@@ -5184,7 +5149,7 @@
         startAutoRefresh();
         scheduleToastClear();
       } catch (error) {
-        showToast("Serveur indisponible.");
+        showToast(error.message || "Serveur indisponible.");
       }
       return;
     }
@@ -5212,19 +5177,9 @@
   async function requestPasswordReset(values) {
     if (SERVER_ENABLED) {
       try {
-        const response = await fetch("/api/password-reset-request", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ email: values.email, seed })
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          showToast(payload.error || "Demande impossible.");
-          return;
-        }
+        await api.requestPasswordReset(seed, { email: values.email });
       } catch (error) {
-        showToast("Serveur indisponible.");
+        showToast(error.message || "Serveur indisponible.");
         return;
       }
     } else {
@@ -5248,39 +5203,19 @@
       return;
     }
     try {
-      const response = await fetch("/api/password-reset-confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ token: state.resetToken, password: values.password, confirmPassword: values.confirmPassword, seed })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        showToast(payload.error || "Réinitialisation impossible.");
-        return;
-      }
+      await api.confirmPasswordReset(seed, { token: state.resetToken, password: values.password, confirmPassword: values.confirmPassword });
       state.resetToken = "";
       window.history.replaceState({}, document.title, window.location.pathname);
       setState({ modal: null, toast: "Mot de passe réinitialisé. Vous pouvez vous connecter." });
     } catch (error) {
-      showToast("Serveur indisponible.");
+      showToast(error.message || "Serveur indisponible.");
     }
   }
 
   async function login(values) {
     if (SERVER_ENABLED) {
       try {
-        const response = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ email: values.email, password: values.password, seed })
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          showToast(payload.error || "Connexion impossible.");
-          return;
-        }
+        const payload = await api.login(seed, { email: values.email, password: values.password });
         rememberServerState(payload.state);
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
@@ -5291,7 +5226,7 @@
         ensureBrowserHistoryGuard();
         startAutoRefresh();
       } catch (error) {
-        showToast("Serveur indisponible.");
+        showToast(error.message || "Serveur indisponible.");
       }
       return;
     }
@@ -5305,7 +5240,7 @@
 
   async function logout() {
     if (SERVER_ENABLED) {
-      await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+      await api.logout();
     }
     if (refreshTimer) {
       clearInterval(refreshTimer);

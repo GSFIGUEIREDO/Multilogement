@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from backend.services import EquipmentService, ServiceError, UserService
+
 
 ROOT = Path(__file__).resolve().parent
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DATABASE_URL")
@@ -681,41 +683,6 @@ def sync_users(connection, state: dict) -> None:
         )
 
 
-def upsert_auth_user(connection, user: dict) -> None:
-    password = str(user.get("password") or "")
-    email = str(user["email"]).lower()
-    existing_email = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
-    if existing_email and row_get(existing_email, "id") != user["id"]:
-        raise ValueError(f"Un utilisateur existe deja avec le courriel {email}.")
-    existing = execute(connection, "select salt from climaparc_users where id = ?", (user["id"],)).fetchone()
-    digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
-    execute(
-        connection,
-        """
-        insert into climaparc_users (id, email, name, role, client_id, password_hash, salt, updated_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?)
-        on conflict(id) do update set
-          email = excluded.email,
-          name = excluded.name,
-          role = excluded.role,
-          client_id = excluded.client_id,
-          password_hash = excluded.password_hash,
-          salt = excluded.salt,
-          updated_at = excluded.updated_at
-        """,
-        (
-            user["id"],
-            email,
-            user.get("name", ""),
-            user.get("role", ""),
-            user.get("clientId"),
-            digest,
-            salt,
-            now_value(),
-        ),
-    )
-
-
 def scalar_db_value(value: Any):
     if value is None:
         return None
@@ -1281,38 +1248,13 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return
         payload = self.read_json()
-        equipment = payload.get("equipment")
-        if not isinstance(equipment, dict) or not equipment.get("id"):
-            self.json_response({"error": "Machine invalide."}, HTTPStatus.BAD_REQUEST)
-            return
-        equipment = dict(equipment)
-        equipment["serverUpdatedAt"] = server_timestamp()
-        with db() as connection:
-            state = get_state(connection, lock=True)
-            if not state:
-                self.json_response({"error": "Etat introuvable."}, HTTPStatus.BAD_REQUEST)
-                return
-            items = state.setdefault("equipment", [])
-            if not isinstance(items, list):
-                items = []
-                state["equipment"] = items
-            existing_index = next(
-                (index for index, item in enumerate(items) if isinstance(item, dict) and item.get("id") == equipment["id"]),
-                -1,
-            )
-            if existing_index >= 0:
-                existing = items[existing_index]
-                if isinstance(existing, dict) and existing.get("attachments") and not equipment.get("attachments"):
-                    equipment["attachments"] = existing.get("attachments")
-                items[existing_index] = equipment
-            else:
-                items.insert(0, equipment)
-            state["sessionUserId"] = None
-            state["modal"] = None
-            state["toast"] = ""
-            save_state(connection, state)
-        sync_relational_tables_safely(state, {"equipment"})
-        self.json_response({"ok": True, "state": state, "equipment": equipment})
+        try:
+            self.json_response(EquipmentService().save(payload.get("equipment")))
+        except ServiceError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"Equipment save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde machine."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_save_user(self) -> None:
         current_user = read_session(self.headers.get("Cookie"))
@@ -1320,86 +1262,15 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return
         payload = self.read_json()
-        user = payload.get("user")
-        if not isinstance(user, dict) or not user.get("id"):
-            self.json_response({"error": "Utilisateur invalide."}, HTTPStatus.BAD_REQUEST)
-            return
-        user = dict(user)
-        user["email"] = str(user.get("email", "")).strip().lower()
-        if not user["email"] or not user.get("name") or not user.get("role"):
-            self.json_response({"error": "Nom, courriel et role sont obligatoires."}, HTTPStatus.BAD_REQUEST)
-            return
-        if not str(user.get("password") or "").strip():
-            self.json_response({"error": "Mot de passe obligatoire."}, HTTPStatus.BAD_REQUEST)
-            return
-        user["serverUpdatedAt"] = server_timestamp()
-        with db() as connection:
-            state = get_state(connection, lock=True)
-            if not state:
-                self.json_response({"error": "Etat introuvable."}, HTTPStatus.BAD_REQUEST)
-                return
-            users = state.setdefault("users", [])
-            if not isinstance(users, list):
-                users = []
-                state["users"] = users
-            requester_id = row_get(current_user, "id")
-            requester = next((item for item in users if isinstance(item, dict) and item.get("id") == requester_id), None)
-            if not requester:
-                requester = {
-                    "id": requester_id,
-                    "role": row_get(current_user, "role"),
-                    "clientId": row_get(current_user, "client_id"),
-                }
-            requester_role = requester.get("role")
-            if requester_role == "client":
-                user["role"] = "client"
-                user["clientId"] = requester.get("clientId")
-            elif requester_role not in {"administrateur", "equipe_interne"}:
-                self.json_response({"error": "Droits insuffisants."}, HTTPStatus.FORBIDDEN)
-                return
-
-            existing_index = next(
-                (index for index, item in enumerate(users) if isinstance(item, dict) and item.get("id") == user["id"]),
-                -1,
-            )
-            if requester_role == "client" and existing_index >= 0:
-                existing_user = users[existing_index]
-                if existing_user.get("clientId") != requester.get("clientId"):
-                    self.json_response({"error": "Vous ne pouvez modifier que les utilisateurs de votre client."}, HTTPStatus.FORBIDDEN)
-                    return
-
-            duplicate_email = next(
-                (
-                    item for item in users
-                    if isinstance(item, dict)
-                    and str(item.get("email", "")).strip().lower() == user["email"]
-                    and item.get("id") != user["id"]
-                ),
-                None,
-            )
-            if duplicate_email:
-                self.json_response({"error": f"Un utilisateur existe deja avec le courriel {user['email']}."}, HTTPStatus.CONFLICT)
-                return
-
-            if existing_index >= 0:
-                users[existing_index] = user
-            else:
-                users.append(user)
-            state["sessionUserId"] = None
-            state["modal"] = None
-            state["toast"] = ""
-            try:
-                upsert_auth_user(connection, user)
-            except ValueError as error:
-                self.json_response({"error": str(error)}, HTTPStatus.CONFLICT)
-                return
-            except Exception as error:
-                print(f"User auth sync failed: {error}")
-                self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            save_state(connection, state)
-        sync_relational_tables_safely(state, {"users"})
-        self.json_response({"ok": True, "state": state, "user": {k: v for k, v in user.items() if k != "password"}})
+        try:
+            self.json_response(UserService().save(current_user, payload.get("user")))
+        except ServiceError as error:
+            self.json_response({"error": error.message}, error.status)
+        except ValueError as error:
+            self.json_response({"error": str(error)}, HTTPStatus.CONFLICT)
+        except Exception as error:
+            print(f"User save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

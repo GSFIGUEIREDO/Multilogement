@@ -1022,6 +1022,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/equipment":
             self.handle_save_equipment()
             return
+        if parsed.path == "/api/user":
+            self.handle_save_user()
+            return
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_session(self) -> None:
@@ -1275,6 +1278,82 @@ class Handler(BaseHTTPRequestHandler):
             save_state(connection, state)
         sync_relational_tables_safely(state, {"equipment"})
         self.json_response({"ok": True, "state": state, "equipment": equipment})
+
+    def handle_save_user(self) -> None:
+        current_user = read_session(self.headers.get("Cookie"))
+        if not current_user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        user = payload.get("user")
+        if not isinstance(user, dict) or not user.get("id"):
+            self.json_response({"error": "Utilisateur invalide."}, HTTPStatus.BAD_REQUEST)
+            return
+        user = dict(user)
+        user["email"] = str(user.get("email", "")).strip().lower()
+        if not user["email"] or not user.get("name") or not user.get("role"):
+            self.json_response({"error": "Nom, courriel et role sont obligatoires."}, HTTPStatus.BAD_REQUEST)
+            return
+        if not str(user.get("password") or "").strip():
+            self.json_response({"error": "Mot de passe obligatoire."}, HTTPStatus.BAD_REQUEST)
+            return
+        user["serverUpdatedAt"] = server_timestamp()
+        with db() as connection:
+            state = get_state(connection, lock=True)
+            if not state:
+                self.json_response({"error": "Etat introuvable."}, HTTPStatus.BAD_REQUEST)
+                return
+            users = state.setdefault("users", [])
+            if not isinstance(users, list):
+                users = []
+                state["users"] = users
+            requester_id = row_get(current_user, "id")
+            requester = next((item for item in users if isinstance(item, dict) and item.get("id") == requester_id), None)
+            if not requester:
+                self.json_response({"error": "Utilisateur courant introuvable."}, HTTPStatus.BAD_REQUEST)
+                return
+            requester_role = requester.get("role")
+            if requester_role == "client":
+                user["role"] = "client"
+                user["clientId"] = requester.get("clientId")
+            elif requester_role not in {"administrateur", "equipe_interne"}:
+                self.json_response({"error": "Droits insuffisants."}, HTTPStatus.FORBIDDEN)
+                return
+
+            existing_index = next(
+                (index for index, item in enumerate(users) if isinstance(item, dict) and item.get("id") == user["id"]),
+                -1,
+            )
+            if requester_role == "client" and existing_index >= 0:
+                existing_user = users[existing_index]
+                if existing_user.get("clientId") != requester.get("clientId"):
+                    self.json_response({"error": "Vous ne pouvez modifier que les utilisateurs de votre client."}, HTTPStatus.FORBIDDEN)
+                    return
+
+            duplicate_email = next(
+                (
+                    item for item in users
+                    if isinstance(item, dict)
+                    and str(item.get("email", "")).strip().lower() == user["email"]
+                    and item.get("id") != user["id"]
+                ),
+                None,
+            )
+            if duplicate_email:
+                self.json_response({"error": f"Un utilisateur existe deja avec le courriel {user['email']}."}, HTTPStatus.CONFLICT)
+                return
+
+            if existing_index >= 0:
+                users[existing_index] = user
+            else:
+                users.append(user)
+            state["sessionUserId"] = None
+            state["modal"] = None
+            state["toast"] = ""
+            save_state(connection, state)
+            sync_users(connection, state)
+        sync_relational_tables_safely(state, {"users"})
+        self.json_response({"ok": True, "state": state, "user": {k: v for k, v in user.items() if k != "password"}})
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

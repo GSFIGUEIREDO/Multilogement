@@ -935,6 +935,38 @@
     }
   }
 
+  async function saveUserNow(user, successToast) {
+    if (!SERVER_ENABLED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toast: "" }));
+      return;
+    }
+    if (!state.sessionUserId || restoringSession) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const response = await fetch("/api/user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ user })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
+    if (payload.state) {
+      rememberServerState(payload.state);
+      const uiState = currentUiState();
+      state = {
+        ...normalizeState(payload.state),
+        ...uiState,
+        sessionUserId: uiState.sessionUserId,
+        activeView: "utilisateurs",
+        modal: null,
+        toast: successToast
+      };
+      render();
+      scheduleToastClear();
+    }
+  }
+
   function currentUiState() {
     return {
       sessionUserId: state.sessionUserId,
@@ -5596,16 +5628,16 @@
         parentUserId: existing.parentUserId || (isClientManager ? creator.id : ""),
         updatedAt: changedAt
       });
+      updateUiState({ modal: null, activeView: "utilisateurs", toast: "Sauvegarde de l'utilisateur..." });
       try {
-        await saveStateNow();
-        setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur modifié." });
+        await saveUserNow(existing, "Utilisateur modifié.");
       } catch (error) {
         state.users = previousUsers;
-        showToast(error.message || "Utilisateur non sauvegardé.");
+        updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non sauvegardé." });
       }
       return;
     }
-    state.users.push({
+    const newUser = {
       id: uid("u"),
       name: values.name,
       email: values.email,
@@ -5617,13 +5649,14 @@
       portalRights,
       parentUserId: isClientManager ? creator.id : "",
       updatedAt: changedAt
-    });
+    };
+    state.users.push(newUser);
+    updateUiState({ modal: null, activeView: "utilisateurs", toast: "Sauvegarde de l'utilisateur..." });
     try {
-      await saveStateNow();
-      setState({ modal: null, activeView: "utilisateurs", toast: "Utilisateur créé." });
+      await saveUserNow(newUser, "Utilisateur créé.");
     } catch (error) {
       state.users = previousUsers;
-      showToast(error.message || "Utilisateur non sauvegardé.");
+      updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non sauvegardé." });
     }
   }
 

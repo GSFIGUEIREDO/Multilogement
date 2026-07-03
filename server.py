@@ -681,6 +681,41 @@ def sync_users(connection, state: dict) -> None:
         )
 
 
+def upsert_auth_user(connection, user: dict) -> None:
+    password = str(user.get("password") or "")
+    email = str(user["email"]).lower()
+    existing_email = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
+    if existing_email and row_get(existing_email, "id") != user["id"]:
+        raise ValueError(f"Un utilisateur existe deja avec le courriel {email}.")
+    existing = execute(connection, "select salt from climaparc_users where id = ?", (user["id"],)).fetchone()
+    digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
+    execute(
+        connection,
+        """
+        insert into climaparc_users (id, email, name, role, client_id, password_hash, salt, updated_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?)
+        on conflict(id) do update set
+          email = excluded.email,
+          name = excluded.name,
+          role = excluded.role,
+          client_id = excluded.client_id,
+          password_hash = excluded.password_hash,
+          salt = excluded.salt,
+          updated_at = excluded.updated_at
+        """,
+        (
+            user["id"],
+            email,
+            user.get("name", ""),
+            user.get("role", ""),
+            user.get("clientId"),
+            digest,
+            salt,
+            now_value(),
+        ),
+    )
+
+
 def scalar_db_value(value: Any):
     if value is None:
         return None
@@ -1310,8 +1345,11 @@ class Handler(BaseHTTPRequestHandler):
             requester_id = row_get(current_user, "id")
             requester = next((item for item in users if isinstance(item, dict) and item.get("id") == requester_id), None)
             if not requester:
-                self.json_response({"error": "Utilisateur courant introuvable."}, HTTPStatus.BAD_REQUEST)
-                return
+                requester = {
+                    "id": requester_id,
+                    "role": row_get(current_user, "role"),
+                    "clientId": row_get(current_user, "client_id"),
+                }
             requester_role = requester.get("role")
             if requester_role == "client":
                 user["role"] = "client"
@@ -1350,8 +1388,16 @@ class Handler(BaseHTTPRequestHandler):
             state["sessionUserId"] = None
             state["modal"] = None
             state["toast"] = ""
+            try:
+                upsert_auth_user(connection, user)
+            except ValueError as error:
+                self.json_response({"error": str(error)}, HTTPStatus.CONFLICT)
+                return
+            except Exception as error:
+                print(f"User auth sync failed: {error}")
+                self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
             save_state(connection, state)
-            sync_users(connection, state)
         sync_relational_tables_safely(state, {"users"})
         self.json_response({"ok": True, "state": state, "user": {k: v for k, v in user.items() if k != "password"}})
 

@@ -890,7 +890,7 @@
       body: JSON.stringify(changes.fullState ? { state: changes.fullState } : { changes })
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
+    if (!response.ok) throw new Error(payload.error || `Sauvegarde impossible (HTTP ${response.status}).`);
     if (payload.state) {
       rememberServerState(payload.state);
       const uiState = currentUiState();
@@ -917,7 +917,7 @@
       body: JSON.stringify({ equipment })
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
+    if (!response.ok) throw new Error(payload.error || `Sauvegarde impossible (HTTP ${response.status}).`);
     if (payload.state) {
       rememberServerState(payload.state);
       const uiState = currentUiState();
@@ -950,7 +950,7 @@
       body: JSON.stringify({ user })
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Sauvegarde impossible.");
+    if (!response.ok) throw new Error(payload.error || `Sauvegarde impossible (HTTP ${response.status}).`);
     if (payload.state) {
       rememberServerState(payload.state);
       const uiState = currentUiState();

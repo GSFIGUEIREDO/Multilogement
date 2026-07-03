@@ -4283,7 +4283,7 @@
     return modalShell(order.id ? "Modifier le bon de travail" : "Nouveau bon de travail", `
       <form class="form-grid" data-form="workorder">
         <input type="hidden" name="id" value="${escapeHtml(order.id || "")}">
-        <input type="hidden" name="ticketId" value="${escapeHtml(modal.ticketId || "")}">
+        <input type="hidden" name="ticketId" value="${escapeHtml(modal.ticketId || order.ticketId || "")}">
         <input type="hidden" name="sourceReminderId" value="${escapeHtml(modal.reminderId || order.sourceReminderId || "")}">
         <div class="split">
           <div class="field"><label>Portee du BT</label><select name="scope"><option value="building" ${selectedScope === "building" ? "selected" : ""}>Bloc complet / immeuble</option><option value="equipment" ${selectedScope === "equipment" ? "selected" : ""}>Machine precise</option></select></div>
@@ -5434,6 +5434,7 @@
         scheduledDate: values.scheduledDate,
         status: values.status,
         notes: values.notes,
+        ticketId: values.ticketId || existing.ticketId || null,
         sourceReminderId: values.sourceReminderId || existing.sourceReminderId || ""
       });
       if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, existing.id);

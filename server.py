@@ -86,9 +86,37 @@ def rel_table(name: str) -> str:
     return f"public.{name}" if USE_POSTGRES else name
 
 
+def column_exists(connection, table: str, column: str) -> bool:
+    if USE_POSTGRES:
+        row = execute(
+            connection,
+            """
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = ?
+              and column_name = ?
+            limit 1
+            """,
+            (table, column),
+        ).fetchone()
+        return bool(row)
+    rows = connection.execute(f"pragma table_info({table})").fetchall()
+    return any(row_get(row, "name") == column for row in rows)
+
+
+def ensure_table_columns(connection, table: str, columns: list[tuple[str, str]]) -> None:
+    for column, column_type in columns:
+        if column_exists(connection, table, column):
+            continue
+        execute(connection, f"alter table {rel_table(table)} add column {column} {column_type}")
+
+
 def init_relational_tables(connection) -> None:
     payload_column = "jsonb not null default '{}'::jsonb" if USE_POSTGRES else "text not null default '{}'"
     updated_column = "timestamptz not null default now()" if USE_POSTGRES else "integer not null default 0"
+    payload_migration_column = "jsonb" if USE_POSTGRES else "text"
+    updated_migration_column = "timestamptz" if USE_POSTGRES else "integer"
     bool_column = "boolean" if USE_POSTGRES else "integer"
 
     table_statements = [
@@ -423,6 +451,157 @@ def init_relational_tables(connection) -> None:
     ]
     for statement in table_statements:
         connection.execute(statement)
+
+    table_columns = {
+        "climaparc_clients": [
+            ("name", "text"),
+            ("contact", "text"),
+            ("email", "text"),
+            ("phone", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_buildings": [
+            ("client_id", "text"),
+            ("name", "text"),
+            ("address", "text"),
+            ("onsite_contact_name", "text"),
+            ("onsite_contact_email", "text"),
+            ("billing_contact_name", "text"),
+            ("billing_contact_email", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_apartments": [
+            ("building_id", "text"),
+            ("number", "text"),
+            ("occupant", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_equipment": [
+            ("apartment_id", "text"),
+            ("equipment_type", "text"),
+            ("brand", "text"),
+            ("model", "text"),
+            ("serial", "text"),
+            ("location", "text"),
+            ("unit_kind", "text"),
+            ("status", "text"),
+            ("install_date", "text"),
+            ("last_service", "text"),
+            ("next_service", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_tickets": [
+            ("number", "text"),
+            ("client_id", "text"),
+            ("building_id", "text"),
+            ("apartment_id", "text"),
+            ("equipment_id", "text"),
+            ("title", "text"),
+            ("priority", "text"),
+            ("status", "text"),
+            ("service_type_id", "text"),
+            ("created_at_text", "text"),
+            ("closed_at_text", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_work_orders": [
+            ("number", "text"),
+            ("ticket_id", "text"),
+            ("building_id", "text"),
+            ("apartment_id", "text"),
+            ("equipment_id", "text"),
+            ("type_id", "text"),
+            ("status", "text"),
+            ("scheduled_date", "text"),
+            ("technician_id", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_interventions": [
+            ("work_order_id", "text"),
+            ("apartment_id", "text"),
+            ("equipment_id", "text"),
+            ("technician_id", "text"),
+            ("form_template_id", "text"),
+            ("status", "text"),
+            ("activity_status", "text"),
+            ("machine_status", "text"),
+            ("date_text", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_reminders": [
+            ("equipment_id", "text"),
+            ("title", "text"),
+            ("status", "text"),
+            ("frequency_value", "integer"),
+            ("frequency_unit", "text"),
+            ("start_date", "text"),
+            ("next_due_date", "text"),
+            ("last_work_order_id", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_client_documents": [
+            ("client_id", "text"),
+            ("building_id", "text"),
+            ("apartment_id", "text"),
+            ("equipment_id", "text"),
+            ("name", "text"),
+            ("document_type", "text"),
+            ("file_name", "text"),
+            ("file_type", "text"),
+            ("uploaded_at", "text"),
+            ("visible_to_client", bool_column),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_service_types": [
+            ("name", "text"),
+            ("default_priority", "text"),
+            ("linked_intervention_type_id", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_intervention_types": [
+            ("name", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_form_templates": [
+            ("name", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_role_definitions": [
+            ("name", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_data_fields": [
+            ("name", "text"),
+            ("field_group", "text"),
+            ("field_type", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_password_reset_requests": [
+            ("email", "text"),
+            ("user_id", "text"),
+            ("status", "text"),
+            ("created_at_text", "text"),
+            ("expires_at_text", "text"),
+            ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+    }
+    for table, columns in table_columns.items():
+        ensure_table_columns(connection, table, columns)
 
     index_statements = [
         ("climaparc_buildings_client_id_idx", "climaparc_buildings", "client_id"),
@@ -1679,7 +1858,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Set-Cookie", f"climaparc_session={token}; HttpOnly; Path=/; SameSite=Lax")
         self.end_headers()
-        self.wfile.write(json.dumps({"user": {k: v for k, v in user.items() if k != "password"}, "state": state}, ensure_ascii=False).encode("utf-8"))
+        public_new_user = public_state_user(user)
+        self.wfile.write(
+            json.dumps(
+                {"user": public_new_user, "state": signup_response_state(state, client, public_new_user)},
+                ensure_ascii=False,
+            ).encode("utf-8")
+        )
 
     def handle_password_reset_request(self) -> None:
         payload = self.read_json()
@@ -1904,6 +2089,33 @@ def public_user(row) -> dict:
         "role": row_get(row, "role"),
         "clientId": row_get(row, "client_id"),
     }
+
+
+def public_state_user(user: dict) -> dict:
+    return {key: value for key, value in user.items() if key != "password"}
+
+
+def signup_response_state(state: dict, client: dict, user: dict) -> dict:
+    response_state = {
+        key: []
+        for key in MERGE_BY_ID_KEYS
+    }
+    response_state.update({
+        "sessionUserId": None,
+        "modal": None,
+        "toast": "",
+        "clients": [client],
+        "users": [user],
+        "serviceTypes": state.get("serviceTypes", []),
+        "interventionTypes": state.get("interventionTypes", []),
+        "formTemplates": state.get("formTemplates", []),
+        "roleDefinitions": state.get("roleDefinitions", []),
+        "dataFields": state.get("dataFields", []),
+        "reportFilters": state.get("reportFilters", {}),
+        "filters": state.get("filters", {}),
+        "workOrderFilters": state.get("workOrderFilters", {}),
+    })
+    return response_state
 
 
 def main() -> None:

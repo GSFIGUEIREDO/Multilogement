@@ -38,6 +38,7 @@ SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "no-reply@climaparc.ca")
 if USE_POSTGRES:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
 
 
 def db():
@@ -70,6 +71,247 @@ def expires_value():
 
 def row_get(row, key: str):
     return row[key]
+
+
+def json_db_value(value: Any):
+    if USE_POSTGRES:
+        return Jsonb(value)
+    return json.dumps(value, ensure_ascii=False)
+
+
+def rel_table(name: str) -> str:
+    return f"public.{name}" if USE_POSTGRES else name
+
+
+def init_relational_tables(connection) -> None:
+    payload_column = "jsonb not null default '{}'::jsonb" if USE_POSTGRES else "text not null default '{}'"
+    updated_column = "timestamptz not null default now()" if USE_POSTGRES else "integer not null default 0"
+    bool_column = "boolean" if USE_POSTGRES else "integer"
+
+    table_statements = [
+        f"""
+        create table if not exists {rel_table("climaparc_clients")} (
+          id text primary key,
+          name text not null default '',
+          contact text,
+          email text,
+          phone text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_buildings")} (
+          id text primary key,
+          client_id text,
+          name text not null default '',
+          address text,
+          onsite_contact_name text,
+          onsite_contact_email text,
+          billing_contact_name text,
+          billing_contact_email text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_apartments")} (
+          id text primary key,
+          building_id text,
+          number text not null default '',
+          occupant text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_equipment")} (
+          id text primary key,
+          apartment_id text,
+          equipment_type text,
+          brand text,
+          model text,
+          serial text,
+          location text,
+          unit_kind text,
+          status text,
+          install_date text,
+          last_service text,
+          next_service text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_tickets")} (
+          id text primary key,
+          number text,
+          client_id text,
+          building_id text,
+          apartment_id text,
+          equipment_id text,
+          title text,
+          priority text,
+          status text,
+          service_type_id text,
+          created_at_text text,
+          closed_at_text text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_work_orders")} (
+          id text primary key,
+          number text,
+          ticket_id text,
+          building_id text,
+          apartment_id text,
+          equipment_id text,
+          type_id text,
+          status text,
+          scheduled_date text,
+          technician_id text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_interventions")} (
+          id text primary key,
+          work_order_id text,
+          apartment_id text,
+          equipment_id text,
+          technician_id text,
+          form_template_id text,
+          status text,
+          activity_status text,
+          machine_status text,
+          date_text text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_reminders")} (
+          id text primary key,
+          equipment_id text,
+          title text,
+          status text,
+          frequency_value integer,
+          frequency_unit text,
+          start_date text,
+          next_due_date text,
+          last_work_order_id text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_client_documents")} (
+          id text primary key,
+          client_id text,
+          building_id text,
+          apartment_id text,
+          equipment_id text,
+          name text,
+          document_type text,
+          file_name text,
+          file_type text,
+          uploaded_at text,
+          visible_to_client {bool_column},
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_service_types")} (
+          id text primary key,
+          name text not null default '',
+          default_priority text,
+          linked_intervention_type_id text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_intervention_types")} (
+          id text primary key,
+          name text not null default '',
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_form_templates")} (
+          id text primary key,
+          name text not null default '',
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_role_definitions")} (
+          id text primary key,
+          name text not null default '',
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_data_fields")} (
+          id text primary key,
+          name text not null default '',
+          field_group text,
+          field_type text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+        f"""
+        create table if not exists {rel_table("climaparc_password_reset_requests")} (
+          id text primary key,
+          email text,
+          user_id text,
+          status text,
+          created_at_text text,
+          expires_at_text text,
+          payload {payload_column},
+          updated_at {updated_column}
+        )
+        """,
+    ]
+    for statement in table_statements:
+        connection.execute(statement)
+
+    index_statements = [
+        ("climaparc_buildings_client_id_idx", "climaparc_buildings", "client_id"),
+        ("climaparc_apartments_building_id_idx", "climaparc_apartments", "building_id"),
+        ("climaparc_equipment_apartment_id_idx", "climaparc_equipment", "apartment_id"),
+        ("climaparc_equipment_status_idx", "climaparc_equipment", "status"),
+        ("climaparc_equipment_serial_idx", "climaparc_equipment", "serial"),
+        ("climaparc_tickets_number_idx", "climaparc_tickets", "number"),
+        ("climaparc_tickets_client_id_idx", "climaparc_tickets", "client_id"),
+        ("climaparc_tickets_building_id_idx", "climaparc_tickets", "building_id"),
+        ("climaparc_tickets_equipment_id_idx", "climaparc_tickets", "equipment_id"),
+        ("climaparc_tickets_status_idx", "climaparc_tickets", "status"),
+        ("climaparc_work_orders_number_idx", "climaparc_work_orders", "number"),
+        ("climaparc_work_orders_ticket_id_idx", "climaparc_work_orders", "ticket_id"),
+        ("climaparc_work_orders_building_id_idx", "climaparc_work_orders", "building_id"),
+        ("climaparc_work_orders_equipment_id_idx", "climaparc_work_orders", "equipment_id"),
+        ("climaparc_work_orders_status_idx", "climaparc_work_orders", "status"),
+        ("climaparc_work_orders_scheduled_date_idx", "climaparc_work_orders", "scheduled_date"),
+        ("climaparc_interventions_work_order_id_idx", "climaparc_interventions", "work_order_id"),
+        ("climaparc_interventions_equipment_id_idx", "climaparc_interventions", "equipment_id"),
+        ("climaparc_reminders_equipment_id_idx", "climaparc_reminders", "equipment_id"),
+        ("climaparc_reminders_status_idx", "climaparc_reminders", "status"),
+        ("climaparc_reminders_next_due_date_idx", "climaparc_reminders", "next_due_date"),
+        ("climaparc_client_documents_client_id_idx", "climaparc_client_documents", "client_id"),
+        ("climaparc_client_documents_building_id_idx", "climaparc_client_documents", "building_id"),
+        ("climaparc_client_documents_equipment_id_idx", "climaparc_client_documents", "equipment_id"),
+    ]
+    for index_name, table, columns in index_statements:
+        connection.execute(f"create index if not exists {index_name} on {rel_table(table)}({columns})")
 
 
 def init_db() -> None:
@@ -109,6 +351,7 @@ def init_db() -> None:
             )
             connection.execute("create index if not exists climaparc_sessions_user_id_idx on public.climaparc_sessions(user_id)")
             connection.execute("create index if not exists climaparc_sessions_expires_at_idx on public.climaparc_sessions(expires_at)")
+            init_relational_tables(connection)
             return
 
         connection.executescript(
@@ -137,6 +380,7 @@ def init_db() -> None:
             );
             """
         )
+        init_relational_tables(connection)
 
 
 def password_hash(password: str, salt: str | None = None) -> tuple[str, str]:
@@ -204,8 +448,11 @@ def send_password_reset_email(email: str, reset_url: str) -> bool:
         return False
 
 
-def get_state(connection) -> dict | None:
-    row = execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+def get_state(connection, lock: bool = False) -> dict | None:
+    statement = "select state_json from climaparc_state where id = 1"
+    if USE_POSTGRES and lock:
+        statement += " for update"
+    row = execute(connection, statement).fetchone()
     if not row:
         return None
     value = row_get(row, "state_json")
@@ -220,7 +467,7 @@ def save_state(connection, state: dict) -> None:
         values (1, ?, ?)
         on conflict(id) do update set state_json = excluded.state_json, updated_at = excluded.updated_at
         """,
-        (json.dumps(state, ensure_ascii=False), now_value()),
+        (json_db_value(state), now_value()),
     )
 
 
@@ -277,7 +524,12 @@ def merge_by_id(current_items: list[Any], incoming_items: list[Any]) -> list[Any
         if current and incoming:
             current_stamp = item_timestamp(current)
             incoming_stamp = item_timestamp(incoming)
-            chosen = current if current_stamp and incoming_stamp and current_stamp > incoming_stamp else incoming
+            if current_stamp and incoming_stamp:
+                chosen = current if current_stamp > incoming_stamp else incoming
+            elif current_stamp and not incoming_stamp:
+                chosen = current
+            else:
+                chosen = incoming
             if isinstance(current.get("attachments"), list) or isinstance(incoming.get("attachments"), list):
                 chosen = dict(chosen)
                 chosen["attachments"] = merge_by_id(current.get("attachments", []), incoming.get("attachments", []))
@@ -297,6 +549,47 @@ def merge_shared_state(current: dict | None, incoming: dict) -> dict:
     return merged
 
 
+def apply_state_changes(current: dict | None, changes: dict) -> dict:
+    merged = dict(current or {})
+    values = changes.get("values") if isinstance(changes.get("values"), dict) else {}
+    for key, value in values.items():
+        if key in {"sessionUserId", "modal", "toast"}:
+            continue
+        merged[key] = value
+
+    upserts = changes.get("upserts") if isinstance(changes.get("upserts"), dict) else {}
+    deletes = changes.get("deletes") if isinstance(changes.get("deletes"), dict) else {}
+
+    for key in MERGE_BY_ID_KEYS:
+        current_items = merged.get(key, [])
+        if not isinstance(current_items, list):
+            current_items = []
+        remove_ids = {
+            str(item_id)
+            for item_id in deletes.get(key, [])
+            if item_id is not None
+        }
+        by_id: dict[str, Any] = {
+            str(item.get("id")): item
+            for item in current_items
+            if isinstance(item, dict) and item.get("id") is not None and str(item.get("id")) not in remove_ids
+        }
+        order: list[str] = [
+            str(item.get("id"))
+            for item in current_items
+            if isinstance(item, dict) and item.get("id") is not None and str(item.get("id")) not in remove_ids
+        ]
+        for item in upserts.get(key, []):
+            if not isinstance(item, dict) or item.get("id") is None:
+                continue
+            item_id = str(item.get("id"))
+            by_id[item_id] = item
+            if item_id not in order:
+                order.insert(0, item_id)
+        merged[key] = [by_id[item_id] for item_id in order if item_id in by_id]
+    return merged
+
+
 def duplicate_user_email(state: dict) -> str | None:
     seen: set[str] = set()
     for user in state.get("users", []):
@@ -312,6 +605,19 @@ def duplicate_user_email(state: dict) -> str | None:
 
 
 def sync_users(connection, state: dict) -> None:
+    state_user_ids = {
+        str(user.get("id"))
+        for user in state.get("users", [])
+        if isinstance(user, dict) and user.get("id")
+    }
+    if not state_user_ids:
+        return
+    existing_users = execute(connection, "select id from climaparc_users").fetchall()
+    for row in existing_users:
+        user_id = str(row_get(row, "id"))
+        if user_id not in state_user_ids:
+            execute(connection, "delete from climaparc_sessions where user_id = ?", (user_id,))
+            execute(connection, "delete from climaparc_users where id = ?", (user_id,))
     for user in state.get("users", []):
         password = str(user.get("password") or "")
         email = str(user["email"]).lower()
@@ -348,6 +654,249 @@ def sync_users(connection, state: dict) -> None:
         )
 
 
+def scalar_db_value(value: Any):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value if USE_POSTGRES else int(value)
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def int_db_value(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+RELATIONAL_SYNC_SPECS = {
+    "clients": {
+        "table": "climaparc_clients",
+        "columns": [
+            ("name", "name"),
+            ("contact", "contact"),
+            ("email", "email"),
+            ("phone", "phone"),
+        ],
+    },
+    "buildings": {
+        "table": "climaparc_buildings",
+        "columns": [
+            ("client_id", "clientId"),
+            ("name", "name"),
+            ("address", "address"),
+            ("onsite_contact_name", "onsiteContactName"),
+            ("onsite_contact_email", "onsiteContactEmail"),
+            ("billing_contact_name", "billingContactName"),
+            ("billing_contact_email", "billingContactEmail"),
+        ],
+    },
+    "apartments": {
+        "table": "climaparc_apartments",
+        "columns": [
+            ("building_id", "buildingId"),
+            ("number", "number"),
+            ("occupant", "occupant"),
+        ],
+    },
+    "equipment": {
+        "table": "climaparc_equipment",
+        "columns": [
+            ("apartment_id", "apartmentId"),
+            ("equipment_type", "type"),
+            ("brand", "brand"),
+            ("model", "model"),
+            ("serial", "serial"),
+            ("location", "location"),
+            ("unit_kind", "unitKind"),
+            ("status", "status"),
+            ("install_date", "installDate"),
+            ("last_service", "lastService"),
+            ("next_service", "nextService"),
+        ],
+    },
+    "tickets": {
+        "table": "climaparc_tickets",
+        "columns": [
+            ("number", "number"),
+            ("client_id", "clientId"),
+            ("building_id", "buildingId"),
+            ("apartment_id", "apartmentId"),
+            ("equipment_id", "equipmentId"),
+            ("title", "title"),
+            ("priority", "priority"),
+            ("status", "status"),
+            ("service_type_id", "serviceTypeId"),
+            ("created_at_text", "createdAt"),
+            ("closed_at_text", "closedAt"),
+        ],
+    },
+    "workOrders": {
+        "table": "climaparc_work_orders",
+        "columns": [
+            ("number", "number"),
+            ("ticket_id", "ticketId"),
+            ("building_id", "buildingId"),
+            ("apartment_id", "apartmentId"),
+            ("equipment_id", "equipmentId"),
+            ("type_id", "typeId"),
+            ("status", "status"),
+            ("scheduled_date", "scheduledDate"),
+            ("technician_id", "technicianId"),
+        ],
+    },
+    "interventions": {
+        "table": "climaparc_interventions",
+        "columns": [
+            ("work_order_id", "workOrderId"),
+            ("apartment_id", "apartmentId"),
+            ("equipment_id", "equipmentId"),
+            ("technician_id", "technicianId"),
+            ("form_template_id", "formTemplateId"),
+            ("status", "status"),
+            ("activity_status", "activityStatus"),
+            ("machine_status", "machineStatus"),
+            ("date_text", "date"),
+        ],
+    },
+    "reminders": {
+        "table": "climaparc_reminders",
+        "columns": [
+            ("equipment_id", "equipmentId"),
+            ("title", "title"),
+            ("status", "status"),
+            ("frequency_value", lambda item: int_db_value(item.get("frequencyValue"))),
+            ("frequency_unit", "frequencyUnit"),
+            ("start_date", "startDate"),
+            ("next_due_date", "nextDueDate"),
+            ("last_work_order_id", "lastWorkOrderId"),
+        ],
+    },
+    "clientDocuments": {
+        "table": "climaparc_client_documents",
+        "columns": [
+            ("client_id", "clientId"),
+            ("building_id", "buildingId"),
+            ("apartment_id", "apartmentId"),
+            ("equipment_id", "equipmentId"),
+            ("name", "name"),
+            ("document_type", "type"),
+            ("file_name", "fileName"),
+            ("file_type", "fileType"),
+            ("uploaded_at", "uploadedAt"),
+            ("visible_to_client", lambda item: item.get("visibleToClient") is not False),
+        ],
+    },
+    "serviceTypes": {
+        "table": "climaparc_service_types",
+        "columns": [
+            ("name", "name"),
+            ("default_priority", "defaultPriority"),
+            ("linked_intervention_type_id", "linkedInterventionTypeId"),
+        ],
+    },
+    "interventionTypes": {
+        "table": "climaparc_intervention_types",
+        "columns": [
+            ("name", "name"),
+        ],
+    },
+    "formTemplates": {
+        "table": "climaparc_form_templates",
+        "columns": [
+            ("name", "name"),
+        ],
+    },
+    "roleDefinitions": {
+        "table": "climaparc_role_definitions",
+        "columns": [
+            ("name", "name"),
+        ],
+    },
+    "dataFields": {
+        "table": "climaparc_data_fields",
+        "columns": [
+            ("name", "name"),
+            ("field_group", "group"),
+            ("field_type", "type"),
+        ],
+    },
+    "passwordResetRequests": {
+        "table": "climaparc_password_reset_requests",
+        "columns": [
+            ("email", "email"),
+            ("user_id", "userId"),
+            ("status", "status"),
+            ("created_at_text", "createdAt"),
+            ("expires_at_text", "expiresAt"),
+        ],
+    },
+}
+
+
+def sync_collection_table(connection, state: dict, collection_key: str) -> None:
+    spec = RELATIONAL_SYNC_SPECS.get(collection_key)
+    if not spec:
+        return
+    items = state.get(collection_key)
+    if not isinstance(items, list):
+        return
+
+    table = rel_table(spec["table"])
+    column_specs = spec["columns"]
+    data_columns = [column for column, _ in column_specs]
+    all_columns = ["id", *data_columns, "payload", "updated_at"]
+    placeholders = ", ".join("?" for _ in all_columns)
+    update_clause = ", ".join(f"{column} = excluded.{column}" for column in all_columns if column != "id")
+    statement = f"""
+        insert into {table} ({", ".join(all_columns)})
+        values ({placeholders})
+        on conflict(id) do update set {update_clause}
+    """
+
+    seen_ids: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict) or item.get("id") in (None, ""):
+            continue
+        item_id = str(item.get("id"))
+        seen_ids.add(item_id)
+        values: list[Any] = [item_id]
+        for _, source in column_specs:
+            raw_value = source(item) if callable(source) else item.get(source)
+            values.append(scalar_db_value(raw_value))
+        values.extend([json_db_value(item), now_value()])
+        execute(connection, statement, tuple(values))
+
+    existing_rows = execute(connection, f"select id from {table}").fetchall()
+    for row in existing_rows:
+        item_id = str(row_get(row, "id"))
+        if item_id not in seen_ids:
+            execute(connection, f"delete from {table} where id = ?", (item_id,))
+
+
+def sync_relational_tables(connection, state: dict, collection_keys: set[str] | None = None) -> None:
+    keys = set(RELATIONAL_SYNC_SPECS.keys()) if collection_keys is None else collection_keys
+    for collection_key in keys:
+        sync_collection_table(connection, state, collection_key)
+
+
+def changed_collection_keys(changes: dict | None) -> set[str]:
+    if not isinstance(changes, dict):
+        return set(RELATIONAL_SYNC_SPECS.keys())
+    keys: set[str] = set()
+    for section_name in ("upserts", "deletes"):
+        section = changes.get(section_name)
+        if isinstance(section, dict):
+            keys.update(key for key in section.keys() if key in RELATIONAL_SYNC_SPECS)
+    return keys
+
+
 def ensure_bootstrap_state(seed: dict | None) -> dict:
     with db() as connection:
         state = get_state(connection)
@@ -360,6 +909,9 @@ def ensure_bootstrap_state(seed: dict | None) -> dict:
             state["toast"] = ""
             save_state(connection, state)
             sync_users(connection, state)
+            sync_relational_tables(connection, state)
+        else:
+            sync_relational_tables(connection, state)
         return state
 
 
@@ -481,6 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         with db() as connection:
+            state = get_state(connection, lock=True) or state
             existing = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
             if existing:
                 self.json_response({"error": "Un compte existe déjà avec ce courriel."}, HTTPStatus.CONFLICT)
@@ -505,6 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
             state.setdefault("users", []).append(user)
             save_state(connection, state)
             sync_users(connection, state)
+            sync_relational_tables(connection, state, {"clients"})
 
         token = create_session(user["id"])
         self.send_response(HTTPStatus.OK)
@@ -520,6 +1074,7 @@ class Handler(BaseHTTPRequestHandler):
         email_sent = False
         if email:
             with db() as connection:
+                state = get_state(connection, lock=True) or state
                 user = execute(connection, "select * from climaparc_users where email = ?", (email,)).fetchone()
                 reset_record = {
                     "id": new_id("reset"),
@@ -542,6 +1097,7 @@ class Handler(BaseHTTPRequestHandler):
                 state.setdefault("passwordResetRequests", []).insert(0, reset_record)
                 state["passwordResetRequests"] = state["passwordResetRequests"][:100]
                 save_state(connection, state)
+                sync_relational_tables(connection, state, {"passwordResetRequests"})
         self.json_response({"ok": True, "emailSent": email_sent, "mailConfigured": bool(SMTP_HOST)})
 
     def handle_password_reset_confirm(self) -> None:
@@ -560,6 +1116,8 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": "Le mot de passe doit contenir au moins 8 caractères."}, HTTPStatus.BAD_REQUEST)
             return
 
+        with db() as connection:
+            state = get_state(connection, lock=True) or state
         hashed = token_hash(token)
         reset_request = next(
             (
@@ -573,6 +1131,7 @@ class Handler(BaseHTTPRequestHandler):
                 reset_request["status"] = "expire"
                 with db() as connection:
                     save_state(connection, state)
+                    sync_relational_tables(connection, state, {"passwordResetRequests"})
             self.json_response({"error": "Lien expiré ou invalide."}, HTTPStatus.BAD_REQUEST)
             return
 
@@ -586,6 +1145,7 @@ class Handler(BaseHTTPRequestHandler):
         with db() as connection:
             save_state(connection, state)
             sync_users(connection, state)
+            sync_relational_tables(connection, state, {"passwordResetRequests"})
         self.json_response({"ok": True})
 
     def handle_logout(self) -> None:
@@ -610,15 +1170,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         state = payload.get("state")
-        if not isinstance(state, dict):
+        changes = payload.get("changes")
+        if not isinstance(state, dict) and not isinstance(changes, dict):
             self.json_response({"error": "Invalid state"}, HTTPStatus.BAD_REQUEST)
             return
-        state["sessionUserId"] = None
-        state["modal"] = None
-        state["toast"] = ""
         with db() as connection:
-            current_state = get_state(connection)
-            merged_state = merge_shared_state(current_state, state)
+            current_state = get_state(connection, lock=True)
+            if isinstance(changes, dict):
+                merged_state = apply_state_changes(current_state, changes)
+                sync_keys = changed_collection_keys(changes)
+            else:
+                state["sessionUserId"] = None
+                state["modal"] = None
+                state["toast"] = ""
+                merged_state = merge_shared_state(current_state, state)
+                sync_keys = None
             merged_state["sessionUserId"] = None
             merged_state["modal"] = None
             merged_state["toast"] = ""
@@ -628,6 +1194,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             save_state(connection, merged_state)
             sync_users(connection, merged_state)
+            if sync_keys or sync_keys is None:
+                sync_relational_tables(connection, merged_state, sync_keys)
         self.json_response({"ok": True, "state": merged_state})
 
     def serve_static(self, raw_path: str) -> None:

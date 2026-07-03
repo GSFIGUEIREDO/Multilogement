@@ -248,6 +248,43 @@ class UserService:
 
         return {"ok": True, "state": state, "user": clean_public_user(user)}
 
+    def delete(self, current_user_row: Any, user_id: str) -> dict:
+        if not current_user_row:
+            raise ServiceError("Session expiree.", HTTPStatus.UNAUTHORIZED)
+        if not user_id:
+            raise ServiceError("Utilisateur invalide.")
+        requester_id = row_get(current_user_row, "id")
+        if user_id == requester_id:
+            raise ServiceError("Vous ne pouvez pas supprimer votre propre compte.", HTTPStatus.BAD_REQUEST)
+
+        with connect() as connection:
+            state = self.state_repository.get(connection, lock=True)
+            if not state:
+                raise ServiceError("Etat introuvable.")
+
+            users = state.setdefault("users", [])
+            if not isinstance(users, list):
+                raise ServiceError("Utilisateurs introuvables.")
+
+            requester = self._requester_from_state_or_session(users, current_user_row)
+            requester_role = requester.get("role")
+            target = next((item for item in users if isinstance(item, dict) and item.get("id") == user_id), None)
+            if not target:
+                raise ServiceError("Utilisateur introuvable.", HTTPStatus.NOT_FOUND)
+
+            if requester_role == "client":
+                if target.get("role") != "client" or target.get("clientId") != requester.get("clientId"):
+                    raise ServiceError("Vous ne pouvez supprimer que les utilisateurs de votre client.", HTTPStatus.FORBIDDEN)
+            elif requester_role not in {"administrateur", "equipe_interne"}:
+                raise ServiceError("Droits insuffisants.", HTTPStatus.FORBIDDEN)
+
+            state["users"] = [item for item in users if not (isinstance(item, dict) and item.get("id") == user_id)]
+            self._clear_ui_state(state)
+            self.auth_repository.delete(connection, user_id)
+            self.state_repository.save(connection, state)
+
+        return {"ok": True, "state": state, "deletedUserId": user_id}
+
     @staticmethod
     def _requester_from_state_or_session(users: list, current_user_row: Any) -> dict:
         requester_id = row_get(current_user_row, "id")

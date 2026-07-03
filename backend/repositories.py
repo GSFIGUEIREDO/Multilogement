@@ -66,6 +66,10 @@ class AuthUserRepository:
             ),
         )
 
+    def delete(self, connection, user_id: str) -> None:
+        execute(connection, "delete from climaparc_sessions where user_id = ?", (user_id,))
+        execute(connection, "delete from climaparc_users where id = ?", (user_id,))
+
 
 class EquipmentRepository:
     def upsert(self, connection, equipment: dict) -> None:

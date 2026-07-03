@@ -37,6 +37,9 @@
     saveUser(user) {
       return post("/api/user", { user });
     },
+    deleteUser(userId) {
+      return post("/api/user-delete", { userId });
+    },
     saveBuilding(building) {
       return post("/api/building", { building });
     },

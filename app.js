@@ -3933,11 +3933,11 @@
       <section class="panel">
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Client lié</th><th>Accès lieux</th><th></th></tr></thead>
+            <thead><tr><th>Nom</th><th>Courriel</th><th>Profil</th><th>Rôle</th><th>Client lié</th><th>Accès lieux</th><th></th></tr></thead>
             <tbody>
               ${visibleUsers.map((user) => {
                 const client = state.clients.find((item) => item.id === user.clientId);
-                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(user.role === "client" ? clientAccessLabel(user.clientAccessLevel) : roleLabel(user.role))}</td><td>${escapeHtml(client?.name || "-")}</td><td>${escapeHtml(user.role === "client" ? userBuildingAccessLabel(user) : "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button></td></tr>`;
+                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(roleLabel(user.role))}</td><td>${escapeHtml(user.role === "client" ? clientAccessLabel(user.clientAccessLevel) : "-")}</td><td>${escapeHtml(client?.name || "-")}</td><td>${escapeHtml(user.role === "client" ? userBuildingAccessLabel(user) : "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button> ${canDeleteUser(user) ? `<button class="link-button danger-link" data-action="delete-user" data-id="${user.id}">Supprimer</button>` : ""}</td></tr>`;
               }).join("")}
             </tbody>
           </table>
@@ -3966,7 +3966,7 @@
         <div class="panel-header"><h2>Matrice d'accès</h2></div>
         <div class="panel-body table-wrap">
           <table>
-            <thead><tr><th>Rôle</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
+            <thead><tr><th>Profil</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
             <tbody>
               ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${role === "client" ? "Client" : role === "technicien" ? "Technicien" : ["administrateur", "equipe_interne"].includes(role) ? "Interne" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
             </tbody>
@@ -3982,6 +3982,13 @@
       gestionnaire: "Gestionnaire de lieu",
       maintenance: "Maintenance client"
     }[level || "direction"] || level;
+  }
+
+  function canDeleteUser(user) {
+    const actor = currentUser();
+    if (!actor || !user || actor.id === user.id) return false;
+    if (actor.role === "client") return user.role === "client" && user.clientId === actor.clientId;
+    return ["administrateur", "equipe_interne"].includes(actor.role);
   }
 
   function userBuildingAccessLabel(user) {
@@ -4458,8 +4465,11 @@
         </div>
         <div class="split">
           <div class="field"><label>Mot de passe</label><input name="password" value="${escapeHtml(user.password || "temp123")}" required></div>
-          <div class="field"><label>Rôle</label>${isClientUserForm ? `<select name="clientAccessLevel">${clientRoleOptions}</select>` : `<select name="role">${roles}</select>`}</div>
+          ${isClientUserForm
+            ? `<div class="field"><label>Profil</label><input value="Client" readonly></div>`
+            : `<div class="field"><label>Profil</label><select name="role">${roles}</select></div>`}
         </div>
+        ${isClientUserForm ? `<div class="field"><label>Rôle</label><select name="clientAccessLevel">${clientRoleOptions}</select></div>` : ""}
         ${isClientManager ? "" : `<div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>`}
         ${isClientManager || effectiveUser.role === "client" ? `<div class="client-access-editor">
           <div class="split">
@@ -4467,7 +4477,10 @@
           </div>
           <div class="field"><label>Informations partagées</label><div class="choice-list">${portalChecks}</div></div>
         </div>` : ""}
-        <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
+        <div class="actions form-actions">
+          <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
+          ${canDeleteUser(effectiveUser) ? `<button class="danger-button" type="button" data-action="delete-user" data-id="${escapeHtml(effectiveUser.id)}">Supprimer</button>` : ""}
+        </div>
       </form>
     `);
   }
@@ -5698,6 +5711,39 @@
     }
   }
 
+  async function deleteUser(userId) {
+    const user = state.users.find((item) => item.id === userId);
+    if (!user) return;
+    if (!canDeleteUser(user)) {
+      showToast("Droits insuffisants pour supprimer cet utilisateur.");
+      return;
+    }
+    if (!confirm(`Supprimer l'utilisateur ${user.name}? Cette action est définitive.`)) return;
+    const previousUsers = JSON.parse(JSON.stringify(state.users));
+    state.users = state.users.filter((item) => item.id !== userId);
+    updateUiState({ modal: null, activeView: "utilisateurs", toast: "Suppression de l'utilisateur..." });
+    try {
+      const payload = await api.deleteUser(userId);
+      if (payload.state) {
+        rememberServerState(payload.state);
+        const uiState = currentUiState();
+        state = {
+          ...normalizeState(payload.state),
+          ...uiState,
+          activeView: "utilisateurs",
+          sessionUserId: uiState.sessionUserId,
+          modal: null,
+          toast: "Utilisateur supprimé."
+        };
+        render();
+        scheduleToastClear();
+      }
+    } catch (error) {
+      state.users = previousUsers;
+      updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non supprimé." });
+    }
+  }
+
   function saveServiceType(values) {
     const payload = {
       id: values.id || uid("appel"),
@@ -6540,6 +6586,10 @@
       }
       if (action === "delete-apartment") {
         deleteApartment(target.dataset.id);
+        return;
+      }
+      if (action === "delete-user") {
+        deleteUser(target.dataset.id);
         return;
       }
       if (action === "open-checklist") updateUiState({ modal: { type: "checklist", orderId: target.dataset.id } });

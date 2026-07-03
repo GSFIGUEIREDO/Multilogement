@@ -1762,6 +1762,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/user":
             self.handle_save_user()
             return
+        if parsed.path == "/api/user-delete":
+            self.handle_delete_user()
+            return
         if parsed.path == "/api/building":
             self.handle_service_save(BuildingService, "building")
             return
@@ -2029,6 +2032,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"User save failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_delete_user(self) -> None:
+        current_user = read_session(self.headers.get("Cookie"))
+        if not current_user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            self.json_response(UserService().delete(current_user, str(payload.get("userId") or "")))
+        except ServiceError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"User delete failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la suppression utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_service_save(self, service_class, payload_key: str) -> None:
         user = read_session(self.headers.get("Cookie"))

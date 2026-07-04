@@ -27,6 +27,8 @@ frontend/
   views/
     dashboard.js       Vue Tableau de bord et widgets configurables
     reports.js         Vue Rapports et logique de presentation des rapports
+    documents.js       Regles frontend de fichiers, types et limites d'upload
+    recommendations.js Regles frontend d'affichage des recommandations
 
 server.py              Controller HTTP fin, routes et compatibilite legacy
 
@@ -36,6 +38,7 @@ backend/
   security.py          Filtrage du state, permissions et controle de scope
   services.py          Regles metier utilisateurs et equipements
   auth_services.py     Login, inscription, sessions et reinitialisation mot de passe
+  file_storage.py      Upload, metadonnees, URLs signees et migration des anciens dataUrl
   state_compatibility.py Merge du state legacy et detection des collections modifiees
 ```
 
@@ -60,6 +63,7 @@ Routes deja migrees vers la nouvelle architecture:
 - `/api/login`, `/api/signup`, `/api/session`, `/api/logout`, `/api/password-reset/*`
 - `/api/equipment`
 - `/api/user`
+- `/api/file-upload`, `/api/file-url`, `/api/file-delete`
 - `/api/building`
 - `/api/apartment`
 - `/api/ticket`
@@ -72,6 +76,8 @@ Frontend deja separe:
 - stockage local dans `frontend/storage.js`
 - module Tableau de bord dans `frontend/views/dashboard.js`
 - module Rapports dans `frontend/views/reports.js`
+- module Documents dans `frontend/views/documents.js`
+- module Recommandations dans `frontend/views/recommendations.js`
 
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 
@@ -94,6 +100,23 @@ Le backend doit toujours appliquer les droits cote serveur, meme si l'interface 
 - Les routes metier (`/api/equipment`, `/api/user`, `/api/building`, `/api/apartment`, `/api/ticket`, `/api/work-order`, `/api/intervention`) passent l'utilisateur courant aux services, qui appliquent le controle de scope.
 - Les mots de passe ne doivent jamais etre stockes dans `climaparc_state`, les payloads relationnels, les seeds publics ou les reponses API. Ils passent uniquement par la table d'authentification avec hash et sel.
 - Les tokens de reinitialisation sont stockes dans `climaparc_password_reset_tokens`; le state ne garde que le suivi public de la demande.
+- Les fichiers sont servis par URLs temporaires generees par le backend. La cle `SUPABASE_SERVICE_ROLE_KEY` ne doit jamais etre exposee au navigateur.
+- Les droits canoniques pour les recommandations sont `recommendations`, `recommendation_prices` et `recommendation_approve`. Les anciens noms `prices` et `approve_recommendations` ne sont acceptes que comme compatibilite de donnees existantes.
+
+## Stockage des fichiers
+
+Le stockage cible est Supabase Storage dans un bucket prive, par defaut `climaparc-documents`.
+
+Le flux attendu:
+
+```text
+frontend/api.js -> POST /api/file-upload -> backend/file_storage.py -> Supabase Storage
+frontend/api.js -> POST /api/file-url -> backend/file_storage.py -> URL temporaire signee
+```
+
+Les nouveaux fichiers ne doivent pas etre convertis en `dataUrl` ni sauvegardes en base64. Les metadonnees conservees sont: `id`, `name`, `fileName`, `fileType`, `fileSize`, `storageBucket`, `storagePath`, `clientId`, `buildingId`, `apartmentId`, `equipmentId`, `visibleToClient`, `uploadedAt` et `uploadedBy`.
+
+Le fallback `local_uploads/` est reserve au developpement local quand Supabase Storage n'est pas configure. En production, l'absence de `SUPABASE_URL` ou `SUPABASE_SERVICE_ROLE_KEY` bloque les nouveaux uploads.
 
 ## Normalisation de la base
 

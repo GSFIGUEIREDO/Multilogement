@@ -20,6 +20,24 @@ En mode en ligne de production, les données sont conservées dans Supabase/Post
 
 ## Comptes de démonstration
 
+- Administrateur: `admin@climaparc.ca` / `admin123`
+- Équipe interne: `operation@climaparc.ca` / `interne123`
+- Technicien: `tech@climaparc.ca` / `tech123`
+- Client: `client@gestionazur.ca` / `client123`
+
+## Documents et fichiers
+
+En mode serveur, les nouveaux documents et pieces jointes sont envoyes au backend puis stockes dans Supabase Storage. La base conserve seulement les metadonnees du fichier: nom, type, taille, bucket, chemin de stockage, client, lieu, appartement, equipement et visibilite client.
+
+Le frontend ne recoit jamais la cle `SUPABASE_SERVICE_ROLE_KEY`. Pour consulter ou telecharger un fichier, l'application demande au backend une URL temporaire signee.
+
+Variables utiles:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `CLIMAPARC_STORAGE_BUCKET`, par defaut `climaparc-documents`
+
+Sans ces variables en local, le serveur utilise `local_uploads/` comme fallback de developpement. En production, Supabase Storage est obligatoire.
 
 ## Fonctions incluses
 

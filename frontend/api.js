@@ -17,6 +17,19 @@
     return payload;
   }
 
+  async function requestForm(path, formData) {
+    const response = await fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      body: formData
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Requete impossible (HTTP ${response.status}).`);
+    }
+    return payload;
+  }
+
   function post(path, body) {
     return request(path, {
       method: "POST",
@@ -54,6 +67,15 @@
     },
     saveIntervention(intervention) {
       return post("/api/intervention", { intervention });
+    },
+    uploadFile(formData) {
+      return requestForm("/api/file-upload", formData);
+    },
+    getFileUrl(fileId) {
+      return post("/api/file-url", { fileId });
+    },
+    deleteFile(fileId) {
+      return post("/api/file-delete", { fileId });
     },
     signup(seed, values) {
       return post("/api/signup", { seed, ...values });

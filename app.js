@@ -3,6 +3,8 @@
   const SERVER_ENABLED = typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:");
   const api = window.ClimaParcApi;
   const storage = window.ClimaParcStorage;
+  const documentsModule = window.ClimaParcDocumentsView || {};
+  const recommendationsModule = window.ClimaParcRecommendationsView || {};
   let saveTimer = null;
   let toastTimer = null;
   let refreshTimer = null;
@@ -607,6 +609,8 @@
       fileName: doc.fileName || doc.name || "document",
       fileType: doc.fileType || "",
       fileSize: doc.fileSize || 0,
+      storageBucket: doc.storageBucket || "",
+      storagePath: doc.storagePath || "",
       uploadedBy: doc.uploadedBy || ""
     }));
     next.selectedBuildingId = data.selectedBuildingId || next.buildings[0]?.id || null;
@@ -635,7 +639,8 @@
       allowedBuildingIds: [],
       portalRights: [],
       parentUserId: "",
-      ...user
+      ...user,
+      portalRights: normalizePortalRights(user.portalRights || [])
     }));
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
@@ -1262,14 +1267,25 @@
     return ["portal", ...portalRightsCatalog().map(([right]) => right)];
   }
 
+  function normalizePortalRight(right) {
+    return {
+      prices: "recommendation_prices",
+      approve_recommendations: "recommendation_approve"
+    }[right] || right;
+  }
+
+  function normalizePortalRights(rights = []) {
+    return Array.from(new Set(rights.map(normalizePortalRight).filter(Boolean)));
+  }
+
   function clientPortalRights(user = currentUser()) {
     if (!user || user.role !== "client") return [];
-    return user.portalRights?.length ? ["portal", ...user.portalRights] : defaultPortalRights(user.clientAccessLevel || "direction");
+    return normalizePortalRights(user.portalRights?.length ? ["portal", ...user.portalRights] : defaultPortalRights(user.clientAccessLevel || "direction"));
   }
 
   function canPortal(right) {
     const rights = clientPortalRights();
-    return rights.includes("all") || rights.includes(right);
+    return rights.includes("all") || rights.includes(normalizePortalRight(right));
   }
 
   function clientAllowedBuildingIds(user = currentUser()) {
@@ -2218,7 +2234,7 @@
     const order = state.workOrders.find((item) => item.id === file.workOrderId);
     const apartment = state.apartments.find((item) => item.id === file.sourceApartmentId || item.id === file.apartmentId);
     const building = state.buildings.find((item) => item.id === file.sourceBuildingId || item.id === apartment?.buildingId);
-    const canPreview = Boolean(file.dataUrl);
+    const canPreview = Boolean(file.storagePath || file.dataUrl);
     return `
       <article class="list-item">
         <div class="actions" style="justify-content:space-between">
@@ -2228,7 +2244,7 @@
           </button>
           <div class="actions">
             ${canPreview ? `<button class="ghost-button" data-action="preview-attachment" data-id="${file.id}">Ouvrir</button>` : ""}
-            ${file.dataUrl ? `<a class="ghost-button" href="${escapeHtml(file.dataUrl)}" download="${escapeHtml(file.name)}">Télécharger</a>` : ""}
+            ${canPreview ? `<button class="ghost-button" data-action="download-attachment" data-id="${file.id}">Télécharger</button>` : ""}
           </div>
         </div>
         <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
@@ -2238,38 +2254,19 @@
   }
 
   function attachmentTypeLabel(file) {
-    const type = inferFileType(file);
-    const name = file.name || file.fileName || "";
-    if (type.startsWith("image/")) return "Image";
-    if (type === "application/pdf") return "PDF";
-    if (isOfficeFile(type, name)) return "Document Office";
-    if (type.startsWith("video/")) return "Vidéo";
-    if (type.startsWith("audio/")) return "Audio";
-    return type || "Fichier";
+    return documentsModule.attachmentTypeLabel(file);
   }
 
   function isOfficeFile(type, name) {
-    return /word|excel|powerpoint|officedocument|msword|ms-excel|ms-powerpoint/i.test(type || "")
-      || /\.(docx?|xlsx?|pptx?)$/i.test(name || "");
+    return documentsModule.isOfficeFile(type, name);
   }
 
   function dataUrlMime(dataUrl) {
-    const match = String(dataUrl || "").match(/^data:([^;,]+)/);
-    return match?.[1] || "";
+    return documentsModule.dataUrlMime(dataUrl);
   }
 
   function inferFileType(file) {
-    const explicit = file.type || file.fileType || "";
-    if (explicit) return explicit;
-    const fromData = dataUrlMime(file.dataUrl);
-    if (fromData) return fromData;
-    const name = file.name || file.fileName || "";
-    if (/\.pdf$/i.test(name)) return "application/pdf";
-    if (/\.(jpe?g|png|gif|webp|bmp)$/i.test(name)) return "image/*";
-    if (/\.(mp4|mov|webm)$/i.test(name)) return "video/*";
-    if (/\.(mp3|wav|m4a)$/i.test(name)) return "audio/*";
-    if (/\.(docx?|xlsx?|pptx?)$/i.test(name)) return "application/vnd.openxmlformats-officedocument";
-    return "";
+    return documentsModule.inferFileType(file);
   }
 
   function findAttachment(fileId) {
@@ -2283,28 +2280,68 @@
     const order = state.workOrders.find((item) => item.id === file.workOrderId);
     const type = inferFileType(file);
     const name = file.name || file.fileName || "Document";
-    const preview = type.startsWith("image/")
-      ? `<img class="attachment-preview-image" src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(name)}">`
+    const url = state.modal?.fileUrl || file.dataUrl || "";
+    const preview = !url && file.storagePath
+      ? `<div class="empty">Préparation de la prévisualisation...</div>`
+      : type.startsWith("image/")
+      ? `<img class="attachment-preview-image" src="${escapeHtml(url)}" alt="${escapeHtml(name)}">`
       : type === "application/pdf"
-        ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(name)}"></iframe>`
+        ? `<iframe class="attachment-preview-frame" src="${escapeHtml(url)}" title="${escapeHtml(name)}"></iframe>`
         : isOfficeFile(type, name)
           ? `<div class="empty"><strong>Document Office</strong><p>La prévisualisation intégrée n'est pas disponible pour Word, Excel ou PowerPoint. Téléchargez le fichier pour l'ouvrir dans votre application.</p></div>`
         : type.startsWith("video/")
-          ? `<video class="attachment-preview-video" controls src="${escapeHtml(file.dataUrl)}"></video>`
+          ? `<video class="attachment-preview-video" controls src="${escapeHtml(url)}"></video>`
           : type.startsWith("audio/")
-            ? `<audio controls src="${escapeHtml(file.dataUrl)}"></audio>`
-            : file.dataUrl
-              ? `<iframe class="attachment-preview-frame" src="${escapeHtml(file.dataUrl)}" title="${escapeHtml(name)}"></iframe>`
+            ? `<audio controls src="${escapeHtml(url)}"></audio>`
+            : url
+              ? `<iframe class="attachment-preview-frame" src="${escapeHtml(url)}" title="${escapeHtml(name)}"></iframe>`
               : `<div class="empty">Prévisualisation non disponible pour ce type de fichier.</div>`;
     return modalShell(name, `
       <div class="stack">
         <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
         <div class="attachment-preview">${preview}</div>
         <div class="actions">
-          <a class="primary-button" href="${escapeHtml(file.dataUrl)}" download="${escapeHtml(file.fileName || name)}">Télécharger</a>
+          ${url ? `<a class="primary-button" href="${escapeHtml(url)}" download="${escapeHtml(file.fileName || name)}">Télécharger</a>` : ""}
         </div>
       </div>
     `, "modal-card-wide attachment-preview-modal");
+  }
+
+  async function openAttachmentPreview(fileId) {
+    const file = findAttachment(fileId);
+    if (!file) return;
+    if (file.dataUrl && !file.storagePath) {
+      updateUiState({ modal: { type: "attachmentPreview", fileId } });
+      return;
+    }
+    updateUiState({ modal: { type: "attachmentPreview", fileId, fileUrl: "" } });
+    try {
+      const result = await api.getFileUrl(fileId);
+      updateUiState({ modal: { type: "attachmentPreview", fileId, fileUrl: result.url } });
+    } catch (error) {
+      updateUiState({ modal: null, toast: error.message || "Fichier non disponible." });
+    }
+  }
+
+  async function downloadAttachment(fileId) {
+    const file = findAttachment(fileId);
+    if (!file) return;
+    let url = file.dataUrl && !file.storagePath ? file.dataUrl : "";
+    if (!url) {
+      try {
+        const result = await api.getFileUrl(fileId);
+        url = result.url;
+      } catch (error) {
+        showToast(error.message || "Téléchargement impossible.");
+        return;
+      }
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.fileName || file.name || "document";
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.click();
   }
 
   function interventionItem(item) {
@@ -2377,10 +2414,7 @@
   }
 
   function recommendationsView() {
-    const items = scopedRecommendations().sort((a, b) => {
-      const order = { a_valider: 0, information_demandee: 1, envoyee: 2, approuvee: 3, refusee: 4 };
-      return (order[a.recommendation.status] ?? 9) - (order[b.recommendation.status] ?? 9) || (b.recommendation.createdAt || "").localeCompare(a.recommendation.createdAt || "");
-    });
+    const items = recommendationsModule.sortItems(scopedRecommendations());
     const pending = items.filter((item) => ["a_valider", "information_demandee", "envoyee"].includes(item.recommendation.status));
     const approved = items.filter((item) => item.recommendation.status === "approuvee");
     const refused = items.filter((item) => item.recommendation.status === "refusee");
@@ -2406,7 +2440,7 @@
   function recommendationCard(item) {
     const { recommendation, intervention, equipment, apartment, building, order, technician } = item;
     const isClient = currentUser()?.role === "client";
-    const canSeePrice = !isClient || canPortal("recommendation_prices");
+    const canSeePrice = recommendationsModule.canSeePrice(currentUser(), canPortal);
     const price = recommendation.price ? `${recommendation.price} $` : "-";
     const delay = recommendation.delay || "-";
     return `
@@ -2485,7 +2519,7 @@
 
   function clientRecommendationActions(interventionId, status) {
     if (status !== "envoyee") return "";
-    if (!canPortal("recommendation_approve")) return `<button class="ghost-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="information_demandee">Demander plus d'informations</button>`;
+    if (!recommendationsModule.canApprove(currentUser(), canPortal)) return `<button class="ghost-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="information_demandee">Demander plus d'informations</button>`;
     return `
       <button class="primary-button" data-action="client-recommendation" data-status="approuvee" data-id="${escapeHtml(interventionId)}">Approuver</button>
       <button class="ghost-button" data-action="open-modal" data-modal="clientRecommendationMessage" data-id="${escapeHtml(interventionId)}" data-status="information_demandee">Demander plus d'informations</button>
@@ -2524,7 +2558,7 @@
         <div class="meta">${[building?.name, apartment ? `Apt ${apartment.number}` : "", equipment?.type].filter(Boolean).map(escapeHtml).join(" - ")}</div>
         ${doc.notes ? `<div class="meta">${escapeHtml(doc.notes)}</div>` : ""}
         <div class="actions">
-          ${doc.dataUrl ? `<button class="ghost-button" data-action="preview-attachment" data-id="${escapeHtml(doc.id)}">Ouvrir</button><a class="ghost-button" href="${escapeHtml(doc.dataUrl)}" download="${escapeHtml(doc.fileName || doc.name)}">Télécharger</a>` : ""}
+          ${doc.storagePath || doc.dataUrl ? `<button class="ghost-button" data-action="preview-attachment" data-id="${escapeHtml(doc.id)}">Ouvrir</button><button class="ghost-button" data-action="download-attachment" data-id="${escapeHtml(doc.id)}">Télécharger</button>` : ""}
           ${currentUser()?.role !== "client" && can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="clientDocument" data-id="${escapeHtml(doc.id)}">Modifier</button>` : ""}
         </div>
       </article>
@@ -3825,7 +3859,7 @@
         </div>
         <div class="field">
           <label>Photos et documents</label>
-          <input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,video/*,audio/*">
+          <input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
           <p class="meta">Maximum 3 fichiers, 10 MB par fichier. Les fichiers seront associés à l'appartement et à la machine de cette activité.</p>
         </div>
         ${existing?.attachments?.length ? `<div class="mini-list">${existing.attachments.map((file) => `<div class="meta">- ${escapeHtml(file.name)} (${escapeHtml(file.type || "fichier")})</div>`).join("")}</div>` : ""}
@@ -5017,8 +5051,17 @@
       intervention.attachments = [...(intervention.attachments || []), ...completedAttachments.map((file) => ({
         id: file.id,
         name: file.name,
-        type: file.type,
-        size: file.size,
+        type: file.type || file.fileType || "",
+        size: file.size || file.fileSize || 0,
+        fileName: file.fileName || file.name,
+        fileType: file.fileType || file.type || "",
+        fileSize: file.fileSize || file.size || 0,
+        storageBucket: file.storageBucket || "",
+        storagePath: file.storagePath || "",
+        equipmentId: equipment.id,
+        apartmentId,
+        uploadedAt: file.uploadedAt || today(),
+        uploadedBy: file.uploadedBy || currentUser()?.id || "",
         workOrderId: file.workOrderId,
         sourceApartmentId: file.sourceApartmentId,
         sourceBuildingId: file.sourceBuildingId
@@ -5141,13 +5184,51 @@
       showToast("Ajoutez un fichier.");
       return;
     }
+    if (file && !SERVER_ENABLED) {
+      showToast("L'envoi de documents exige le mode serveur.");
+      return;
+    }
     let fileData = {};
     if (file) {
-      if (file.size > 15 * 1024 * 1024) {
-        showToast(`${file.name} dépasse 15 MB.`);
+      if (file.size > documentsModule.limits.documentMaxBytes) {
+        showToast(`${file.name} dépasse 10 MB.`);
         return;
       }
-      fileData = await readGenericFile(file);
+      try {
+        const formData = new FormData();
+        formData.append("kind", "clientDocument");
+        formData.append("id", existing?.id || uid("doc"));
+        formData.append("clientId", values.clientId);
+        formData.append("buildingId", values.buildingId || "");
+        formData.append("apartmentId", values.apartmentId || "");
+        formData.append("equipmentId", values.equipmentId || "");
+        formData.append("type", values.type || "Document");
+        formData.append("name", values.name);
+        formData.append("notes", values.notes || "");
+        formData.append("visibleToClient", Boolean(values.visibleToClient) ? "true" : "false");
+        formData.append("file", file);
+        const response = await api.uploadFile(formData);
+        if (response.state) {
+          rememberServerState(response.state);
+          const uiState = currentUiState();
+          state = {
+            ...normalizeState(response.state),
+            ...uiState,
+            activeView: values.buildingId ? "lieu_detail" : "lieux",
+            selectedBuildingId: values.buildingId || state.selectedBuildingId,
+            modal: null,
+            toast: existing ? "Document modifié." : "Document ajouté.",
+            sessionUserId: uiState.sessionUserId
+          };
+          render();
+          scheduleToastClear();
+          return;
+        }
+        fileData = response.file || {};
+      } catch (error) {
+        showToast(error.message || "Document non envoyé.");
+        return;
+      }
     }
     const payload = {
       id: existing?.id || uid("doc"),
@@ -5161,10 +5242,12 @@
       visibleToClient: Boolean(values.visibleToClient),
       uploadedAt: existing?.uploadedAt || today(),
       uploadedBy: existing?.uploadedBy || currentUser()?.id || "",
-      dataUrl: fileData.dataUrl || existing?.dataUrl || "",
       fileName: fileData.fileName || existing?.fileName || values.name,
       fileType: fileData.fileType || existing?.fileType || "",
-      fileSize: fileData.fileSize || existing?.fileSize || 0
+      fileSize: fileData.fileSize || existing?.fileSize || 0,
+      storageBucket: fileData.storageBucket || existing?.storageBucket || "",
+      storagePath: fileData.storagePath || existing?.storagePath || "",
+      dataUrl: existing?.dataUrl || ""
     };
     const index = state.clientDocuments.findIndex((item) => item.id === payload.id);
     if (index >= 0) state.clientDocuments[index] = payload;
@@ -5174,20 +5257,6 @@
       activeView: payload.buildingId ? "lieu_detail" : "lieux",
       selectedBuildingId: payload.buildingId || state.selectedBuildingId,
       toast: index >= 0 ? "Document modifié." : "Document ajouté."
-    });
-  }
-
-  function readGenericFile(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({
-        dataUrl: reader.result,
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size
-      });
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
     });
   }
 
@@ -5292,30 +5361,35 @@
       showToast("Maximum 3 fichiers par activité.");
       return null;
     }
-    const oversized = files.find((file) => file.size > 10 * 1024 * 1024);
+    const oversized = files.find((file) => file.size > documentsModule.limits.attachmentMaxBytes);
     if (oversized) {
-      showToast(`${oversized.name} dépasse 10 MB.`);
+      showToast(`${oversized.name} dépasse 15 MB.`);
       return null;
     }
-    return Promise.all(files.map((file) => readAttachment(file, apartmentId, equipmentId)));
-  }
-
-  function readAttachment(file, apartmentId, equipmentId) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({
-        id: uid("file"),
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        apartmentId,
-        equipmentId,
-        uploadedAt: today(),
-        dataUrl: reader.result
-      });
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
+    if (!SERVER_ENABLED) {
+      showToast("L'envoi de fichiers exige le mode serveur.");
+      return null;
+    }
+    try {
+      const orderId = form.dataset.orderId || "";
+      const uploaded = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append("kind", "interventionAttachment");
+        formData.append("name", file.name);
+        formData.append("apartmentId", apartmentId || "");
+        formData.append("equipmentId", equipmentId || "");
+        formData.append("workOrderId", orderId);
+        formData.append("sourceApartmentId", apartmentId || "");
+        formData.append("file", file);
+        const response = await api.uploadFile(formData);
+        uploaded.push(response.file);
+      }
+      return uploaded;
+    } catch (error) {
+      showToast(error.message || "Fichier non envoyé.");
+      return null;
+    }
   }
 
   function validateRequiredResponses(form, template) {
@@ -5569,7 +5643,11 @@
         updateUiState({ selectedExecutionApartmentId: target.dataset.id });
       }
       if (action === "preview-attachment") {
-        updateUiState({ modal: { type: "attachmentPreview", fileId: target.dataset.id } });
+        openAttachmentPreview(target.dataset.id);
+        return;
+      }
+      if (action === "download-attachment") {
+        downloadAttachment(target.dataset.id);
         return;
       }
       if (action === "toggle-dashboard-edit") {

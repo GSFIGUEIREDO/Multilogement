@@ -241,7 +241,7 @@ class InterventionService(CollectionItemService):
 
             requested_status = incoming.get("status")
             allowed_statuses = {"information_demandee"}
-            if has_client_right(requester, "approve_recommendations"):
+            if has_client_right(requester, "recommendation_approve"):
                 allowed_statuses.update({"approuvee", "refusee"})
             if requested_status not in allowed_statuses:
                 raise ServiceError("Droits insuffisants.", HTTPStatus.FORBIDDEN)

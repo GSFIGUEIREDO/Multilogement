@@ -9,13 +9,16 @@ import secrets
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from backend.auth_services import AuthService, AuthServiceError, PasswordResetService, SessionService
+from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
 from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, UserService, WorkOrderService
@@ -416,6 +419,8 @@ def init_relational_tables(connection) -> None:
           file_name text,
           file_type text,
           file_size integer,
+          storage_bucket text,
+          storage_path text,
           uploaded_at text,
           uploaded_by text,
           updated_at {updated_column}
@@ -431,6 +436,8 @@ def init_relational_tables(connection) -> None:
           file_name text,
           file_type text,
           file_size integer,
+          storage_bucket text,
+          storage_path text,
           uploaded_at text,
           uploaded_by text,
           updated_at {updated_column}
@@ -556,9 +563,22 @@ def init_relational_tables(connection) -> None:
             ("document_type", "text"),
             ("file_name", "text"),
             ("file_type", "text"),
+            ("file_size", "integer"),
+            ("storage_bucket", "text"),
+            ("storage_path", "text"),
             ("uploaded_at", "text"),
             ("visible_to_client", bool_column),
             ("payload", payload_migration_column),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_equipment_attachments": [
+            ("storage_bucket", "text"),
+            ("storage_path", "text"),
+            ("updated_at", updated_migration_column),
+        ],
+        "climaparc_intervention_attachments": [
+            ("storage_bucket", "text"),
+            ("storage_path", "text"),
             ("updated_at", updated_migration_column),
         ],
         "climaparc_service_types": [
@@ -1019,6 +1039,9 @@ RELATIONAL_SYNC_SPECS = {
             ("document_type", "type"),
             ("file_name", "fileName"),
             ("file_type", "fileType"),
+            ("file_size", lambda item: int_db_value(item.get("fileSize"))),
+            ("storage_bucket", "storageBucket"),
+            ("storage_path", "storagePath"),
             ("uploaded_at", "uploadedAt"),
             ("visible_to_client", lambda item: item.get("visibleToClient") is not False),
         ],
@@ -1358,9 +1381,9 @@ def sync_intervention_children(connection, interventions: list[Any]) -> None:
                 f"""
                 insert into {rel_table('climaparc_intervention_attachments')} (
                   id, intervention_id, equipment_id, work_order_id, name, file_name,
-                  file_type, file_size, uploaded_at, uploaded_by, updated_at
+                  file_type, file_size, storage_bucket, storage_path, uploaded_at, uploaded_by, updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                   intervention_id = excluded.intervention_id,
                   equipment_id = excluded.equipment_id,
@@ -1369,6 +1392,8 @@ def sync_intervention_children(connection, interventions: list[Any]) -> None:
                   file_name = excluded.file_name,
                   file_type = excluded.file_type,
                   file_size = excluded.file_size,
+                  storage_bucket = excluded.storage_bucket,
+                  storage_path = excluded.storage_path,
                   uploaded_at = excluded.uploaded_at,
                   uploaded_by = excluded.uploaded_by,
                   updated_at = excluded.updated_at
@@ -1382,6 +1407,8 @@ def sync_intervention_children(connection, interventions: list[Any]) -> None:
                     file.get("fileName", ""),
                     file.get("fileType", ""),
                     int_db_value(file.get("fileSize")),
+                    file.get("storageBucket", ""),
+                    file.get("storagePath", ""),
                     file.get("uploadedAt", ""),
                     file.get("uploadedBy", ""),
                     now_value(),
@@ -1428,9 +1455,9 @@ def sync_equipment_attachments(connection, equipment_items: list[Any]) -> None:
                 f"""
                 insert into {rel_table('climaparc_equipment_attachments')} (
                   id, equipment_id, source_intervention_id, source_work_order_id, name,
-                  file_name, file_type, file_size, uploaded_at, uploaded_by, updated_at
+                  file_name, file_type, file_size, storage_bucket, storage_path, uploaded_at, uploaded_by, updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                   equipment_id = excluded.equipment_id,
                   source_intervention_id = excluded.source_intervention_id,
@@ -1439,6 +1466,8 @@ def sync_equipment_attachments(connection, equipment_items: list[Any]) -> None:
                   file_name = excluded.file_name,
                   file_type = excluded.file_type,
                   file_size = excluded.file_size,
+                  storage_bucket = excluded.storage_bucket,
+                  storage_path = excluded.storage_path,
                   uploaded_at = excluded.uploaded_at,
                   uploaded_by = excluded.uploaded_by,
                   updated_at = excluded.updated_at
@@ -1452,6 +1481,8 @@ def sync_equipment_attachments(connection, equipment_items: list[Any]) -> None:
                     file.get("fileName", ""),
                     file.get("fileType", ""),
                     int_db_value(file.get("fileSize")),
+                    file.get("storageBucket", ""),
+                    file.get("storagePath", ""),
                     file.get("uploadedAt", ""),
                     file.get("uploadedBy", ""),
                     now_value(),
@@ -1508,6 +1539,12 @@ def ensure_bootstrap_state(seed: dict | None) -> dict:
             save_state(connection, state)
             sync_users(connection, state)
             state = sanitize_state_for_storage(state)
+        if state is not None:
+            migrated, warnings = migrate_legacy_data_urls(state)
+            for warning in warnings:
+                print(warning)
+            if migrated:
+                save_state(connection, state)
     if state:
         sync_relational_tables_safely(state)
     return state
@@ -1528,6 +1565,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/session":
             self.handle_session()
             return
+        if parsed.path == "/api/local-file":
+            self.handle_local_file(parsed)
+            return
         self.serve_static(parsed.path)
 
     def do_POST(self) -> None:
@@ -1546,6 +1586,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/logout":
             self.handle_logout()
+            return
+        if parsed.path == "/api/file-upload":
+            self.handle_file_upload()
+            return
+        if parsed.path == "/api/file-url":
+            self.handle_file_url()
+            return
+        if parsed.path == "/api/file-delete":
+            self.handle_file_delete()
             return
         if parsed.path == "/api/state":
             self.handle_save_state()
@@ -1649,6 +1698,49 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Set-Cookie", "climaparc_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0")
         self.end_headers()
         self.wfile.write(b'{"ok": true}')
+
+    def handle_file_upload(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        try:
+            fields, files = self.read_multipart()
+            file_part = files.get("file")
+            if not file_part:
+                raise FileStorageError("Fichier manquant.")
+            result = FileService().upload(user, fields, file_part)
+            self.json_response(result)
+        except FileStorageError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"File upload failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de l'envoi du fichier."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_file_url(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            self.json_response(FileService().temporary_url(user, str(payload.get("fileId") or "")))
+        except FileStorageError as error:
+            self.json_response({"error": error.message}, error.status)
+
+    def handle_file_delete(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            self.json_response(FileService().delete(user, str(payload.get("fileId") or "")))
+        except FileStorageError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"File delete failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la suppression du fichier."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_save_state(self) -> None:
         user = SessionService().read(self.headers.get("Cookie"))
@@ -1775,10 +1867,82 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def handle_local_file(self, parsed) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        query = parse_qs(parsed.query)
+        bucket = query.get("bucket", [""])[0]
+        path = query.get("path", [""])[0]
+        if not bucket or not path:
+            self.json_response({"error": "Fichier introuvable."}, HTTPStatus.BAD_REQUEST)
+            return
+        with db() as connection:
+            state = get_state(connection)
+        visible = filter_state_for_user(state, user)
+        allowed_paths = set()
+        for doc in visible.get("clientDocuments", []) if isinstance(visible.get("clientDocuments"), list) else []:
+            if isinstance(doc, dict) and doc.get("storageBucket") == bucket and doc.get("storagePath"):
+                allowed_paths.add(doc.get("storagePath"))
+        for equipment in visible.get("equipment", []) if isinstance(visible.get("equipment"), list) else []:
+            for file in equipment.get("attachments", []) if isinstance(equipment, dict) and isinstance(equipment.get("attachments"), list) else []:
+                if isinstance(file, dict) and file.get("storageBucket") == bucket and file.get("storagePath"):
+                    allowed_paths.add(file.get("storagePath"))
+        for intervention in visible.get("interventions", []) if isinstance(visible.get("interventions"), list) else []:
+            for file in intervention.get("attachments", []) if isinstance(intervention, dict) and isinstance(intervention.get("attachments"), list) else []:
+                if isinstance(file, dict) and file.get("storageBucket") == bucket and file.get("storagePath"):
+                    allowed_paths.add(file.get("storagePath"))
+        if path not in allowed_paths:
+            self.json_response({"error": "Fichier non autorise."}, HTTPStatus.FORBIDDEN)
+            return
+        try:
+            target = local_file_path(bucket, path)
+        except FileStorageError as error:
+            self.json_response({"error": error.message}, error.status)
+            return
+        if not target.exists() or not target.is_file():
+            self.json_response({"error": "Fichier introuvable."}, HTTPStatus.NOT_FOUND)
+            return
+        body = target.read_bytes()
+        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length).decode("utf-8") if length else "{}"
         return json.loads(body or "{}")
+
+    def read_multipart(self) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type:
+            raise FileStorageError("Requete multipart invalide.", HTTPStatus.BAD_REQUEST)
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length)
+        raw = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+        message = BytesParser(policy=email_policy).parsebytes(raw)
+        fields: dict[str, str] = {}
+        files: dict[str, dict[str, Any]] = {}
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            if not name:
+                continue
+            filename = part.get_filename()
+            payload = part.get_payload(decode=True) or b""
+            if filename:
+                files[name] = {
+                    "filename": filename,
+                    "contentType": part.get_content_type(),
+                    "content": payload,
+                }
+            else:
+                fields[name] = payload.decode(part.get_content_charset() or "utf-8", "ignore")
+        return fields, files
 
     def json_response(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")

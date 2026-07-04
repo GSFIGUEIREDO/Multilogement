@@ -48,10 +48,17 @@ CONFIG_KEYS = {
 }
 
 CLIENT_RIGHT_DEFAULTS = {
-    "direction": ["portal", "lieux", "equipment", "tickets", "workorders", "recommendations", "documents", "reports", "alerts", "users", "prices", "approve_recommendations"],
+    "direction": ["portal", "lieux", "equipment", "tickets", "workorders", "recommendations", "documents", "reports", "alerts", "users", "recommendation_prices", "recommendation_approve"],
     "gestionnaire": ["portal", "lieux", "equipment", "tickets", "workorders", "recommendations", "documents", "reports", "alerts"],
     "maintenance": ["portal", "lieux", "equipment", "tickets", "workorders", "documents", "alerts"],
 }
+
+RIGHT_ALIASES = {
+    "prices": "recommendation_prices",
+    "approve_recommendations": "recommendation_approve",
+}
+
+SENSITIVE_PUBLIC_KEYS = {"password", "passwordHash", "password_hash", "salt", "token", "tokenHash"}
 
 
 class AuthorizationError(Exception):
@@ -87,6 +94,7 @@ def public_user_from_row(row: Any) -> dict:
 
 def sanitize_state_for_storage(state: dict | None) -> dict:
     clean = copy.deepcopy(state or {})
+    remove_sensitive_fields(clean, remove_data_url=False)
     users = clean.get("users")
     if isinstance(users, list):
         clean["users"] = [public_user(user) for user in users if isinstance(user, dict)]
@@ -103,6 +111,29 @@ def sanitize_state_for_storage(state: dict | None) -> dict:
     return clean
 
 
+def sanitize_state_for_response(state: dict | None) -> dict:
+    clean = sanitize_state_for_storage(state)
+    remove_sensitive_fields(clean, remove_data_url=True)
+    return clean
+
+
+def remove_sensitive_fields(value: Any, remove_data_url: bool) -> None:
+    if isinstance(value, list):
+        for item in value:
+            remove_sensitive_fields(item, remove_data_url)
+        return
+    if not isinstance(value, dict):
+        return
+    for key in list(value.keys()):
+        if key in SENSITIVE_PUBLIC_KEYS:
+            value.pop(key, None)
+            continue
+        if key == "dataUrl" and (remove_data_url or value.get("storagePath")):
+            value.pop(key, None)
+            continue
+        remove_sensitive_fields(value.get(key), remove_data_url)
+
+
 def requester_from_state(state: dict, current_user_row: Any) -> dict:
     requester_id = safe_row_get(current_user_row, "id")
     users = state.get("users", [])
@@ -116,15 +147,24 @@ def requester_from_state(state: dict, current_user_row: Any) -> dict:
 def client_rights(user: dict) -> set[str]:
     explicit = user.get("portalRights")
     if isinstance(explicit, list) and explicit:
-        return set(str(item) for item in explicit)
-    return set(CLIENT_RIGHT_DEFAULTS.get(user.get("clientAccessLevel") or "direction", CLIENT_RIGHT_DEFAULTS["gestionnaire"]))
+        return normalize_rights(explicit)
+    return normalize_rights(CLIENT_RIGHT_DEFAULTS.get(user.get("clientAccessLevel") or "direction", CLIENT_RIGHT_DEFAULTS["gestionnaire"]))
+
+
+def normalize_right(right: Any) -> str:
+    value = str(right or "")
+    return RIGHT_ALIASES.get(value, value)
+
+
+def normalize_rights(rights: Any) -> set[str]:
+    return {normalize_right(item) for item in rights if item}
 
 
 def has_client_right(user: dict, right: str) -> bool:
     if user.get("role") != "client":
         return True
     rights = client_rights(user)
-    return "portal" in rights and right in rights
+    return "portal" in rights and normalize_right(right) in rights
 
 
 def client_building_scope(state: dict, user: dict) -> set[str]:
@@ -201,7 +241,7 @@ def empty_response_state(state: dict) -> dict:
 
 
 def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
-    clean = sanitize_state_for_storage(state)
+    clean = sanitize_state_for_response(state)
     user = requester_from_state(clean, current_user_row)
     role = user.get("role")
     if role in {"administrateur", "equipe_interne"}:
@@ -252,7 +292,11 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
         if has_client_right(user, "workorders"):
             response["workOrders"] = [item for item in clean.get("workOrders", []) if isinstance(item, dict) and item.get("id") in visible_work_order_ids]
             response["interventions"] = [
-                filtered_intervention_for_user(item, has_client_right(user, "recommendations"))
+                filtered_intervention_for_user(
+                    item,
+                    has_client_right(user, "recommendations"),
+                    has_client_right(user, "recommendation_prices"),
+                )
                 for item in clean.get("interventions", [])
                 if isinstance(item, dict) and (item.get("workOrderId") in visible_work_order_ids or item.get("equipmentId") in equipment_ids)
             ]
@@ -299,10 +343,13 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
     return response
 
 
-def filtered_intervention_for_user(intervention: dict, can_see_recommendation: bool) -> dict:
+def filtered_intervention_for_user(intervention: dict, can_see_recommendation: bool, can_see_prices: bool = True) -> dict:
     item = copy.deepcopy(intervention)
     if not can_see_recommendation:
         item.pop("recommendation", None)
+    elif not can_see_prices and isinstance(item.get("recommendation"), dict):
+        item["recommendation"].pop("price", None)
+        item["recommendation"].pop("delay", None)
     return item
 
 

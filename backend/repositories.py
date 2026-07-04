@@ -132,7 +132,7 @@ class PayloadTableRepository:
         placeholders = ", ".join("?" for _ in columns)
         updates = ", ".join(f"{column} = excluded.{column}" for column in columns if column != "id")
         values = [payload["id"]]
-        values.extend(payload.get(source) for _, source in self.column_map)
+        values.extend(source(payload) if callable(source) else payload.get(source) for _, source in self.column_map)
         values.extend([json_db_value(payload), now_value()])
         execute(
             connection,

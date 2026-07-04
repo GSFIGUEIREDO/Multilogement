@@ -7,6 +7,8 @@ Le projet applique progressivement une combinaison de:
 - **MVC / Controller fin**: `server.py` recoit les requetes HTTP et sert l'interface.
 - **Service Layer**: `backend/services.py` contient les regles metier.
 - **Auth Service Layer**: `backend/auth_services.py` isole login, inscription, session et mot de passe oublie.
+- **Use Case / Interactor Pattern**: le nouveau domaine `Auth` est decoupe en actions unitaires dans `src/climaparc/auth/application/use_cases/`.
+- **Hexagonal Architecture**: les use cases dependent d'interfaces de domaine; les acces base, session et courriel sont branches par des adapters d'infrastructure.
 - **Repository Pattern**: `backend/repositories.py` isole les operations de persistence.
 - **Database Gateway**: `backend/database.py` centralise connexion, SQL compatible SQLite/Postgres et helpers de securite.
 - **Frontend Service Layer**: `frontend/api.js` isole les appels HTTP; `frontend/storage.js` isole le stockage local.
@@ -40,6 +42,17 @@ backend/
   auth_services.py     Login, inscription, sessions et reinitialisation mot de passe
   file_storage.py      Upload, metadonnees, URLs signees et migration des anciens dataUrl
   state_compatibility.py Merge du state legacy et detection des collections modifiees
+
+src/climaparc/
+  main.py              Application FastAPI parallele, non activee comme serveur principal
+  shared/domain/       Erreurs applicatives communes
+  auth/
+    application/
+      commands.py      Entrees explicites des use cases Auth
+      use_cases/       Une action Auth par fichier et par classe
+    domain/            Protocols abstraits pour repositories, hash et courriel
+    infrastructure/    Adapters DB, session, token, hash et SMTP
+    presentation/      Router FastAPI et dependencies
 ```
 
 ## Regle de dependance
@@ -78,6 +91,18 @@ Frontend deja separe:
 - module Rapports dans `frontend/views/reports.js`
 - module Documents dans `frontend/views/documents.js`
 - module Recommandations dans `frontend/views/recommendations.js`
+
+Auth deja prepare en architecture use case parallele:
+
+- `CreateSessionUseCase`
+- `ReadSessionUseCase`
+- `LogoutSessionUseCase`
+- `LoginUserUseCase`
+- `SignupClientUseCase`
+- `RequestPasswordResetUseCase`
+- `ConfirmPasswordResetUseCase`
+
+Les routes FastAPI correspondantes existent dans `src/climaparc/auth/presentation/router.py`. Le serveur legacy `server.py` reste le point de demarrage actuel jusqu'a la migration complete des autres domaines.
 
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 

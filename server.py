@@ -21,7 +21,7 @@ from backend.auth_services import AuthService, AuthServiceError, PasswordResetSe
 from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
-from backend.services import EquipmentService, InterventionService, ServiceError, TicketService, WorkOrderService
+from backend.services import InterventionService, ServiceError, TicketService, WorkOrderService
 from backend.state_compatibility import (
     MERGE_BY_ID_KEYS,
     apply_state_changes,
@@ -39,6 +39,12 @@ from src.climaparc.places.presentation.dependencies import (
     get_update_building_use_case,
 )
 from src.climaparc.places.presentation.dispatch import save_apartment_with_use_cases, save_building_with_use_cases
+from src.climaparc.equipment.presentation.dependencies import (
+    get_create_equipment_use_case,
+    get_equipment_lookup_repository,
+    get_update_equipment_use_case,
+)
+from src.climaparc.equipment.presentation.dispatch import save_equipment_with_use_cases
 from src.climaparc.users.application.commands import DeleteUserCommand
 from src.climaparc.users.presentation.dependencies import (
     get_create_user_use_case,
@@ -1806,11 +1812,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            result = EquipmentService().save(user, payload.get("equipment"))
+            result = save_equipment_with_use_cases(
+                user,
+                payload.get("equipment"),
+                get_equipment_lookup_repository(),
+                get_create_equipment_use_case(),
+                get_update_equipment_use_case(),
+            )
             sync_relational_tables_safely(result.get("state", {}), {"equipment"})
             result["state"] = filter_state_for_user(result.get("state", {}), user)
             self.json_response(result)
-        except ServiceError as error:
+        except ApplicationError as error:
             self.json_response({"error": error.message}, error.status)
         except Exception as error:
             print(f"Equipment save failed: {error}")

@@ -53,6 +53,13 @@ src/climaparc/
     domain/            Protocols abstraits pour repositories, hash et courriel
     infrastructure/    Adapters DB, session, token, hash et SMTP
     presentation/      Router FastAPI et dependencies
+  users/
+    application/
+      commands.py      Entrees explicites des use cases Utilisateurs
+      use_cases/       Creation, modification et suppression d'utilisateur
+    domain/            Protocols et policies de droits utilisateurs
+    infrastructure/    Adapters state et auth utilisateur
+    presentation/      Router FastAPI, dependencies et dispatch legacy
 ```
 
 ## Regle de dependance
@@ -104,6 +111,14 @@ Auth deja prepare en architecture use case parallele:
 
 Les routes FastAPI correspondantes existent dans `src/climaparc/auth/presentation/router.py`. Le serveur legacy `server.py` reste le point de demarrage actuel jusqu'a la migration complete des autres domaines.
 
+Utilisateurs deja migre vers use cases:
+
+- `CreateUserUseCase`
+- `UpdateUserUseCase`
+- `DeleteUserUseCase`
+
+Les endpoints legacy `/api/user` et `/api/user-delete` passent maintenant par ces use cases, tout en gardant les memes URLs et le meme format de reponse pour le frontend actuel.
+
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 
 1. `Demandes des clients`
@@ -122,7 +137,7 @@ Le backend doit toujours appliquer les droits cote serveur, meme si l'interface 
 - `backend/security.py` filtre le state retourne selon `role`, `clientId`, `allowedBuildingIds` et `portalRights`.
 - Les clients et techniciens ne recoivent pas le state global. Ils recoivent uniquement les clients, lieux, appartements, equipements, demandes, bons, interventions, documents et rappels autorises.
 - `/api/state` est reserve aux profils `administrateur` et `equipe_interne` comme route de compatibilite temporaire.
-- Les routes metier (`/api/equipment`, `/api/user`, `/api/building`, `/api/apartment`, `/api/ticket`, `/api/work-order`, `/api/intervention`) passent l'utilisateur courant aux services, qui appliquent le controle de scope.
+- Les routes metier passent l'utilisateur courant a la couche applicative, qui applique le controle de scope. `Utilisateurs` utilise deja les use cases; les autres domaines utilisent encore les services legacy.
 - Les mots de passe ne doivent jamais etre stockes dans `climaparc_state`, les payloads relationnels, les seeds publics ou les reponses API. Ils passent uniquement par la table d'authentification avec hash et sel.
 - Les tokens de reinitialisation sont stockes dans `climaparc_password_reset_tokens`; le state ne garde que le suivi public de la demande.
 - Les fichiers sont servis par URLs temporaires generees par le backend. La cle `SUPABASE_SERVICE_ROLE_KEY` ne doit jamais etre exposee au navigateur.

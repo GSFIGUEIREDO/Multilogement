@@ -21,7 +21,7 @@ from backend.auth_services import AuthService, AuthServiceError, PasswordResetSe
 from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
-from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, UserService, WorkOrderService
+from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, WorkOrderService
 from backend.state_compatibility import (
     MERGE_BY_ID_KEYS,
     apply_state_changes,
@@ -30,6 +30,15 @@ from backend.state_compatibility import (
     merge_shared_state,
     stamp_changed_items,
 )
+from src.climaparc.shared.domain.errors import ApplicationError
+from src.climaparc.users.application.commands import DeleteUserCommand
+from src.climaparc.users.presentation.dependencies import (
+    get_create_user_use_case,
+    get_delete_user_use_case,
+    get_update_user_use_case,
+    get_user_lookup_repository,
+)
+from src.climaparc.users.presentation.dispatch import save_user_with_use_cases
 
 
 ROOT = Path(__file__).resolve().parent
@@ -1806,10 +1815,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            result = UserService().save(current_user, payload.get("user"))
-            result["state"] = filter_state_for_user(result.get("state", {}), current_user)
+            result = save_user_with_use_cases(
+                current_user,
+                payload.get("user"),
+                get_user_lookup_repository(),
+                get_create_user_use_case(),
+                get_update_user_use_case(),
+            )
             self.json_response(result)
-        except ServiceError as error:
+        except ApplicationError as error:
             self.json_response({"error": error.message}, error.status)
         except ValueError as error:
             self.json_response({"error": str(error)}, HTTPStatus.CONFLICT)
@@ -1824,10 +1838,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self.read_json()
         try:
-            result = UserService().delete(current_user, str(payload.get("userId") or ""))
-            result["state"] = filter_state_for_user(result.get("state", {}), current_user)
+            result = get_delete_user_use_case()(DeleteUserCommand(current_user, str(payload.get("userId") or "")))
             self.json_response(result)
-        except ServiceError as error:
+        except ApplicationError as error:
             self.json_response({"error": error.message}, error.status)
         except Exception as error:
             print(f"User delete failed: {error}")

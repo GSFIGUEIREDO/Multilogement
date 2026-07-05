@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from src.climaparc.auth.presentation.router import router as auth_router
+from src.climaparc.users.presentation.router import router as users_router
 
 
 def create_app() -> FastAPI:
@@ -15,6 +16,7 @@ def create_app() -> FastAPI:
         server.init_db()
 
     app.include_router(auth_router)
+    app.include_router(users_router)
     return app
 
 

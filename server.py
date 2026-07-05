@@ -21,7 +21,6 @@ from backend.auth_services import AuthService, AuthServiceError, PasswordResetSe
 from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
-from backend.services import InterventionService, ServiceError
 from backend.state_compatibility import (
     MERGE_BY_ID_KEYS,
     apply_state_changes,
@@ -45,6 +44,12 @@ from src.climaparc.equipment.presentation.dependencies import (
     get_update_equipment_use_case,
 )
 from src.climaparc.equipment.presentation.dispatch import save_equipment_with_use_cases
+from src.climaparc.interventions.presentation.dependencies import (
+    get_create_intervention_use_case,
+    get_intervention_lookup_repository,
+    get_update_intervention_use_case,
+)
+from src.climaparc.interventions.presentation.dispatch import save_intervention_with_use_cases
 from src.climaparc.tickets.presentation.dependencies import (
     get_create_ticket_use_case,
     get_ticket_lookup_repository,
@@ -1656,7 +1661,7 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_save_work_order()
             return
         if parsed.path == "/api/intervention":
-            self.handle_service_save(InterventionService, "intervention")
+            self.handle_save_intervention()
             return
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -1970,24 +1975,28 @@ class Handler(BaseHTTPRequestHandler):
             print(f"workOrder save failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la sauvegarde workOrder."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
-    def handle_service_save(self, service_class, payload_key: str) -> None:
+    def handle_save_intervention(self) -> None:
         user = SessionService().read(self.headers.get("Cookie"))
         if not user:
             self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
             return
         payload = self.read_json()
         try:
-            result = service_class().save(user, payload.get(payload_key))
-            collection_key = getattr(service_class, "collection_key", "")
-            if collection_key:
-                sync_relational_tables_safely(result.get("state", {}), {collection_key})
+            result = save_intervention_with_use_cases(
+                user,
+                payload.get("intervention"),
+                get_intervention_lookup_repository(),
+                get_create_intervention_use_case(),
+                get_update_intervention_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {"interventions"})
             result["state"] = filter_state_for_user(result.get("state", {}), user)
             self.json_response(result)
-        except ServiceError as error:
+        except ApplicationError as error:
             self.json_response({"error": error.message}, error.status)
         except Exception as error:
-            print(f"{payload_key} save failed: {error}")
-            self.json_response({"error": f"Erreur serveur lors de la sauvegarde {payload_key}."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"intervention save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde intervention."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

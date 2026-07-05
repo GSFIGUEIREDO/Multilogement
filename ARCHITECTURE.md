@@ -81,6 +81,13 @@ src/climaparc/
     domain/            Protocols et policies de droits demandes
     infrastructure/    Adapters state et table tickets
     presentation/      Router FastAPI, dependencies et dispatch legacy
+  work_orders/
+    application/
+      commands.py      Entrees explicites des use cases Bons de travail
+      use_cases/       Creation et modification de BT
+    domain/            Protocols et policies de droits BT
+    infrastructure/    Adapters state et table work orders
+    presentation/      Router FastAPI, dependencies et dispatch legacy
 ```
 
 ## Regle de dependance
@@ -162,6 +169,13 @@ Demandes des clients deja migre vers use cases:
 - `UpdateTicketUseCase`
 
 L'endpoint legacy `/api/ticket` passe maintenant par ces use cases en conservant les memes controles de scope client et les memes payloads.
+
+Bons de travail deja migre vers use cases:
+
+- `CreateWorkOrderUseCase`
+- `UpdateWorkOrderUseCase`
+
+L'endpoint legacy `/api/work-order` passe maintenant par ces use cases. Les regles existantes sont conservees: admin/equipe interne peuvent gerer les BT, les techniciens peuvent modifier les BT qui leur sont assignes, et les clients ne peuvent pas creer/modifier les BT.
 
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 

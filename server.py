@@ -21,7 +21,7 @@ from backend.auth_services import AuthService, AuthServiceError, PasswordResetSe
 from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
-from backend.services import InterventionService, ServiceError, WorkOrderService
+from backend.services import InterventionService, ServiceError
 from backend.state_compatibility import (
     MERGE_BY_ID_KEYS,
     apply_state_changes,
@@ -59,6 +59,12 @@ from src.climaparc.users.presentation.dependencies import (
     get_user_lookup_repository,
 )
 from src.climaparc.users.presentation.dispatch import save_user_with_use_cases
+from src.climaparc.work_orders.presentation.dependencies import (
+    get_create_work_order_use_case,
+    get_update_work_order_use_case,
+    get_work_order_lookup_repository,
+)
+from src.climaparc.work_orders.presentation.dispatch import save_work_order_with_use_cases
 
 
 ROOT = Path(__file__).resolve().parent
@@ -1647,7 +1653,7 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_save_ticket()
             return
         if parsed.path == "/api/work-order":
-            self.handle_service_save(WorkOrderService, "workOrder")
+            self.handle_save_work_order()
             return
         if parsed.path == "/api/intervention":
             self.handle_service_save(InterventionService, "intervention")
@@ -1940,6 +1946,29 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"ticket save failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la sauvegarde ticket."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_save_work_order(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            result = save_work_order_with_use_cases(
+                user,
+                payload.get("workOrder"),
+                get_work_order_lookup_repository(),
+                get_create_work_order_use_case(),
+                get_update_work_order_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {"workOrders"})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"workOrder save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde workOrder."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_service_save(self, service_class, payload_key: str) -> None:
         user = SessionService().read(self.headers.get("Cookie"))

@@ -74,6 +74,13 @@ src/climaparc/
     domain/            Protocols et policies de droits machines
     infrastructure/    Adapters state et table equipements
     presentation/      Router FastAPI, dependencies et dispatch legacy
+  tickets/
+    application/
+      commands.py      Entrees explicites des use cases Demandes clients
+      use_cases/       Creation et modification de demandes
+    domain/            Protocols et policies de droits demandes
+    infrastructure/    Adapters state et table tickets
+    presentation/      Router FastAPI, dependencies et dispatch legacy
 ```
 
 ## Regle de dependance
@@ -148,6 +155,13 @@ Equipements deja migre vers use cases:
 - `UpdateEquipmentUseCase`
 
 L'endpoint legacy `/api/equipment` passe maintenant par ces use cases. La regle existante qui preserve les pieces jointes d'une machine lors d'une modification sans `attachments` est conservee.
+
+Demandes des clients deja migre vers use cases:
+
+- `CreateTicketUseCase`
+- `UpdateTicketUseCase`
+
+L'endpoint legacy `/api/ticket` passe maintenant par ces use cases en conservant les memes controles de scope client et les memes payloads.
 
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 

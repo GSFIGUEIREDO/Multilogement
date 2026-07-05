@@ -21,7 +21,7 @@ from backend.auth_services import AuthService, AuthServiceError, PasswordResetSe
 from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
-from backend.services import InterventionService, ServiceError, TicketService, WorkOrderService
+from backend.services import InterventionService, ServiceError, WorkOrderService
 from backend.state_compatibility import (
     MERGE_BY_ID_KEYS,
     apply_state_changes,
@@ -45,6 +45,12 @@ from src.climaparc.equipment.presentation.dependencies import (
     get_update_equipment_use_case,
 )
 from src.climaparc.equipment.presentation.dispatch import save_equipment_with_use_cases
+from src.climaparc.tickets.presentation.dependencies import (
+    get_create_ticket_use_case,
+    get_ticket_lookup_repository,
+    get_update_ticket_use_case,
+)
+from src.climaparc.tickets.presentation.dispatch import save_ticket_with_use_cases
 from src.climaparc.users.application.commands import DeleteUserCommand
 from src.climaparc.users.presentation.dependencies import (
     get_create_user_use_case,
@@ -1638,7 +1644,7 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_save_apartment()
             return
         if parsed.path == "/api/ticket":
-            self.handle_service_save(TicketService, "ticket")
+            self.handle_save_ticket()
             return
         if parsed.path == "/api/work-order":
             self.handle_service_save(WorkOrderService, "workOrder")
@@ -1911,6 +1917,29 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"apartment save failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la sauvegarde apartment."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_save_ticket(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            result = save_ticket_with_use_cases(
+                user,
+                payload.get("ticket"),
+                get_ticket_lookup_repository(),
+                get_create_ticket_use_case(),
+                get_update_ticket_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {"tickets"})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"ticket save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde ticket."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_service_save(self, service_class, payload_key: str) -> None:
         user = SessionService().read(self.headers.get("Cookie"))

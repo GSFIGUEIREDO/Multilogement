@@ -975,6 +975,43 @@
     }
   }
 
+  async function saveSettingCollectionItem(collectionKey, item, successToast, uiPatch = { modal: null, activeView: "parametres" }) {
+    const previousItems = JSON.parse(JSON.stringify(state[collectionKey] || []));
+    const items = Array.isArray(state[collectionKey]) ? state[collectionKey] : [];
+    const index = items.findIndex((entry) => entry.id === item.id);
+    if (index >= 0) items[index] = item;
+    else items.push(item);
+    state[collectionKey] = items;
+
+    if (!SERVER_ENABLED) {
+      setState({ ...uiPatch, toast: successToast });
+      return;
+    }
+    if (!state.sessionUserId || restoringSession) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    updateUiState({ ...uiPatch, toast: "Sauvegarde des paramètres..." });
+    try {
+      const payload = await api.saveSettingItem(collectionKey, item);
+      if (payload.state) {
+        rememberServerState(payload.state);
+        const uiState = currentUiState();
+        state = {
+          ...normalizeState(payload.state),
+          ...uiState,
+          ...uiPatch,
+          sessionUserId: uiState.sessionUserId,
+          toast: successToast
+        };
+        render();
+        scheduleToastClear();
+      }
+    } catch (error) {
+      state[collectionKey] = previousItems;
+      updateUiState({ ...uiPatch, toast: error.message || "Paramètres non sauvegardés." });
+    }
+  }
+
   async function saveActivityBundle(equipment, intervention, order, uiPatch, successToast) {
     if (!SERVER_ENABLED) {
       setState({ ...uiPatch, toast: successToast });
@@ -1412,6 +1449,11 @@
 
   function canManageReminders() {
     return can("alerts") || can("equipment") || can("portal");
+  }
+
+  function canEditReminders() {
+    const user = currentUser();
+    return ["administrateur", "equipe_interne"].includes(user?.role) && can("alerts");
   }
 
   function buildingForApartment(apartmentId) {
@@ -2173,7 +2215,7 @@
     const actionButtons = `
       <button class="ghost-button" data-action="go-back" data-fallback-view="equipements">Retour</button>
       ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
-      ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
+      ${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
       ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvelle demande</button>` : ""}
       ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
     `;
@@ -2213,7 +2255,7 @@
           <div class="panel">
             <div class="panel-header">
               <h2>Rappels</h2>
-              ${canManageReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}
+              ${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}
             </div>
             <div class="panel-body cards-list">
               ${reminders.map((reminder) => reminderItem(reminder, true, false)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}
@@ -2371,8 +2413,8 @@
     const inactive = reminders.filter((reminder) => reminder.status === "inactive");
     return appShell(`
       ${renderTopbar("Centre d'alertes", "Rappels personnalisés liés aux équipements.", `
-        <button class="primary-button" data-action="open-modal" data-modal="reminder">Nouveau rappel</button>
-        ${due.length ? `<button class="ghost-button" data-action="mark-reminders-seen">Marquer comme vu</button>` : ""}
+        ${canEditReminders() ? `<button class="primary-button" data-action="open-modal" data-modal="reminder">Nouveau rappel</button>` : ""}
+        ${canEditReminders() && due.length ? `<button class="ghost-button" data-action="mark-reminders-seen">Marquer comme vu</button>` : ""}
       `)}
       <section class="stats-grid">
         <div class="stat"><span>À traiter</span><strong>${due.length}</strong></div>
@@ -2390,6 +2432,7 @@
   function reminderItem(reminder, expanded = false, showEquipmentLink = true) {
     const { equipment, apartment, building } = equipmentContext(reminder.equipmentId);
     const frequency = `${reminder.frequencyValue} ${reminder.frequencyUnit === "years" ? "an(s)" : "mois"}`;
+    const editable = canEditReminders();
     return `
       <article class="list-item reminder-item ${reminderIsDue(reminder) ? "is-due" : ""}">
         <div class="actions" style="justify-content:space-between">
@@ -2403,10 +2446,10 @@
           <div class="actions">
             ${showEquipmentLink ? `<button class="link-button" data-action="select-equipment" data-id="${escapeHtml(reminder.equipmentId)}">Dossier machine</button>` : ""}
             ${canCreateWorkOrders() && reminder.status === "active" && !reminder.lastWorkOrderId ? `<button class="ghost-button small-action-button" data-action="open-modal" data-modal="workorder" data-equipment="${escapeHtml(reminder.equipmentId)}" data-reminder="${escapeHtml(reminder.id)}">Créer BT</button>` : ""}
-            <button class="ghost-button" data-action="open-modal" data-modal="reminder" data-id="${escapeHtml(reminder.id)}">Modifier</button>
-            <button class="ghost-button" data-action="reminder-status" data-id="${escapeHtml(reminder.id)}" data-status="${reminder.status === "active" ? "inactive" : "active"}">${reminder.status === "active" ? "Inactiver" : "Activer"}</button>
-            ${reminderIsDue(reminder) ? `<button class="ghost-button" data-action="mark-reminder-seen" data-id="${escapeHtml(reminder.id)}">Vu</button>` : ""}
-            <button class="link-button danger-link" data-action="delete-reminder" data-id="${escapeHtml(reminder.id)}">Supprimer</button>
+            ${editable ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-id="${escapeHtml(reminder.id)}">Modifier</button>` : ""}
+            ${editable ? `<button class="ghost-button" data-action="reminder-status" data-id="${escapeHtml(reminder.id)}" data-status="${reminder.status === "active" ? "inactive" : "active"}">${reminder.status === "active" ? "Inactiver" : "Activer"}</button>` : ""}
+            ${editable && reminderIsDue(reminder) ? `<button class="ghost-button" data-action="mark-reminder-seen" data-id="${escapeHtml(reminder.id)}">Vu</button>` : ""}
+            ${editable ? `<button class="link-button danger-link" data-action="delete-reminder" data-id="${escapeHtml(reminder.id)}">Supprimer</button>` : ""}
           </div>
         ` : ""}
       </article>
@@ -4092,13 +4135,13 @@
     if (formType === "ticket") await createTicket(form, values);
     if (formType === "workorder") await createWorkOrder(form, values);
     if (formType === "equipment") await createEquipment(values);
-    if (formType === "reminder") saveReminder(form, values);
+    if (formType === "reminder") await saveReminder(form, values);
     if (formType === "user") await createUser(form, values);
-    if (formType === "dataField") saveDataField(form, values);
-    if (formType === "serviceType") saveServiceType(values);
-    if (formType === "interventionType") saveInterventionType(values);
-    if (formType === "formTemplate") saveFormTemplate(form, values);
-    if (formType === "role") saveRole(form, values);
+    if (formType === "dataField") await saveDataField(form, values);
+    if (formType === "serviceType") await saveServiceType(values);
+    if (formType === "interventionType") await saveInterventionType(values);
+    if (formType === "formTemplate") await saveFormTemplate(form, values);
+    if (formType === "role") await saveRole(form, values);
     if (formType === "checklist") await saveChecklist(form, values);
     if (formType === "fieldIntervention") await saveFieldIntervention(form, values);
     if (formType === "recommendationReview") await saveRecommendationReview(values);
@@ -4499,7 +4542,27 @@
     const uiPatch = { activeView: "bons" };
     updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde du bon de travail..." });
     try {
+      const reminderToSave = values.sourceReminderId
+        ? JSON.parse(JSON.stringify(state.reminders.find((item) => item.id === values.sourceReminderId) || null))
+        : null;
       await saveDomainItemNow(api.saveWorkOrder, payload, uiPatch, successToast);
+      if (reminderToSave) {
+        const reminderPayload = await api.saveReminder(reminderToSave);
+        if (reminderPayload.state) {
+          rememberServerState(reminderPayload.state);
+          const uiState = currentUiState();
+          state = {
+            ...normalizeState(reminderPayload.state),
+            ...uiState,
+            ...uiPatch,
+            sessionUserId: uiState.sessionUserId,
+            modal: null,
+            toast: successToast
+          };
+          render();
+          scheduleToastClear();
+        }
+      }
       if (linkedTicket) {
         const ticketPayload = await api.saveTicket(linkedTicket);
         if (ticketPayload.state) {
@@ -4592,7 +4655,8 @@
     }
   }
 
-  function saveReminder(form, values) {
+  async function saveReminder(form, values) {
+    const previousReminders = JSON.parse(JSON.stringify(state.reminders));
     const equipmentIds = new Set(Array.from(form.querySelectorAll("input[name='equipmentIds']:checked")).map((input) => input.value));
     if (!values.id && values.rangeBuildingId && (values.rangeFrom || values.rangeTo)) {
       const from = apartmentNumberValue(values.rangeFrom || "0");
@@ -4624,25 +4688,52 @@
     };
     const existing = state.reminders.find((item) => item.id === values.id);
     const selectedEquipmentIds = Array.from(equipmentIds);
+    let payloads = [];
+    let successToast = "";
     if (existing) {
       Object.assign(existing, {
         ...payload,
         equipmentId: selectedEquipmentIds[0],
         lastSeenDueDate: existing.nextDueDate === payload.nextDueDate ? existing.lastSeenDueDate : ""
       });
-      setState({ modal: null, activeView: "alertes", toast: "Rappel modifié." });
-      return;
-    }
-    selectedEquipmentIds.forEach((equipmentId) => {
-      state.reminders.unshift({
+      payloads = [existing];
+      successToast = "Rappel modifié.";
+    } else {
+      payloads = selectedEquipmentIds.map((equipmentId) => ({
         id: uid("rem"),
         equipmentId,
         ...payload,
         createdAt: today(),
         lastSeenDueDate: ""
-      });
-    });
-    setState({ modal: null, activeView: "alertes", toast: equipmentIds.size > 1 ? "Rappels créés." : "Rappel créé." });
+      }));
+      payloads.slice().reverse().forEach((item) => state.reminders.unshift(item));
+      successToast = equipmentIds.size > 1 ? "Rappels créés." : "Rappel créé.";
+    }
+    if (!SERVER_ENABLED) {
+      setState({ modal: null, activeView: "alertes", toast: successToast });
+      return;
+    }
+    updateUiState({ modal: null, activeView: "alertes", toast: "Sauvegarde du rappel..." });
+    try {
+      const response = payloads.length > 1 ? await api.saveReminders(payloads) : await api.saveReminder(payloads[0]);
+      if (response.state) {
+        rememberServerState(response.state);
+        const uiState = currentUiState();
+        state = {
+          ...normalizeState(response.state),
+          ...uiState,
+          activeView: "alertes",
+          sessionUserId: uiState.sessionUserId,
+          modal: null,
+          toast: successToast
+        };
+        render();
+        scheduleToastClear();
+      }
+    } catch (error) {
+      state.reminders = previousReminders;
+      updateUiState({ modal: null, activeView: "alertes", toast: error.message || "Rappel non sauvegardé." });
+    }
   }
 
   async function createUser(form, values) {
@@ -4745,7 +4836,7 @@
     }
   }
 
-  function saveServiceType(values) {
+  async function saveServiceType(values) {
     const payload = {
       id: values.id || uid("appel"),
       name: values.name,
@@ -4753,12 +4844,10 @@
       linkedInterventionTypeId: values.linkedInterventionTypeId
     };
     const index = state.serviceTypes.findIndex((item) => item.id === payload.id);
-    if (index >= 0) state.serviceTypes[index] = payload;
-    else state.serviceTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Type de demande modifié." : "Type de demande créé." });
+    await saveSettingCollectionItem("serviceTypes", payload, index >= 0 ? "Type de demande modifié." : "Type de demande créé.");
   }
 
-  function saveInterventionType(values) {
+  async function saveInterventionType(values) {
     const payload = {
       id: values.id || uid("check"),
       name: values.name,
@@ -4766,12 +4855,10 @@
       checklist: values.checklist.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
     };
     const index = state.interventionTypes.findIndex((item) => item.id === payload.id);
-    if (index >= 0) state.interventionTypes[index] = payload;
-    else state.interventionTypes.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Checklist modifiée." : "Checklist créée." });
+    await saveSettingCollectionItem("interventionTypes", payload, index >= 0 ? "Checklist modifiée." : "Checklist créée.");
   }
 
-  function saveDataField(form, values) {
+  async function saveDataField(form, values) {
     const appliesTo = Array.from(form.querySelectorAll('[name="appliesTo"]:checked')).map((input) => input.value);
     const payload = {
       id: values.id || uid("datafield"),
@@ -4782,9 +4869,7 @@
       options: parseDataFieldOptions(values.options || "")
     };
     const index = state.dataFields.findIndex((item) => item.id === payload.id);
-    if (index >= 0) state.dataFields[index] = payload;
-    else state.dataFields.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Champ de données modifié." : "Champ de données créé." });
+    await saveSettingCollectionItem("dataFields", payload, index >= 0 ? "Champ de données modifié." : "Champ de données créé.");
   }
 
   function parseDataFieldOptions(value) {
@@ -4798,7 +4883,7 @@
     }).filter(Boolean);
   }
 
-  function saveFormTemplate(form, values) {
+  async function saveFormTemplate(form, values) {
     const fields = Array.from(form.querySelectorAll("[data-question]")).map((card) => {
       const label = card.querySelector('[name="q-label"]')?.value.trim();
       if (!label) return null;
@@ -4856,9 +4941,7 @@
       fields
     };
     const index = state.formTemplates.findIndex((item) => item.id === payload.id);
-    if (index >= 0) state.formTemplates[index] = payload;
-    else state.formTemplates.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Formulaire modifié." : "Formulaire créé." });
+    await saveSettingCollectionItem("formTemplates", payload, index >= 0 ? "Formulaire modifié." : "Formulaire créé.");
   }
 
   function parseOptions(value) {
@@ -4911,16 +4994,14 @@
       .replace(/^_+|_+$/g, "") || uid("q");
   }
 
-  function saveRole(form, values) {
+  async function saveRole(form, values) {
     const roleId = values.id || values.roleId.trim().toLowerCase().replace(/\s+/g, "_");
     const rights = rightsCatalog()
       .map(([right]) => right)
       .filter((right) => form.querySelector(`[name="right-${right}"]`)?.checked);
     const payload = { id: roleId, name: values.name, rights };
     const index = state.roleDefinitions.findIndex((item) => item.id === roleId);
-    if (index >= 0) state.roleDefinitions[index] = payload;
-    else state.roleDefinitions.push(payload);
-    setState({ modal: null, activeView: "parametres", toast: index >= 0 ? "Rôle modifié." : "Rôle créé." });
+    await saveSettingCollectionItem("roleDefinitions", payload, index >= 0 ? "Rôle modifié." : "Rôle créé.");
   }
 
   async function saveChecklist(form, values) {
@@ -5538,7 +5619,7 @@
   function bindEvents() {
     const app = document.getElementById("app");
     app.addEventListener("submit", handleSubmit);
-    app.addEventListener("click", (event) => {
+    app.addEventListener("click", async (event) => {
       const modalCard = event.target.closest("[data-modal-card]");
       const target = event.target.closest("[data-action]");
       if (!event.target.closest(".combo-field")) hideComboOptions();
@@ -5689,7 +5770,7 @@
         return;
       }
       if (action === "duplicate-form-template") {
-        duplicateFormTemplate(target.dataset.id);
+        await duplicateFormTemplate(target.dataset.id);
         return;
       }
       if (action === "ticket-status") {
@@ -5707,24 +5788,101 @@
       }
       if (action === "reminder-status") {
         const reminder = state.reminders.find((item) => item.id === target.dataset.id);
-        if (reminder) reminder.status = target.dataset.status;
-        setState({ toast: "Statut du rappel mis à jour." });
+        if (!reminder) return;
+        const previousReminders = JSON.parse(JSON.stringify(state.reminders));
+        reminder.status = target.dataset.status;
+        if (!SERVER_ENABLED) {
+          setState({ toast: "Statut du rappel mis à jour." });
+          return;
+        }
+        updateUiState({ toast: "Sauvegarde du rappel..." });
+        try {
+          await saveDomainItemNow(api.saveReminder, reminder, { activeView: "alertes" }, "Statut du rappel mis à jour.");
+        } catch (error) {
+          state.reminders = previousReminders;
+          updateUiState({ toast: error.message || "Statut du rappel non sauvegardé." });
+        }
       }
       if (action === "mark-reminder-seen") {
         const reminder = state.reminders.find((item) => item.id === target.dataset.id);
-        if (reminder) reminder.lastSeenDueDate = reminder.nextDueDate;
-        setState({ toast: "Rappel marqué comme vu." });
+        if (!reminder) return;
+        const previousReminders = JSON.parse(JSON.stringify(state.reminders));
+        reminder.lastSeenDueDate = reminder.nextDueDate;
+        if (!SERVER_ENABLED) {
+          setState({ toast: "Rappel marqué comme vu." });
+          return;
+        }
+        updateUiState({ toast: "Sauvegarde du rappel..." });
+        try {
+          await saveDomainItemNow(api.saveReminder, reminder, { activeView: "alertes" }, "Rappel marqué comme vu.");
+        } catch (error) {
+          state.reminders = previousReminders;
+          updateUiState({ toast: error.message || "Rappel non sauvegardé." });
+        }
       }
       if (action === "mark-reminders-seen") {
+        const previousReminders = JSON.parse(JSON.stringify(state.reminders));
+        const updatedReminders = [];
         scopedReminders().forEach((reminder) => {
-          if (reminderIsDue(reminder)) reminder.lastSeenDueDate = reminder.nextDueDate;
+          if (reminderIsDue(reminder)) {
+            reminder.lastSeenDueDate = reminder.nextDueDate;
+            updatedReminders.push(reminder);
+          }
         });
-        setState({ toast: "Alertes marquées comme vues." });
+        if (!updatedReminders.length) return;
+        if (!SERVER_ENABLED) {
+          setState({ toast: "Alertes marquées comme vues." });
+          return;
+        }
+        updateUiState({ toast: "Sauvegarde des alertes..." });
+        try {
+          const response = await api.saveReminders(updatedReminders);
+          if (response.state) {
+            rememberServerState(response.state);
+            const uiState = currentUiState();
+            state = {
+              ...normalizeState(response.state),
+              ...uiState,
+              activeView: "alertes",
+              sessionUserId: uiState.sessionUserId,
+              toast: "Alertes marquées comme vues."
+            };
+            render();
+            scheduleToastClear();
+          }
+        } catch (error) {
+          state.reminders = previousReminders;
+          updateUiState({ toast: error.message || "Alertes non sauvegardées." });
+        }
       }
       if (action === "delete-reminder") {
         if (!confirm("Supprimer ce rappel?")) return;
+        const previousReminders = JSON.parse(JSON.stringify(state.reminders));
         state.reminders = state.reminders.filter((item) => item.id !== target.dataset.id);
-        setState({ activeView: "alertes", toast: "Rappel supprimé." });
+        if (!SERVER_ENABLED) {
+          setState({ activeView: "alertes", toast: "Rappel supprimé." });
+          return;
+        }
+        updateUiState({ activeView: "alertes", toast: "Suppression du rappel..." });
+        try {
+          const response = await api.deleteReminder(target.dataset.id);
+          if (response.state) {
+            rememberServerState(response.state);
+            const uiState = currentUiState();
+            state = {
+              ...normalizeState(response.state),
+              ...uiState,
+              activeView: "alertes",
+              sessionUserId: uiState.sessionUserId,
+              toast: "Rappel supprimé."
+            };
+            render();
+            scheduleToastClear();
+          }
+        } catch (error) {
+          state.reminders = previousReminders;
+          updateUiState({ activeView: "alertes", toast: error.message || "Rappel non supprimé." });
+        }
       }
       if (action === "send-recommendation") {
         sendRecommendationToClient(target.dataset.id);
@@ -5900,7 +6058,7 @@
     refreshFormBranching(form);
   }
 
-  function duplicateFormTemplate(id) {
+  async function duplicateFormTemplate(id) {
     const template = state.formTemplates.find((item) => item.id === id);
     if (!template) return;
     const copy = JSON.parse(JSON.stringify(template));
@@ -5914,8 +6072,12 @@
       nextFieldId: idMap[field.nextFieldId] || field.nextFieldId || "",
       branchRules: Object.fromEntries(Object.entries(field.branchRules || {}).map(([option, target]) => [option, idMap[target] || target]))
     }));
-    state.formTemplates.push(copy);
-    setState({ modal: { type: "formTemplate", id: copy.id }, activeView: "parametres", toast: "Formulaire dupliqué." });
+    await saveSettingCollectionItem(
+      "formTemplates",
+      copy,
+      "Formulaire dupliqué.",
+      { modal: { type: "formTemplate", id: copy.id }, activeView: "parametres" }
+    );
   }
 
   function currentBuilderFields(form) {

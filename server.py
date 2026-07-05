@@ -60,6 +60,24 @@ from src.climaparc.interventions.presentation.dependencies import (
     get_update_intervention_use_case,
 )
 from src.climaparc.interventions.presentation.dispatch import save_intervention_with_use_cases
+from src.climaparc.reminders.presentation.dependencies import (
+    get_delete_reminder_use_case,
+    get_save_reminder_batch_use_case,
+    get_save_reminder_use_case,
+)
+from src.climaparc.reminders.presentation.dispatch import (
+    delete_reminder_with_use_case,
+    save_reminder_batch_with_use_case,
+    save_reminder_with_use_case,
+)
+from src.climaparc.settings.presentation.dependencies import (
+    get_delete_setting_item_use_case,
+    get_save_setting_item_use_case,
+)
+from src.climaparc.settings.presentation.dispatch import (
+    delete_setting_item_with_use_case,
+    save_setting_item_with_use_case,
+)
 from src.climaparc.tickets.presentation.dependencies import (
     get_create_ticket_use_case,
     get_ticket_lookup_repository,
@@ -1673,6 +1691,18 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/intervention":
             self.handle_save_intervention()
             return
+        if parsed.path == "/api/reminder":
+            self.handle_save_reminder()
+            return
+        if parsed.path == "/api/reminder-delete":
+            self.handle_delete_reminder()
+            return
+        if parsed.path == "/api/setting-item":
+            self.handle_save_setting_item()
+            return
+        if parsed.path == "/api/setting-item-delete":
+            self.handle_delete_setting_item()
+            return
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_session(self) -> None:
@@ -2009,6 +2039,88 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"intervention save failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la sauvegarde intervention."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_save_reminder(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            if isinstance(payload.get("reminders"), list):
+                result = save_reminder_batch_with_use_case(user, payload.get("reminders"), get_save_reminder_batch_use_case())
+            else:
+                result = save_reminder_with_use_case(user, payload.get("reminder"), get_save_reminder_use_case())
+            sync_relational_tables_safely(result.get("state", {}), {"reminders"})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"reminder save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde rappel."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_delete_reminder(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            result = delete_reminder_with_use_case(user, str(payload.get("reminderId") or ""), get_delete_reminder_use_case())
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"reminder delete failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la suppression rappel."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_save_setting_item(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            collection_key = str(payload.get("collectionKey") or "")
+            result = save_setting_item_with_use_case(
+                user,
+                collection_key,
+                payload.get("item"),
+                get_save_setting_item_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {collection_key})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"setting save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde des parametres."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_delete_setting_item(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            collection_key = str(payload.get("collectionKey") or "")
+            result = delete_setting_item_with_use_case(
+                user,
+                collection_key,
+                str(payload.get("itemId") or ""),
+                get_delete_setting_item_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {collection_key})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"setting delete failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la suppression des parametres."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

@@ -68,6 +68,21 @@
     saveIntervention(intervention) {
       return post("/api/intervention", { intervention });
     },
+    saveReminder(reminder) {
+      return post("/api/reminder", { reminder });
+    },
+    saveReminders(reminders) {
+      return post("/api/reminder", { reminders });
+    },
+    deleteReminder(reminderId) {
+      return post("/api/reminder-delete", { reminderId });
+    },
+    saveSettingItem(collectionKey, item) {
+      return post("/api/setting-item", { collectionKey, item });
+    },
+    deleteSettingItem(collectionKey, itemId) {
+      return post("/api/setting-item-delete", { collectionKey, itemId });
+    },
     uploadFile(formData) {
       return requestForm("/api/file-upload", formData);
     },

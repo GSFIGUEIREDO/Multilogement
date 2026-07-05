@@ -70,6 +70,8 @@ from src.climaparc.reminders.presentation.dispatch import (
     save_reminder_batch_with_use_case,
     save_reminder_with_use_case,
 )
+from src.climaparc.reports.presentation.dependencies import get_report_context_use_case
+from src.climaparc.reports.presentation.dispatch import get_report_context_with_use_case
 from src.climaparc.settings.presentation.dependencies import (
     get_delete_setting_item_use_case,
     get_save_setting_item_use_case,
@@ -1697,6 +1699,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/reminder-delete":
             self.handle_delete_reminder()
             return
+        if parsed.path == "/api/report-context":
+            self.handle_report_context()
+            return
         if parsed.path == "/api/setting-item":
             self.handle_save_setting_item()
             return
@@ -2075,6 +2080,21 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"reminder delete failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la suppression rappel."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_report_context(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            result = get_report_context_with_use_case(user, payload.get("filters"), get_report_context_use_case())
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"report context failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la preparation du rapport."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_save_setting_item(self) -> None:
         user = SessionService().read(self.headers.get("Cookie"))

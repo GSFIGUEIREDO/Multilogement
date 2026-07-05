@@ -14,6 +14,7 @@
   let lastServerState = null;
   let applyingHistoryState = false;
   let browserHistoryReady = false;
+  let lastReportServerContext = null;
 
   const SHARED_COLLECTION_KEYS = [
     "users",
@@ -5898,10 +5899,10 @@
       }
       if (action === "export") exportReport(target.dataset.report);
     });
-    app.addEventListener("change", (event) => {
+    app.addEventListener("change", async (event) => {
       handleFilter(event);
       handleWorkOrderFilter(event);
-      handleReportFilter(event);
+      await handleReportFilter(event);
       handleDashboardWidgetSize(event);
       handleDashboardCalendarDate(event);
       updateDynamicVisibility(event.target.closest("form"));
@@ -6333,10 +6334,22 @@
     updateUiState({ dashboardCalendarDate: target.value ? `${target.value}-01` : monthStart(today()) });
   }
 
-  function handleReportFilter(event) {
+  async function handleReportFilter(event) {
     const target = event.target.closest("[data-action='report-filter']");
     if (!target) return;
-    updateUiState({ reportFilters: { ...state.reportFilters, [target.dataset.filter]: target.value } });
+    const filters = { ...state.reportFilters, [target.dataset.filter]: target.value };
+    updateUiState({ reportFilters: filters });
+    await refreshReportContext(filters);
+  }
+
+  async function refreshReportContext(filters = state.reportFilters) {
+    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || !api?.getReportContext) return;
+    try {
+      lastReportServerContext = await api.getReportContext(filters);
+    } catch (error) {
+      lastReportServerContext = null;
+      showToast(error.message || "Rapport non disponible sur le serveur.");
+    }
   }
 
   function render() {

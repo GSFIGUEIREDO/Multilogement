@@ -83,6 +83,9 @@
     deleteSettingItem(collectionKey, itemId) {
       return post("/api/setting-item-delete", { collectionKey, itemId });
     },
+    getReportContext(filters) {
+      return post("/api/report-context", { filters });
+    },
     uploadFile(formData) {
       return requestForm("/api/file-upload", formData);
     },

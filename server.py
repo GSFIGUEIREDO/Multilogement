@@ -21,7 +21,7 @@ from backend.auth_services import AuthService, AuthServiceError, PasswordResetSe
 from backend.file_storage import FileService, FileStorageError, local_file_path, migrate_legacy_data_urls
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
-from backend.services import ApartmentService, BuildingService, EquipmentService, InterventionService, ServiceError, TicketService, WorkOrderService
+from backend.services import EquipmentService, InterventionService, ServiceError, TicketService, WorkOrderService
 from backend.state_compatibility import (
     MERGE_BY_ID_KEYS,
     apply_state_changes,
@@ -31,6 +31,14 @@ from backend.state_compatibility import (
     stamp_changed_items,
 )
 from src.climaparc.shared.domain.errors import ApplicationError
+from src.climaparc.places.presentation.dependencies import (
+    get_create_apartment_use_case,
+    get_create_building_use_case,
+    get_place_lookup_repository,
+    get_update_apartment_use_case,
+    get_update_building_use_case,
+)
+from src.climaparc.places.presentation.dispatch import save_apartment_with_use_cases, save_building_with_use_cases
 from src.climaparc.users.application.commands import DeleteUserCommand
 from src.climaparc.users.presentation.dependencies import (
     get_create_user_use_case,
@@ -1618,10 +1626,10 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_delete_user()
             return
         if parsed.path == "/api/building":
-            self.handle_service_save(BuildingService, "building")
+            self.handle_save_building()
             return
         if parsed.path == "/api/apartment":
-            self.handle_service_save(ApartmentService, "apartment")
+            self.handle_save_apartment()
             return
         if parsed.path == "/api/ticket":
             self.handle_service_save(TicketService, "ticket")
@@ -1845,6 +1853,52 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             print(f"User delete failed: {error}")
             self.json_response({"error": "Erreur serveur lors de la suppression utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_save_building(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            result = save_building_with_use_cases(
+                user,
+                payload.get("building"),
+                get_place_lookup_repository(),
+                get_create_building_use_case(),
+                get_update_building_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {"buildings"})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"building save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde building."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_save_apartment(self) -> None:
+        user = SessionService().read(self.headers.get("Cookie"))
+        if not user:
+            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
+            return
+        payload = self.read_json()
+        try:
+            result = save_apartment_with_use_cases(
+                user,
+                payload.get("apartment"),
+                get_place_lookup_repository(),
+                get_create_apartment_use_case(),
+                get_update_apartment_use_case(),
+            )
+            sync_relational_tables_safely(result.get("state", {}), {"apartments"})
+            result["state"] = filter_state_for_user(result.get("state", {}), user)
+            self.json_response(result)
+        except ApplicationError as error:
+            self.json_response({"error": error.message}, error.status)
+        except Exception as error:
+            print(f"apartment save failed: {error}")
+            self.json_response({"error": "Erreur serveur lors de la sauvegarde apartment."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def handle_service_save(self, service_class, payload_key: str) -> None:
         user = SessionService().read(self.headers.get("Cookie"))

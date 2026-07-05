@@ -60,6 +60,13 @@ src/climaparc/
     domain/            Protocols et policies de droits utilisateurs
     infrastructure/    Adapters state et auth utilisateur
     presentation/      Router FastAPI, dependencies et dispatch legacy
+  places/
+    application/
+      commands.py      Entrees explicites des use cases Lieux/Appartements
+      use_cases/       Creation et modification de lieux et appartements
+    domain/            Protocols et policies de droits lieux
+    infrastructure/    Adapters state et payload relationnel
+    presentation/      Router FastAPI, dependencies et dispatch legacy
 ```
 
 ## Regle de dependance
@@ -118,6 +125,15 @@ Utilisateurs deja migre vers use cases:
 - `DeleteUserUseCase`
 
 Les endpoints legacy `/api/user` et `/api/user-delete` passent maintenant par ces use cases, tout en gardant les memes URLs et le meme format de reponse pour le frontend actuel.
+
+Lieux/Appartements deja migre vers use cases:
+
+- `CreateBuildingUseCase`
+- `UpdateBuildingUseCase`
+- `CreateApartmentUseCase`
+- `UpdateApartmentUseCase`
+
+Les endpoints legacy `/api/building` et `/api/apartment` passent maintenant par ces use cases. La suppression persistante d'appartement n'a pas encore d'endpoint public et reste hors de cette etape de refactor.
 
 Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
 

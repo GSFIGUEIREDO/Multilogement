@@ -8,6 +8,7 @@ from src.climaparc.interventions.infrastructure.repositories import (
     DatabaseInterventionPayloadRepository,
     DatabaseInterventionStateRepository,
 )
+from src.climaparc.recommendations.presentation.dependencies import get_client_update_recommendation_use_case
 
 
 def get_intervention_state_repository() -> DatabaseInterventionStateRepository:
@@ -31,4 +32,8 @@ def get_create_intervention_use_case() -> CreateInterventionUseCase:
 
 
 def get_update_intervention_use_case() -> UpdateInterventionUseCase:
-    return UpdateInterventionUseCase(get_intervention_state_repository(), get_intervention_payload_repository())
+    return UpdateInterventionUseCase(
+        get_intervention_state_repository(),
+        get_intervention_payload_repository(),
+        get_client_update_recommendation_use_case(),
+    )

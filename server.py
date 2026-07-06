@@ -1,24 +1,18 @@
 ﻿from __future__ import annotations
 
-import base64
-import hashlib
-import json
-import mimetypes
 import os
-import secrets
-import sqlite3
-import time
-from datetime import datetime, timedelta, timezone
-from email.parser import BytesParser
-from email.policy import default as email_policy
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
-from backend.auth_services import SessionService
-from backend.file_storage import FileStorageError, migrate_legacy_data_urls
+from backend.bootstrap import (
+    bootstrap_password_for_user as bootstrap_password_for_user_impl,
+    ensure_bootstrap_state as ensure_bootstrap_state_impl,
+    sync_users as sync_users_impl,
+)
+from backend.database import DB_PATH, USE_POSTGRES, connect as db, execute
+from backend.legacy_http import LegacyHttpMixin
 from backend.legacy_auth_handlers import (
     handle_login as handle_legacy_login,
     handle_logout as handle_legacy_logout,
@@ -49,79 +43,21 @@ from backend.legacy_domain_handlers import (
     handle_save_work_order as handle_legacy_save_work_order,
 )
 from backend.legacy_state_handlers import handle_save_state as handle_legacy_save_state
-from backend.repositories import hydrate_state_from_payload_tables
+from backend.repositories import StateRepository
 from backend.schema import init_db as init_database_schema
-from backend.security import sanitize_state_for_storage
 from backend.sync_services import (
     sync_relational_tables as sync_relational_tables_external,
     sync_relational_tables_safely as sync_relational_tables_safely_external,
 )
 
 ROOT = Path(__file__).resolve().parent
-DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DATABASE_URL")
-DB_PATH = Path(os.environ.get("CLIMAPARC_DB", ROOT / "climaparc.sqlite3"))
-SESSION_TTL_SECONDS = int(os.environ.get("CLIMAPARC_SESSION_TTL", "28800"))
 HOST = os.environ.get("CLIMAPARC_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT") or os.environ.get("CLIMAPARC_PORT", "8000"))
-USE_POSTGRES = bool(DATABASE_URL)
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
-
-if USE_POSTGRES:
-    import psycopg
-    from psycopg.rows import dict_row
-    from psycopg.types.json import Jsonb
-
-
-def db():
-    if USE_POSTGRES:
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
-
-
-def sql(statement: str) -> str:
-    return statement.replace("?", "%s") if USE_POSTGRES else statement
-
-
-def execute(connection, statement: str, params: tuple[Any, ...] = ()):
-    return connection.execute(sql(statement), params)
-
-
-def now_value():
-    if USE_POSTGRES:
-        return datetime.now(timezone.utc)
-    return int(time.time())
-
-
-def expires_value():
-    if USE_POSTGRES:
-        return datetime.now(timezone.utc) + timedelta(seconds=SESSION_TTL_SECONDS)
-    return int(time.time()) + SESSION_TTL_SECONDS
-
-
-def row_get(row, key: str):
-    return row[key]
-
-
-def json_db_value(value: Any):
-    if USE_POSTGRES:
-        return Jsonb(value)
-    return json.dumps(value, ensure_ascii=False)
 
 
 def init_db() -> None:
     init_database_schema()
-
-
-def password_hash(password: str, salt: str | None = None) -> tuple[str, str]:
-    raw_salt = base64.b64decode(salt) if salt else secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), raw_salt, 120_000)
-    return base64.b64encode(digest).decode("ascii"), base64.b64encode(raw_salt).decode("ascii")
-
-
-def server_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def public_base_url(headers) -> str:
@@ -133,93 +69,19 @@ def public_base_url(headers) -> str:
 
 
 def get_state(connection, lock: bool = False) -> dict | None:
-    statement = "select state_json from climaparc_state where id = 1"
-    if USE_POSTGRES and lock:
-        statement += " for update"
-    row = execute(connection, statement).fetchone()
-    if not row:
-        return None
-    value = row_get(row, "state_json")
-    state = json.loads(value) if isinstance(value, str) else value
-    return hydrate_state_from_payload_tables(connection, state)
+    return StateRepository().get(connection, lock)
 
 
 def save_state(connection, state: dict) -> None:
-    state = sanitize_state_for_storage(state)
-    execute(
-        connection,
-        """
-        insert into climaparc_state (id, state_json, updated_at)
-        values (1, ?, ?)
-        on conflict(id) do update set state_json = excluded.state_json, updated_at = excluded.updated_at
-        """,
-        (json_db_value(state), now_value()),
-    )
+    StateRepository().save(connection, state)
 
 
 def bootstrap_password_for_user(user: dict) -> str:
-    role = str(user.get("role") or "").upper().replace("-", "_")
-    explicit = os.environ.get(f"CLIMAPARC_BOOTSTRAP_{role}_PASSWORD")
-    if explicit:
-        return explicit
-    return os.environ.get("CLIMAPARC_BOOTSTRAP_DEFAULT_PASSWORD", "")
+    return bootstrap_password_for_user_impl(user)
 
 
 def sync_users(connection, state: dict) -> None:
-    state_user_ids = {
-        str(user.get("id"))
-        for user in state.get("users", [])
-        if isinstance(user, dict) and user.get("id")
-    }
-    if not state_user_ids:
-        return
-    existing_users = execute(connection, "select id from climaparc_users").fetchall()
-    for row in existing_users:
-        user_id = str(row_get(row, "id"))
-        if user_id not in state_user_ids:
-            execute(connection, "delete from climaparc_sessions where user_id = ?", (user_id,))
-            execute(connection, "delete from climaparc_users where id = ?", (user_id,))
-    for user in state.get("users", []):
-        password = str(user.get("password") or "")
-        email = str(user["email"]).lower()
-        existing_email = execute(connection, "select id from climaparc_users where email = ?", (email,)).fetchone()
-        if existing_email and row_get(existing_email, "id") != user["id"]:
-            execute(connection, "delete from climaparc_sessions where user_id = ?", (row_get(existing_email, "id"),))
-            execute(connection, "delete from climaparc_users where id = ?", (row_get(existing_email, "id"),))
-        existing = execute(connection, "select password_hash, salt from climaparc_users where id = ?", (user["id"],)).fetchone()
-        if not password and not existing:
-            password = bootstrap_password_for_user(user)
-        if password:
-            digest, salt = password_hash(password, row_get(existing, "salt") if existing else None)
-        elif existing:
-            digest, salt = row_get(existing, "password_hash"), row_get(existing, "salt")
-        else:
-            continue
-        execute(
-            connection,
-            """
-            insert into climaparc_users (id, email, name, role, client_id, password_hash, salt, updated_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?)
-            on conflict(id) do update set
-              email = excluded.email,
-              name = excluded.name,
-              role = excluded.role,
-              client_id = excluded.client_id,
-              password_hash = excluded.password_hash,
-              salt = excluded.salt,
-              updated_at = excluded.updated_at
-            """,
-            (
-                user["id"],
-                email,
-                user.get("name", ""),
-                user.get("role", ""),
-                user.get("clientId"),
-                digest,
-                salt,
-                now_value(),
-            ),
-        )
+    sync_users_impl(connection, state)
 
 
 def sync_relational_tables(connection, state: dict, collection_keys: set[str] | None = None) -> None:
@@ -231,36 +93,18 @@ def sync_relational_tables_safely(state: dict, collection_keys: set[str] | None 
 
 
 def ensure_bootstrap_state(seed: dict | None) -> dict:
-    state: dict | None = None
-    with db() as connection:
-        state = get_state(connection)
-        if state is None:
-            if not seed:
-                raise ValueError("Initial state is required")
-            state = seed
-            state["sessionUserId"] = None
-            state["modal"] = None
-            state["toast"] = ""
-            save_state(connection, state)
-            sync_users(connection, state)
-            state = sanitize_state_for_storage(state)
-        if state is not None:
-            migrated, warnings = migrate_legacy_data_urls(state)
-            for warning in warnings:
-                print(warning)
-            if migrated:
-                save_state(connection, state)
-    if state:
-        sync_relational_tables_safely(state)
-    return state
+    return ensure_bootstrap_state_impl(
+        seed,
+        db=db,
+        get_state=get_state,
+        save_state=save_state,
+        sync_relational_tables_safely=sync_relational_tables_safely,
+    )
 
 
-def new_id(prefix: str) -> str:
-    return f"{prefix}-{secrets.token_hex(8)}"
-
-
-class Handler(BaseHTTPRequestHandler):
+class Handler(LegacyHttpMixin, BaseHTTPRequestHandler):
     server_version = "ClimaParc/1.0"
+    static_root = ROOT
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -434,66 +278,8 @@ class Handler(BaseHTTPRequestHandler):
     def handle_delete_setting_item(self) -> None:
         handle_legacy_delete_setting_item(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
-    def serve_static(self, raw_path: str) -> None:
-        path = "/index.html" if raw_path in ("", "/") else raw_path
-        requested = (ROOT / unquote(path).lstrip("/")).resolve()
-        if not str(requested).startswith(str(ROOT)) or not requested.is_file():
-            self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
-            return
-        content_type = mimetypes.guess_type(requested.name)[0] or "application/octet-stream"
-        body = requested.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store" if requested.name in {"app.js", "index.html"} else "public, max-age=3600")
-        self.end_headers()
-        self.wfile.write(body)
-
     def handle_local_file(self, parsed) -> None:
         handle_legacy_local_file(self, parsed, db=db, get_state=get_state)
-
-    def read_json(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length).decode("utf-8") if length else "{}"
-        return json.loads(body or "{}")
-
-    def read_multipart(self) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
-        content_type = self.headers.get("Content-Type", "")
-        if "multipart/form-data" not in content_type:
-            raise FileStorageError("Requete multipart invalide.", HTTPStatus.BAD_REQUEST)
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length)
-        raw = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
-        message = BytesParser(policy=email_policy).parsebytes(raw)
-        fields: dict[str, str] = {}
-        files: dict[str, dict[str, Any]] = {}
-        for part in message.iter_parts():
-            name = part.get_param("name", header="content-disposition")
-            if not name:
-                continue
-            filename = part.get_filename()
-            payload = part.get_payload(decode=True) or b""
-            if filename:
-                files[name] = {
-                    "filename": filename,
-                    "contentType": part.get_content_type(),
-                    "content": payload,
-                }
-            else:
-                fields[name] = payload.decode(part.get_content_charset() or "utf-8", "ignore")
-        return fields, files
-
-    def json_response(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format: str, *args: object) -> None:
-        if os.environ.get("CLIMAPARC_DEBUG"):
-            super().log_message(format, *args)
 
 
 def main() -> None:

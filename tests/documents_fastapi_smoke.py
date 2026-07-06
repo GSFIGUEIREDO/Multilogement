@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import copy
+import io
 import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -180,6 +182,28 @@ def upload_document(client, *, file_id: str, client_id: str, building_id: str):
     )
 
 
+class LegacyLocalFileHandler:
+    def __init__(self, cookie_header: str):
+        self.headers = {"Cookie": cookie_header}
+        self.status_code = None
+        self.response_headers = {}
+        self.wfile = io.BytesIO()
+
+    def send_response(self, status_code):
+        self.status_code = status_code
+
+    def send_header(self, key, value):
+        self.response_headers[key] = value
+
+    def end_headers(self):
+        return None
+
+    def json_response(self, payload: dict, status):
+        self.status_code = status
+        self.response_headers["Content-Type"] = "application/json"
+        self.wfile.write(str(payload).encode("utf-8"))
+
+
 def run() -> None:
     from fastapi.testclient import TestClient
 
@@ -200,7 +224,13 @@ def run() -> None:
 
         url_response = admin_client.post("/api/file-url", json={"fileId": "doc-a"})
         assert url_response.status_code == 200, url_response.text
-        assert "/api/local-file" in url_response.json()["url"]
+        local_url = url_response.json()["url"]
+        assert "/api/local-file" in local_url
+        parsed_local_url = urlparse(local_url)
+        legacy_handler = LegacyLocalFileHandler(f"climaparc_session={admin_client.cookies.get('climaparc_session')}")
+        legacy_file_handlers.handle_local_file(legacy_handler, parsed_local_url, db=server.db, get_state=server.get_state)
+        assert legacy_handler.status_code == 200
+        assert legacy_handler.wfile.getvalue() == b"%PDF-1.4 smoke"
 
         deleted_attachment = admin_client.post("/api/file-delete", json={"fileId": "file-eq-a"})
         assert deleted_attachment.status_code == 200, deleted_attachment.text

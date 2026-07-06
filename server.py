@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import hashlib
@@ -32,19 +32,13 @@ from backend.legacy_file_handlers import (
     handle_file_upload as handle_legacy_file_upload,
     handle_file_url as handle_legacy_file_url,
 )
+from backend.legacy_state_handlers import handle_save_state as handle_legacy_save_state
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.schema import init_db as init_database_schema
 from backend.security import filter_state_for_user, sanitize_state_for_storage
 from backend.sync_services import (
     sync_relational_tables as sync_relational_tables_external,
     sync_relational_tables_safely as sync_relational_tables_safely_external,
-)
-from backend.state_compatibility import (
-    apply_state_changes,
-    changed_collection_keys,
-    duplicate_user_email,
-    merge_shared_state,
-    stamp_changed_items,
 )
 from src.climaparc.shared.domain.errors import ApplicationError
 from src.climaparc.places.presentation.dependencies import (
@@ -438,44 +432,14 @@ class Handler(BaseHTTPRequestHandler):
         handle_legacy_file_delete(self)
 
     def handle_save_state(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expirÃ©e."}, HTTPStatus.UNAUTHORIZED)
-            return
-        if row_get(user, "role") not in {"administrateur", "equipe_interne"}:
-            self.json_response({"error": "Droits insuffisants pour la sauvegarde globale."}, HTTPStatus.FORBIDDEN)
-            return
-        payload = self.read_json()
-        state = payload.get("state")
-        changes = payload.get("changes")
-        if not isinstance(state, dict) and not isinstance(changes, dict):
-            self.json_response({"error": "Invalid state"}, HTTPStatus.BAD_REQUEST)
-            return
-        with db() as connection:
-            current_state = get_state(connection, lock=True)
-            if isinstance(changes, dict):
-                merged_state = apply_state_changes(current_state, changes)
-                sync_keys = changed_collection_keys(changes)
-            else:
-                state["sessionUserId"] = None
-                state["modal"] = None
-                state["toast"] = ""
-                merged_state = merge_shared_state(current_state, state)
-                sync_keys = None
-            merged_state["sessionUserId"] = None
-            merged_state["modal"] = None
-            merged_state["toast"] = ""
-            stamp_changed_items(merged_state, changes if isinstance(changes, dict) else None)
-            merged_state = sanitize_state_for_storage(merged_state)
-            duplicate_email = duplicate_user_email(merged_state)
-            if duplicate_email:
-                self.json_response({"error": f"Un utilisateur existe dÃ©jÃ  avec le courriel {duplicate_email}."}, HTTPStatus.CONFLICT)
-                return
-            save_state(connection, merged_state)
-            sync_users(connection, merged_state)
-        if sync_keys or sync_keys is None:
-            sync_relational_tables_safely(merged_state, sync_keys)
-        self.json_response({"ok": True, "state": filter_state_for_user(merged_state, user)})
+        handle_legacy_save_state(
+            self,
+            db=db,
+            get_state=get_state,
+            save_state=save_state,
+            sync_users=sync_users,
+            sync_relational_tables_safely=sync_relational_tables_safely,
+        )
 
     def handle_save_equipment(self) -> None:
         user = SessionService().read(self.headers.get("Cookie"))

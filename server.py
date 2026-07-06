@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import os
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -13,6 +12,7 @@ from backend.bootstrap import (
 )
 from backend.database import DB_PATH, USE_POSTGRES, connect as db, execute
 from backend.legacy_http import LegacyHttpMixin
+from backend.legacy_routes import dispatch_get, dispatch_post
 from backend.legacy_auth_handlers import (
     handle_login as handle_legacy_login,
     handle_logout as handle_legacy_logout,
@@ -108,86 +108,11 @@ class Handler(LegacyHttpMixin, BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path == "/api/health":
-            self.json_response({"ok": True, "database": "postgres" if USE_POSTGRES else "sqlite"})
-            return
-        if parsed.path == "/api/session":
-            self.handle_session()
-            return
-        if parsed.path == "/api/local-file":
-            self.handle_local_file(parsed)
-            return
-        self.serve_static(parsed.path)
+        dispatch_get(self, parsed, database_name="postgres" if USE_POSTGRES else "sqlite")
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path == "/api/login":
-            self.handle_login()
-            return
-        if parsed.path == "/api/signup":
-            self.handle_signup()
-            return
-        if parsed.path == "/api/password-reset-request":
-            self.handle_password_reset_request()
-            return
-        if parsed.path == "/api/password-reset-confirm":
-            self.handle_password_reset_confirm()
-            return
-        if parsed.path == "/api/logout":
-            self.handle_logout()
-            return
-        if parsed.path == "/api/file-upload":
-            self.handle_file_upload()
-            return
-        if parsed.path == "/api/file-url":
-            self.handle_file_url()
-            return
-        if parsed.path == "/api/file-delete":
-            self.handle_file_delete()
-            return
-        if parsed.path == "/api/state":
-            self.handle_save_state()
-            return
-        if parsed.path == "/api/equipment":
-            self.handle_save_equipment()
-            return
-        if parsed.path == "/api/user":
-            self.handle_save_user()
-            return
-        if parsed.path == "/api/user-delete":
-            self.handle_delete_user()
-            return
-        if parsed.path == "/api/building":
-            self.handle_save_building()
-            return
-        if parsed.path == "/api/apartment":
-            self.handle_save_apartment()
-            return
-        if parsed.path == "/api/ticket":
-            self.handle_save_ticket()
-            return
-        if parsed.path == "/api/work-order":
-            self.handle_save_work_order()
-            return
-        if parsed.path == "/api/intervention":
-            self.handle_save_intervention()
-            return
-        if parsed.path == "/api/reminder":
-            self.handle_save_reminder()
-            return
-        if parsed.path == "/api/reminder-delete":
-            self.handle_delete_reminder()
-            return
-        if parsed.path == "/api/report-context":
-            self.handle_report_context()
-            return
-        if parsed.path == "/api/setting-item":
-            self.handle_save_setting_item()
-            return
-        if parsed.path == "/api/setting-item-delete":
-            self.handle_delete_setting_item()
-            return
-        self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+        dispatch_post(self, parsed)
 
     def handle_session(self) -> None:
         handle_legacy_session(self, db=db, get_state=get_state)

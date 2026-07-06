@@ -33,76 +33,29 @@ from backend.legacy_file_handlers import (
     handle_file_url as handle_legacy_file_url,
     handle_local_file as handle_legacy_local_file,
 )
+from backend.legacy_domain_handlers import (
+    handle_delete_reminder as handle_legacy_delete_reminder,
+    handle_delete_setting_item as handle_legacy_delete_setting_item,
+    handle_delete_user as handle_legacy_delete_user,
+    handle_report_context as handle_legacy_report_context,
+    handle_save_apartment as handle_legacy_save_apartment,
+    handle_save_building as handle_legacy_save_building,
+    handle_save_equipment as handle_legacy_save_equipment,
+    handle_save_intervention as handle_legacy_save_intervention,
+    handle_save_reminder as handle_legacy_save_reminder,
+    handle_save_setting_item as handle_legacy_save_setting_item,
+    handle_save_ticket as handle_legacy_save_ticket,
+    handle_save_user as handle_legacy_save_user,
+    handle_save_work_order as handle_legacy_save_work_order,
+)
 from backend.legacy_state_handlers import handle_save_state as handle_legacy_save_state
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.schema import init_db as init_database_schema
-from backend.security import filter_state_for_user, sanitize_state_for_storage
+from backend.security import sanitize_state_for_storage
 from backend.sync_services import (
     sync_relational_tables as sync_relational_tables_external,
     sync_relational_tables_safely as sync_relational_tables_safely_external,
 )
-from src.climaparc.shared.domain.errors import ApplicationError
-from src.climaparc.places.presentation.dependencies import (
-    get_create_apartment_use_case,
-    get_create_building_use_case,
-    get_place_lookup_repository,
-    get_update_apartment_use_case,
-    get_update_building_use_case,
-)
-from src.climaparc.places.presentation.dispatch import save_apartment_with_use_cases, save_building_with_use_cases
-from src.climaparc.equipment.presentation.dependencies import (
-    get_create_equipment_use_case,
-    get_equipment_lookup_repository,
-    get_update_equipment_use_case,
-)
-from src.climaparc.equipment.presentation.dispatch import save_equipment_with_use_cases
-from src.climaparc.interventions.presentation.dependencies import (
-    get_create_intervention_use_case,
-    get_intervention_lookup_repository,
-    get_update_intervention_use_case,
-)
-from src.climaparc.interventions.presentation.dispatch import save_intervention_with_use_cases
-from src.climaparc.reminders.presentation.dependencies import (
-    get_delete_reminder_use_case,
-    get_save_reminder_batch_use_case,
-    get_save_reminder_use_case,
-)
-from src.climaparc.reminders.presentation.dispatch import (
-    delete_reminder_with_use_case,
-    save_reminder_batch_with_use_case,
-    save_reminder_with_use_case,
-)
-from src.climaparc.reports.presentation.dependencies import get_report_context_use_case
-from src.climaparc.reports.presentation.dispatch import get_report_context_with_use_case
-from src.climaparc.settings.presentation.dependencies import (
-    get_delete_setting_item_use_case,
-    get_save_setting_item_use_case,
-)
-from src.climaparc.settings.presentation.dispatch import (
-    delete_setting_item_with_use_case,
-    save_setting_item_with_use_case,
-)
-from src.climaparc.tickets.presentation.dependencies import (
-    get_create_ticket_use_case,
-    get_ticket_lookup_repository,
-    get_update_ticket_use_case,
-)
-from src.climaparc.tickets.presentation.dispatch import save_ticket_with_use_cases
-from src.climaparc.users.application.commands import DeleteUserCommand
-from src.climaparc.users.presentation.dependencies import (
-    get_create_user_use_case,
-    get_delete_user_use_case,
-    get_update_user_use_case,
-    get_user_lookup_repository,
-)
-from src.climaparc.users.presentation.dispatch import save_user_with_use_cases
-from src.climaparc.work_orders.presentation.dependencies import (
-    get_create_work_order_use_case,
-    get_update_work_order_use_case,
-    get_work_order_lookup_repository,
-)
-from src.climaparc.work_orders.presentation.dispatch import save_work_order_with_use_cases
-
 
 ROOT = Path(__file__).resolve().parent
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DATABASE_URL")
@@ -443,277 +396,43 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def handle_save_equipment(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_equipment_with_use_cases(
-                user,
-                payload.get("equipment"),
-                get_equipment_lookup_repository(),
-                get_create_equipment_use_case(),
-                get_update_equipment_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {"equipment"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"Equipment save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde machine."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_equipment(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_save_user(self) -> None:
-        current_user = SessionService().read(self.headers.get("Cookie"))
-        if not current_user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_user_with_use_cases(
-                current_user,
-                payload.get("user"),
-                get_user_lookup_repository(),
-                get_create_user_use_case(),
-                get_update_user_use_case(),
-            )
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except ValueError as error:
-            self.json_response({"error": str(error)}, HTTPStatus.CONFLICT)
-        except Exception as error:
-            print(f"User save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_user(self)
 
     def handle_delete_user(self) -> None:
-        current_user = SessionService().read(self.headers.get("Cookie"))
-        if not current_user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = get_delete_user_use_case()(DeleteUserCommand(current_user, str(payload.get("userId") or "")))
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"User delete failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la suppression utilisateur."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_delete_user(self)
 
     def handle_save_building(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_building_with_use_cases(
-                user,
-                payload.get("building"),
-                get_place_lookup_repository(),
-                get_create_building_use_case(),
-                get_update_building_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {"buildings"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"building save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde building."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_building(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_save_apartment(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_apartment_with_use_cases(
-                user,
-                payload.get("apartment"),
-                get_place_lookup_repository(),
-                get_create_apartment_use_case(),
-                get_update_apartment_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {"apartments"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"apartment save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde apartment."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_apartment(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_save_ticket(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_ticket_with_use_cases(
-                user,
-                payload.get("ticket"),
-                get_ticket_lookup_repository(),
-                get_create_ticket_use_case(),
-                get_update_ticket_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {"tickets"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"ticket save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde ticket."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_ticket(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_save_work_order(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_work_order_with_use_cases(
-                user,
-                payload.get("workOrder"),
-                get_work_order_lookup_repository(),
-                get_create_work_order_use_case(),
-                get_update_work_order_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {"workOrders"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"workOrder save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde workOrder."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_work_order(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_save_intervention(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = save_intervention_with_use_cases(
-                user,
-                payload.get("intervention"),
-                get_intervention_lookup_repository(),
-                get_create_intervention_use_case(),
-                get_update_intervention_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {"interventions"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"intervention save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde intervention."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_intervention(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_save_reminder(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            if isinstance(payload.get("reminders"), list):
-                result = save_reminder_batch_with_use_case(user, payload.get("reminders"), get_save_reminder_batch_use_case())
-            else:
-                result = save_reminder_with_use_case(user, payload.get("reminder"), get_save_reminder_use_case())
-            sync_relational_tables_safely(result.get("state", {}), {"reminders"})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"reminder save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde rappel."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_reminder(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_delete_reminder(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = delete_reminder_with_use_case(user, str(payload.get("reminderId") or ""), get_delete_reminder_use_case())
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"reminder delete failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la suppression rappel."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_delete_reminder(self)
 
     def handle_report_context(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            result = get_report_context_with_use_case(user, payload.get("filters"), get_report_context_use_case())
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"report context failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la preparation du rapport."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_report_context(self)
 
     def handle_save_setting_item(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            collection_key = str(payload.get("collectionKey") or "")
-            result = save_setting_item_with_use_case(
-                user,
-                collection_key,
-                payload.get("item"),
-                get_save_setting_item_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {collection_key})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"setting save failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la sauvegarde des parametres."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_save_setting_item(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def handle_delete_setting_item(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            collection_key = str(payload.get("collectionKey") or "")
-            result = delete_setting_item_with_use_case(
-                user,
-                collection_key,
-                str(payload.get("itemId") or ""),
-                get_delete_setting_item_use_case(),
-            )
-            sync_relational_tables_safely(result.get("state", {}), {collection_key})
-            result["state"] = filter_state_for_user(result.get("state", {}), user)
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"setting delete failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la suppression des parametres."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_delete_setting_item(self, sync_relational_tables_safely=sync_relational_tables_safely)
 
     def serve_static(self, raw_path: str) -> None:
         path = "/index.html" if raw_path in ("", "/") else raw_path

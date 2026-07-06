@@ -27,6 +27,11 @@ from backend.legacy_auth_handlers import (
     handle_session as handle_legacy_session,
     handle_signup as handle_legacy_signup,
 )
+from backend.legacy_file_handlers import (
+    handle_file_delete as handle_legacy_file_delete,
+    handle_file_upload as handle_legacy_file_upload,
+    handle_file_url as handle_legacy_file_url,
+)
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.schema import init_db as init_database_schema
 from backend.security import filter_state_for_user, sanitize_state_for_storage
@@ -56,16 +61,6 @@ from src.climaparc.equipment.presentation.dependencies import (
     get_update_equipment_use_case,
 )
 from src.climaparc.equipment.presentation.dispatch import save_equipment_with_use_cases
-from src.climaparc.documents.presentation.dependencies import (
-    get_delete_file_use_case,
-    get_generate_file_url_use_case,
-    get_upload_file_use_case,
-)
-from src.climaparc.documents.presentation.dispatch import (
-    delete_file_with_use_case,
-    generate_file_url_with_use_case,
-    upload_file_with_use_case,
-)
 from src.climaparc.interventions.presentation.dependencies import (
     get_create_intervention_use_case,
     get_intervention_lookup_repository,
@@ -434,49 +429,13 @@ class Handler(BaseHTTPRequestHandler):
         handle_legacy_logout(self)
 
     def handle_file_upload(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        try:
-            fields, files = self.read_multipart()
-            file_part = files.get("file")
-            if not file_part:
-                raise FileStorageError("Fichier manquant.")
-            result = upload_file_with_use_case(user, fields, file_part, get_upload_file_use_case())
-            self.json_response(result)
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except FileStorageError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"File upload failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de l'envoi du fichier."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_file_upload(self)
 
     def handle_file_url(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            self.json_response(generate_file_url_with_use_case(user, str(payload.get("fileId") or ""), get_generate_file_url_use_case()))
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
+        handle_legacy_file_url(self)
 
     def handle_file_delete(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        payload = self.read_json()
-        try:
-            self.json_response(delete_file_with_use_case(user, str(payload.get("fileId") or ""), get_delete_file_use_case()))
-        except ApplicationError as error:
-            self.json_response({"error": error.message}, error.status)
-        except Exception as error:
-            print(f"File delete failed: {error}")
-            self.json_response({"error": "Erreur serveur lors de la suppression du fichier."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        handle_legacy_file_delete(self)
 
     def handle_save_state(self) -> None:
         user = SessionService().read(self.headers.get("Cookie"))

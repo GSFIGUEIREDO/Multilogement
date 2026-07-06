@@ -24,6 +24,7 @@ os.environ["CLIMAPARC_LOCAL_UPLOAD_ROOT"] = str(UPLOAD_ROOT)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_file_handlers  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -183,9 +184,9 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.upload_file_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
-    assert server.generate_file_url_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
-    assert server.delete_file_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
+    assert legacy_file_handlers.upload_file_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
+    assert legacy_file_handlers.generate_file_url_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
+    assert legacy_file_handlers.delete_file_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")

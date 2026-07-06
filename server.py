@@ -17,17 +17,24 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from backend.auth_services import AuthService, AuthServiceError, PasswordResetService, SessionService
+from backend.auth_services import SessionService
 from backend.file_storage import FileStorageError, local_file_path, migrate_legacy_data_urls
+from backend.legacy_auth_handlers import (
+    handle_login as handle_legacy_login,
+    handle_logout as handle_legacy_logout,
+    handle_password_reset_confirm as handle_legacy_password_reset_confirm,
+    handle_password_reset_request as handle_legacy_password_reset_request,
+    handle_session as handle_legacy_session,
+    handle_signup as handle_legacy_signup,
+)
 from backend.repositories import hydrate_state_from_payload_tables
 from backend.schema import init_db as init_database_schema
-from backend.security import filter_state_for_user, public_user as state_public_user, sanitize_state_for_storage
+from backend.security import filter_state_for_user, sanitize_state_for_storage
 from backend.sync_services import (
     sync_relational_tables as sync_relational_tables_external,
     sync_relational_tables_safely as sync_relational_tables_safely_external,
 )
 from backend.state_compatibility import (
-    MERGE_BY_ID_KEYS,
     apply_state_changes,
     changed_collection_keys,
     duplicate_user_email,
@@ -396,78 +403,35 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_session(self) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"authenticated": False}, HTTPStatus.UNAUTHORIZED)
-            return
-        with db() as connection:
-            state = get_state(connection)
-        self.json_response({"authenticated": True, "user": public_user(user), "state": filter_state_for_user(state, user)})
+        handle_legacy_session(self, db=db, get_state=get_state)
 
     def handle_login(self) -> None:
-        payload = self.read_json()
-        state = ensure_bootstrap_state(payload.get("seed"))
-        try:
-            result = AuthService().login(payload.get("email", ""), str(payload.get("password", "")), state)
-        except AuthServiceError as error:
-            self.json_response({"error": error.message}, error.status)
-            return
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Set-Cookie", f"climaparc_session={result['token']}; HttpOnly; Path=/; SameSite=Lax")
-        self.end_headers()
-        self.wfile.write(json.dumps({"user": result["user"], "state": result["state"]}, ensure_ascii=False).encode("utf-8"))
+        handle_legacy_login(self, ensure_bootstrap_state=ensure_bootstrap_state)
 
     def handle_signup(self) -> None:
-        payload = self.read_json()
-        state = ensure_bootstrap_state(payload.get("seed"))
-        try:
-            result = AuthService().signup(payload, state)
-        except AuthServiceError as error:
-            self.json_response({"error": error.message}, error.status)
-            return
-        sync_relational_tables_safely(result["state"], {"clients"})
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Set-Cookie", f"climaparc_session={result['token']}; HttpOnly; Path=/; SameSite=Lax")
-        self.end_headers()
-        self.wfile.write(
-            json.dumps(
-                {"user": result["user"], "state": signup_response_state(result["state"], result["client"], result["user"])},
-                ensure_ascii=False,
-            ).encode("utf-8")
+        handle_legacy_signup(
+            self,
+            ensure_bootstrap_state=ensure_bootstrap_state,
+            sync_relational_tables_safely=sync_relational_tables_safely,
         )
 
     def handle_password_reset_request(self) -> None:
-        payload = self.read_json()
-        state = ensure_bootstrap_state(payload.get("seed"))
-        result = PasswordResetService().request_reset(payload.get("email", ""), public_base_url(self.headers), state)
-        sync_relational_tables_safely(result["state"], {"passwordResetRequests"})
-        self.json_response({"ok": True, "emailSent": result["emailSent"], "mailConfigured": result["mailConfigured"]})
+        handle_legacy_password_reset_request(
+            self,
+            ensure_bootstrap_state=ensure_bootstrap_state,
+            public_base_url=public_base_url,
+            sync_relational_tables_safely=sync_relational_tables_safely,
+        )
 
     def handle_password_reset_confirm(self) -> None:
-        payload = self.read_json()
-        state = ensure_bootstrap_state(payload.get("seed"))
-        try:
-            result = PasswordResetService().confirm_reset(
-                payload.get("token", ""),
-                str(payload.get("password", "")),
-                str(payload.get("confirmPassword", "")),
-                state,
-            )
-        except AuthServiceError as error:
-            self.json_response({"error": error.message}, error.status)
-            return
-        sync_relational_tables_safely(result["state"], {"passwordResetRequests"})
-        self.json_response({"ok": True})
+        handle_legacy_password_reset_confirm(
+            self,
+            ensure_bootstrap_state=ensure_bootstrap_state,
+            sync_relational_tables_safely=sync_relational_tables_safely,
+        )
 
     def handle_logout(self) -> None:
-        SessionService().logout(self.headers.get("Cookie"))
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Set-Cookie", "climaparc_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0")
-        self.end_headers()
-        self.wfile.write(b'{"ok": true}')
+        handle_legacy_logout(self)
 
     def handle_file_upload(self) -> None:
         user = SessionService().read(self.headers.get("Cookie"))
@@ -930,43 +894,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         if os.environ.get("CLIMAPARC_DEBUG"):
             super().log_message(format, *args)
-
-
-def public_user(row) -> dict:
-    return {
-        "id": row_get(row, "id"),
-        "email": row_get(row, "email"),
-        "name": row_get(row, "name"),
-        "role": row_get(row, "role"),
-        "clientId": row_get(row, "client_id"),
-    }
-
-
-def public_state_user(user: dict) -> dict:
-    return state_public_user(user)
-
-
-def signup_response_state(state: dict, client: dict, user: dict) -> dict:
-    response_state = {
-        key: []
-        for key in MERGE_BY_ID_KEYS
-    }
-    response_state.update({
-        "sessionUserId": None,
-        "modal": None,
-        "toast": "",
-        "clients": [client],
-        "users": [user],
-        "serviceTypes": state.get("serviceTypes", []),
-        "interventionTypes": state.get("interventionTypes", []),
-        "formTemplates": state.get("formTemplates", []),
-        "roleDefinitions": state.get("roleDefinitions", []),
-        "dataFields": state.get("dataFields", []),
-        "reportFilters": state.get("reportFilters", {}),
-        "filters": state.get("filters", {}),
-        "workOrderFilters": state.get("workOrderFilters", {}),
-    })
-    return response_state
 
 
 def main() -> None:

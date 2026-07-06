@@ -15,10 +15,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 from backend.auth_services import SessionService
-from backend.file_storage import FileStorageError, local_file_path, migrate_legacy_data_urls
+from backend.file_storage import FileStorageError, migrate_legacy_data_urls
 from backend.legacy_auth_handlers import (
     handle_login as handle_legacy_login,
     handle_logout as handle_legacy_logout,
@@ -31,6 +31,7 @@ from backend.legacy_file_handlers import (
     handle_file_delete as handle_legacy_file_delete,
     handle_file_upload as handle_legacy_file_upload,
     handle_file_url as handle_legacy_file_url,
+    handle_local_file as handle_legacy_local_file,
 )
 from backend.legacy_state_handlers import handle_save_state as handle_legacy_save_state
 from backend.repositories import hydrate_state_from_payload_tables
@@ -730,50 +731,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def handle_local_file(self, parsed) -> None:
-        user = SessionService().read(self.headers.get("Cookie"))
-        if not user:
-            self.json_response({"error": "Session expiree."}, HTTPStatus.UNAUTHORIZED)
-            return
-        query = parse_qs(parsed.query)
-        bucket = query.get("bucket", [""])[0]
-        path = query.get("path", [""])[0]
-        if not bucket or not path:
-            self.json_response({"error": "Fichier introuvable."}, HTTPStatus.BAD_REQUEST)
-            return
-        with db() as connection:
-            state = get_state(connection)
-        visible = filter_state_for_user(state, user)
-        allowed_paths = set()
-        for doc in visible.get("clientDocuments", []) if isinstance(visible.get("clientDocuments"), list) else []:
-            if isinstance(doc, dict) and doc.get("storageBucket") == bucket and doc.get("storagePath"):
-                allowed_paths.add(doc.get("storagePath"))
-        for equipment in visible.get("equipment", []) if isinstance(visible.get("equipment"), list) else []:
-            for file in equipment.get("attachments", []) if isinstance(equipment, dict) and isinstance(equipment.get("attachments"), list) else []:
-                if isinstance(file, dict) and file.get("storageBucket") == bucket and file.get("storagePath"):
-                    allowed_paths.add(file.get("storagePath"))
-        for intervention in visible.get("interventions", []) if isinstance(visible.get("interventions"), list) else []:
-            for file in intervention.get("attachments", []) if isinstance(intervention, dict) and isinstance(intervention.get("attachments"), list) else []:
-                if isinstance(file, dict) and file.get("storageBucket") == bucket and file.get("storagePath"):
-                    allowed_paths.add(file.get("storagePath"))
-        if path not in allowed_paths:
-            self.json_response({"error": "Fichier non autorise."}, HTTPStatus.FORBIDDEN)
-            return
-        try:
-            target = local_file_path(bucket, path)
-        except FileStorageError as error:
-            self.json_response({"error": error.message}, error.status)
-            return
-        if not target.exists() or not target.is_file():
-            self.json_response({"error": "Fichier introuvable."}, HTTPStatus.NOT_FOUND)
-            return
-        body = target.read_bytes()
-        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        handle_legacy_local_file(self, parsed, db=db, get_state=get_state)
 
     def read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))

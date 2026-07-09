@@ -4,8 +4,11 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python server.py
+    startCommand: python start.py
+    healthCheckPath: /api/health
     envVars:
+      - key: CLIMAPARC_SERVER_MODE
+        value: fastapi
       - key: CLIMAPARC_HOST
         value: 0.0.0.0
       - key: CLIMAPARC_SESSION_TTL

@@ -108,6 +108,7 @@ for (const method of [
 }
 
 const index = fs.readFileSync("index.html", "utf8");
+const appSource = fs.readFileSync("app.js", "utf8");
 for (const script of [
   "frontend/views/places.js",
   "frontend/views/users.js",
@@ -142,6 +143,11 @@ if (index.indexOf("frontend/views/settings.js") > index.indexOf("app.js")) {
 }
 if (index.indexOf("frontend/views/interventions.js") > index.indexOf("app.js")) {
   throw new Error("interventions.js doit etre charge avant app.js.");
+}
+
+const slugifyBody = appSource.match(/function slugify\(value\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+if (slugifyBody.includes("settingsViewModule")) {
+  throw new Error("slugify ne peut pas dependre de settingsViewModule pendant le bootstrap.");
 }
 
 console.log("frontend modules smoke: ok");

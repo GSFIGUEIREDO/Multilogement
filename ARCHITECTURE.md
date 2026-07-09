@@ -38,6 +38,7 @@ frontend/
     work-orders.js     Bons de travail, filtres, execution et planification
     settings.js        Parametres, champs de donnees, roles et checklists
     interventions.js   Champs terrain dynamiques et moteur de branchement
+    form-builder.js     Creation, edition, tri et branchement des formulaires
 
 start.py               Selection controlee FastAPI ou serveur legacy
 server.py              Serveur de retour temporaire pendant la transition
@@ -141,6 +142,7 @@ Frontend deja separe:
 - module Bons de travail dans `frontend/views/work-orders.js`
 - module Parametres dans `frontend/views/settings.js`
 - module Interventions terrain dans `frontend/views/interventions.js`
+- module Form Builder dans `frontend/views/form-builder.js`
 
 Auth deja prepare en architecture use case parallele:
 
@@ -254,3 +256,15 @@ Tables enfants normalisees ajoutees:
 - `climaparc_recommendation_messages`: conversation autour d'une recommandation.
 
 La colonne `payload` reste presente comme couche de compatibilite avec l'interface actuelle. Elle ne doit plus etre consideree comme le modele cible pour les rapports, filtres avances ou integrations futures. Les nouveaux rapports et recherches doivent lire prioritairement les tables normalisees.
+
+## Statut de la migration
+
+La migration architecturale est terminee:
+
+- FastAPI est le serveur principal via `python start.py`.
+- Chaque domaine backend expose des use cases et des repositories injectes.
+- Les routers FastAPI couvrent tous les endpoints utilises par le frontend.
+- `backend/services.py` et `backend/auth_services.py` sont des adaptateurs de compatibilite fins.
+- `server.py` reste uniquement comme retour d'urgence avec `CLIMAPARC_SERVER_MODE=legacy`.
+- Les vues frontend sont separees par domaine dans `frontend/views/`.
+- `app.js` conserve le shell, la navigation, l'etat UI et la coordination des modules.

@@ -2045,182 +2045,21 @@
     return dashboardModule.saveDashboardLayout(layout);
   }
 
-  function filteredEquipment() {
-    const filters = state.filters;
-    return scopedEquipment().filter((item) => {
-      const { apartment, building } = equipmentContext(item.id);
-      const search = `${item.type} ${item.brand} ${item.model} ${item.serial} ${building?.name} ${apartment?.number}`.toLowerCase();
-      return (
-        (filters.buildingId === "all" || building?.id === filters.buildingId) &&
-        (filters.apartmentId === "all" || apartment?.id === filters.apartmentId) &&
-        (filters.status === "all" || item.status === filters.status) &&
-        (!filters.search || search.includes(filters.search.toLowerCase()))
-      );
-    });
-  }
+  const equipmentViewModule = window.ClimaParcEquipmentView.create({
+    getState: () => state, appShell, renderTopbar, currentUser, can,
+    canCreateWorkOrders, canEditReminders, scopedEquipment, scopedBuildings,
+    scopedApartments, scopedReminders, equipmentContext, formatDate, escapeHtml,
+    unitKindLabel, statusBadge, interventionItem, ticketItem, workOrderItem,
+    reminderItem, attachmentItem, modalShell, normalizeActivityFields,
+    dataFieldOptionsForSelect, buildingForApartment, comboInput, activityOptions,
+    today, uid, updateUiState, saveEquipmentNow
+  });
 
-  function equipmentView() {
-    const equipment = filteredEquipment();
-    const actions = `${can("equipment") && currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="equipment">Nouvel équipement</button>` : ""}`;
-    return appShell(`
-      ${renderTopbar("Équipements", "Inventaire par immeuble, appartement et appareil.", actions)}
-      <section class="panel">
-        <div class="panel-body">
-          ${filtersBlock()}
-          ${equipmentTable(equipment, true)}
-        </div>
-      </section>
-    `);
-  }
-
-  function filtersBlock() {
-    const buildings = scopedBuildings();
-    const apartments = scopedApartments().filter((apartment) => state.filters.buildingId === "all" || apartment.buildingId === state.filters.buildingId);
-    return `
-      <div class="filters">
-        <div class="field">
-          <label>Immeuble</label>
-          <select data-action="filter" data-filter="buildingId">
-            <option value="all">Tous</option>
-            ${buildings.map((building) => `<option value="${building.id}" ${state.filters.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="field">
-          <label>Appartement</label>
-          <select data-action="filter" data-filter="apartmentId">
-            <option value="all">Tous</option>
-            ${apartments.map((apartment) => `<option value="${apartment.id}" ${state.filters.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(apartment.number)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="field">
-          <label>Statut</label>
-          <select data-action="filter" data-filter="status">
-            <option value="all">Tous</option>
-            <option value="actif" ${state.filters.status === "actif" ? "selected" : ""}>Actif</option>
-            <option value="surveillance" ${state.filters.status === "surveillance" ? "selected" : ""}>Surveillance</option>
-            <option value="a_planifier" ${state.filters.status === "a_planifier" ? "selected" : ""}>À planifier</option>
-            <option value="hors_service" ${state.filters.status === "hors_service" ? "selected" : ""}>Hors service</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Recherche</label>
-          <input data-action="filter" data-filter="search" value="${escapeHtml(state.filters.search)}" placeholder="Modèle, série, lieu">
-        </div>
-      </div>
-    `;
-  }
-
-  function equipmentTable(equipment, allowDetail) {
-    if (!equipment.length) return `<div class="empty">Aucun équipement trouvé.</div>`;
-    return `
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Équipement</th>
-              <th>Immeuble</th>
-              <th>Appartement</th>
-              <th>Dernier service</th>
-              <th>Prochain service</th>
-              <th>Statut</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${equipment.map((item) => {
-              const { apartment, building } = equipmentContext(item.id);
-              return `
-                <tr>
-                  <td><strong>${escapeHtml(item.type)}</strong><br><span class="meta">${unitKindLabel(item.unitKind)} | ${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${escapeHtml(item.serial)}</span></td>
-                  <td>${escapeHtml(building?.name || "-")}</td>
-                  <td>${escapeHtml(apartment?.number || "-")}</td>
-                  <td>${formatDate(item.lastService)}</td>
-                  <td>${formatDate(item.nextService)}</td>
-                  <td>${statusBadge(item.status)}</td>
-                  <td>${allowDetail ? `
-                    <button class="link-button" data-action="select-equipment" data-id="${item.id}">Dossier</button>
-                    ${currentUser().role !== "client" ? `<br><button class="link-button" data-action="open-modal" data-modal="equipment" data-id="${item.id}">Modifier</button>` : ""}
-                  ` : ""}</td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function equipmentDetailView() {
-    const { equipment, apartment, building, client } = equipmentContext(state.selectedEquipmentId);
-    if (!equipment) return equipmentView();
-    const interventions = state.interventions
-      .filter((item) => item.equipmentId === equipment.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
-    const orders = state.workOrders.filter((item) => item.equipmentId === equipment.id);
-    const tickets = state.tickets.filter((item) => item.equipmentId === equipment.id);
-    const activeTickets = tickets.filter((item) => item.status !== "ferme");
-    const activeOrders = orders.filter((item) => !["termine", "annule"].includes(item.status));
-    const attachments = equipment.attachments || [];
-    const reminders = scopedReminders().filter((item) => item.equipmentId === equipment.id);
-    const actionButtons = `
-      <button class="ghost-button" data-action="go-back" data-fallback-view="equipements">Retour</button>
-      ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
-      ${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
-      ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvelle demande</button>` : ""}
-      ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}
-    `;
-    return appShell(`
-      ${renderTopbar("Dossier équipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
-      <section class="detail-layout">
-        <div class="panel">
-          <div class="panel-header"><h2>${escapeHtml(equipment.type)}</h2>${statusBadge(equipment.status)}</div>
-          <div class="panel-body definition">
-            <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
-            <div><span>Immeuble</span><strong>${escapeHtml(building?.name || "-")}</strong></div>
-            <div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")}</strong></div>
-            <div><span>Unité</span><strong>${unitKindLabel(equipment.unitKind)}</strong></div>
-            <div><span>Marque / modèle</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div>
-            <div><span>Numéro de série</span><strong>${escapeHtml(equipment.serial)}</strong></div>
-            <div><span>Localisation</span><strong>${escapeHtml(equipment.location)}</strong></div>
-            <div><span>Installation</span><strong>${formatDate(equipment.installDate)}</strong></div>
-            <div><span>Note</span><strong>${escapeHtml(equipment.notes)}</strong></div>
-          </div>
-        </div>
-        <div class="stack">
-          <div class="panel">
-            <div class="panel-header"><h2>Historique des interventions</h2></div>
-            <div class="panel-body timeline">
-              ${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrée.</div>`}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header"><h2>En cours</h2></div>
-            <div class="panel-body cards-list">
-              ${[
-                ...activeTickets.map((ticket) => ticketItem(ticket)),
-                ...activeOrders.map((order) => workOrderItem(order))
-              ].join("") || `<div class="empty">Aucune demande ou intervention en cours pour cette machine.</div>`}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header">
-              <h2>Rappels</h2>
-              ${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}
-            </div>
-            <div class="panel-body cards-list">
-              ${reminders.map((reminder) => reminderItem(reminder, true, false)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header"><h2>Photos et documents</h2></div>
-            <div class="panel-body cards-list">
-              ${attachments.map((file) => attachmentItem(file)).join("") || `<div class="empty">Aucune photo ou document dans ce dossier machine.</div>`}
-            </div>
-          </div>
-        </div>
-      </section>
-    `);
-  }
+  function filteredEquipment() { return equipmentViewModule.filteredEquipment(); }
+  function equipmentView() { return equipmentViewModule.equipmentView(); }
+  function filtersBlock() { return equipmentViewModule.filtersBlock(); }
+  function equipmentTable(equipment, allowDetail) { return equipmentViewModule.equipmentTable(equipment, allowDetail); }
+  function equipmentDetailView() { return equipmentViewModule.equipmentDetailView(); }
 
   const documentsViewModule = window.ClimaParcDocumentsView.create({
     getState: () => state,
@@ -2467,283 +2306,64 @@
     return documentsViewModule.buildingDocumentsModal(buildingId);
   }
 
-  function ticketsView() {
-    const tickets = scopedTickets();
-    return appShell(`
-      ${renderTopbar("Demandes des clients", "Demandes clients, priorités et suivi opérationnel.", `<button class="primary-button" data-action="open-modal" data-modal="ticket">Nouvelle demande</button>`)}
-      <section class="panel">
-        <div class="panel-body cards-list">${tickets.map((ticket) => ticketItem(ticket, true)).join("") || `<div class="empty">Aucune demande client.</div>`}</div>
-      </section>
-    `);
-  }
+  const ticketsViewModule = window.ClimaParcTicketsView.create({
+    getState: () => state, api, appShell, renderTopbar, scopedTickets,
+    scopedEquipment, equipmentContext, escapeHtml, statusBadge,
+    canCreateWorkOrders, currentUser, compactAttachmentItem, modalShell, uid,
+    nextTicketNumber, clientForBuilding, today, updateUiState, saveDomainItemNow
+  });
 
-  function ticketItem(ticket, expanded = false, dashboardLink = false) {
-    const { equipment, apartment, building } = equipmentContext(ticket.equipmentId);
-    const serviceType = state.serviceTypes.find((item) => item.id === ticket.serviceTypeId);
-    const attachments = equipment?.attachments || [];
-    const actions = expanded && canCreateWorkOrders()
-      ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-ticket="${ticket.id}" data-equipment="${ticket.equipmentId}">Créer BT</button>`
-      : "";
-    return `
-      <article class="list-item ${dashboardLink ? "clickable-card" : ""}" ${dashboardLink ? `data-action="dashboard-ticket" data-id="${escapeHtml(ticket.id)}"` : ""}>
-        <div class="actions" style="justify-content:space-between">
-          <h3>${escapeHtml(ticket.number || ticket.id)} - ${escapeHtml(ticket.title)}</h3>
-          <span>${statusBadge(ticket.priority)} ${statusBadge(ticket.status)}</span>
-        </div>
-        <div class="meta">Type: ${escapeHtml(serviceType?.name || "-")}</div>
-        <div class="meta">${escapeHtml(building?.name || "-")} - Apt ${escapeHtml(apartment?.number || "-")} - ${escapeHtml(equipment?.type || "-")}</div>
-        <div class="meta">${escapeHtml(ticket.description)}</div>
-        ${expanded ? `
-          <div class="mini-list">
-            <strong>Photos et documents de la machine</strong>
-            ${attachments.map((file) => compactAttachmentItem(file)).join("") || `<div class="meta">Aucun fichier lié à cette machine.</div>`}
-          </div>
-        ` : ""}
-        <div class="actions">${expanded ? `<button class="ghost-button" data-action="open-modal" data-modal="ticket" data-id="${ticket.id}">Modifier</button>` : ""}${actions}${expanded ? ticketStatusButtons(ticket) : ""}</div>
-      </article>
-    `;
-  }
+  function ticketsView() { return ticketsViewModule.ticketsView(); }
+  function ticketItem(ticket, expanded = false, dashboardLink = false) { return ticketsViewModule.ticketItem(ticket, expanded, dashboardLink); }
 
   function compactAttachmentItem(file) {
     return documentsViewModule.compactAttachmentItem(file);
   }
 
   function ticketStatusButtons(ticket) {
-    if (currentUser()?.role === "client") return "";
-    return `
-      <button class="ghost-button" data-action="ticket-status" data-id="${ticket.id}" data-status="en_cours">En cours</button>
-      <button class="ghost-button" data-action="ticket-status" data-id="${ticket.id}" data-status="ferme">Fermer</button>
-    `;
+    return ticketsViewModule.ticketStatusButtons(ticket);
   }
 
+  const workOrdersViewModule = window.ClimaParcWorkOrdersView.create({
+    getState: () => state, api, seed, appShell, renderTopbar, can,
+    canCreateWorkOrders, currentUser, scopedWorkOrders, scopedBuildings,
+    scopedEquipment, equipmentContext, workOrderContext, workOrderProgress,
+    workOrderApartments, interventionsForOrder, formTemplateForOrder,
+    equipmentForApartment, searchText, normalizeSearch, statusText, statusBadge,
+    formatDate, escapeHtml, dataFieldLabelByValue, modalShell, today, uid,
+    showToast, updateUiState, saveDomainItemNow, acceptServerState
+  });
+
   function workOrdersView() {
-    const orders = filteredWorkOrders();
-    return appShell(`
-      ${renderTopbar("Bons de travail", "Planification, assignation technicien et exécution des checklists.", canCreateWorkOrders() ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : "")}
-      <section class="panel">
-        <div class="panel-body">
-          ${workOrderFiltersBlock()}
-        </div>
-      </section>
-      <section class="panel">
-        <div class="panel-body cards-list">${orders.map((order) => workOrderItem(order, true)).join("") || `<div class="empty">Aucun bon de travail.</div>`}</div>
-      </section>
-    `);
+    return workOrdersViewModule.workOrdersView();
   }
 
   function filteredWorkOrders() {
-    const filters = state.workOrderFilters || seed.workOrderFilters;
-    return scopedWorkOrders().filter((order) => {
-      const { equipment, apartment, building } = workOrderContext(order);
-      const type = state.interventionTypes.find((item) => item.id === order.typeId);
-      const assignedIds = new Set([order.technicianId, ...(order.assignedTechnicianIds || [])].filter(Boolean));
-      const haystack = searchText(order.number, type?.name, order.status, statusText(order.status), order.notes, building?.name, building?.address, apartment?.number, equipment?.type, equipment?.brand, equipment?.model, equipment?.serial, order.scheduledDate, formatDate(order.scheduledDate));
-      return (
-        (filters.buildingId === "all" || building?.id === filters.buildingId || order.buildingId === filters.buildingId) &&
-        (filters.technicianId === "all" || assignedIds.has(filters.technicianId)) &&
-        (filters.status === "all" || order.status === filters.status) &&
-        (!filters.startDate || order.scheduledDate >= filters.startDate) &&
-        (!filters.endDate || order.scheduledDate <= filters.endDate) &&
-        (!filters.search || haystack.includes(normalizeSearch(filters.search)))
-      );
-    });
+    return workOrdersViewModule.filteredWorkOrders();
   }
 
   function workOrderFiltersBlock() {
-    const filters = state.workOrderFilters || seed.workOrderFilters;
-    return `
-      <div class="filters">
-        <div class="field">
-          <label>Immeuble</label>
-          <select data-action="workorder-filter" data-filter="buildingId">
-            <option value="all">Tous</option>
-            ${scopedBuildings().map((building) => `<option value="${building.id}" ${filters.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="field">
-          <label>Technicien</label>
-          <select data-action="workorder-filter" data-filter="technicianId">
-            <option value="all">Tous</option>
-            ${state.users.filter((user) => user.role === "technicien").map((user) => `<option value="${user.id}" ${filters.technicianId === user.id ? "selected" : ""}>${escapeHtml(user.name)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="field">
-          <label>Statut</label>
-          <select data-action="workorder-filter" data-filter="status">
-            <option value="all">Tous</option>
-            <option value="planifie" ${filters.status === "planifie" ? "selected" : ""}>Planifié</option>
-            <option value="en_cours" ${filters.status === "en_cours" ? "selected" : ""}>En cours</option>
-            <option value="termine" ${filters.status === "termine" ? "selected" : ""}>Terminé</option>
-            <option value="annule" ${filters.status === "annule" ? "selected" : ""}>Annulé</option>
-          </select>
-        </div>
-        <div class="field"><label>Début</label><input type="date" data-action="workorder-filter" data-filter="startDate" value="${escapeHtml(filters.startDate || "")}"></div>
-        <div class="field"><label>Fin</label><input type="date" data-action="workorder-filter" data-filter="endDate" value="${escapeHtml(filters.endDate || "")}"></div>
-        <div class="field"><label>Recherche</label><input data-action="workorder-filter" data-filter="search" value="${escapeHtml(filters.search || "")}" placeholder="BT, machine, série, adresse"></div>
-      </div>
-    `;
+    return workOrdersViewModule.workOrderFiltersBlock();
   }
 
   function workOrderItem(order, expanded = false, dashboardLink = false) {
-    const { equipment, apartment, building } = workOrderContext(order);
-    const type = state.interventionTypes.find((item) => item.id === order.typeId);
-    const assignedTechs = (order.assignedTechnicianIds || []).map((id) => state.users.find((user) => user.id === id)?.name).filter(Boolean).join(", ");
-    const progress = workOrderProgress(order);
-    const scopeLabel = order.buildingId ? "Bloc complet" : `Apt ${apartment?.number || "-"} - ${equipment?.type || "-"}`;
-    const actionButtons = workOrderActionButtons(order, expanded);
-    return `
-      <article class="list-item ${dashboardLink ? "clickable-card" : ""}" ${dashboardLink ? `data-action="dashboard-workorder" data-id="${escapeHtml(order.id)}"` : ""}>
-        <div class="actions" style="justify-content:space-between">
-          <h3>${escapeHtml(order.number)} - ${escapeHtml(type?.name || "")}</h3>
-          ${statusBadge(order.status)}
-        </div>
-        <div class="meta">RDV: ${formatDate(order.scheduledDate)}</div>
-        ${assignedTechs ? `<div class="meta">Techniciens assignés: ${escapeHtml(assignedTechs)}</div>` : ""}
-        <div class="meta">${escapeHtml(building?.name || "-")} - ${escapeHtml(scopeLabel)}</div>
-        <div class="progress-line"><span style="width:${progress.percent}%"></span></div>
-        <div class="meta">${progress.doneApartments}/${progress.totalApartments} appartement${progress.totalApartments > 1 ? "s" : ""} realisé${progress.doneApartments > 1 ? "s" : ""} | ${progress.machines} machine${progress.machines > 1 ? "s" : ""} analysée${progress.machines > 1 ? "s" : ""}</div>
-        <div class="meta">${escapeHtml(order.notes || "")}</div>
-        ${actionButtons}
-      </article>
-    `;
+    return workOrdersViewModule.workOrderItem(order, expanded, dashboardLink);
   }
 
   function workOrderActionButtons(order, expanded) {
-    if (!expanded) return "";
-    if (currentUser()?.role === "client") {
-      return `<div class="actions"><button class="ghost-button" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">Consulter</button></div>`;
-    }
-    return `
-      <div class="actions">
-        <button class="primary-button" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">Exécuter</button>
-        ${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${escapeHtml(order.id)}">Checklist</button>` : ""}
-        ${can("workorders") ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${escapeHtml(order.id)}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${escapeHtml(order.id)}" data-status="termine">Terminer</button>` : ""}
-      </div>
-    `;
+    return workOrdersViewModule.workOrderActionButtons(order, expanded);
   }
 
   function workOrderExecutionView() {
-    const order = state.workOrders.find((item) => item.id === state.selectedWorkOrderId);
-    if (!order) return workOrdersView();
-    const { building } = workOrderContext(order);
-    const type = state.interventionTypes.find((item) => item.id === order.typeId);
-    const template = formTemplateForOrder(order);
-    const progress = workOrderProgress(order);
-    const apartments = workOrderApartments(order);
-    const selectedApartment = apartments.find((item) => item.id === state.selectedExecutionApartmentId) || apartments[0];
-    const apartmentInterventions = interventionsForOrder(order.id).filter((item) => {
-      const equipment = state.equipment.find((eq) => eq.id === item.equipmentId);
-      return (item.apartmentId || equipment?.apartmentId) === selectedApartment?.id;
-    });
-    const apartmentMachines = selectedApartment ? equipmentForApartment(selectedApartment.id) : [];
-    const canEditExecution = currentUser()?.role !== "client" && (can("workorders") || can("interventions"));
-    return appShell(`
-      ${renderTopbar(`Execution ${order.number}`, `${building?.name || "-"} - ${type?.name || ""}`, `
-        <button class="ghost-button" data-action="go-back" data-fallback-view="bons">Retour</button>
-        ${canEditExecution ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${order.id}">Changer le formulaire</button>` : ""}
-        ${canEditExecution ? `<button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>` : ""}
-      `)}
-      <section class="stats-grid">
-        <div class="stat"><span>RDV</span><strong>${formatDate(order.scheduledDate)}</strong></div>
-        <div class="stat"><span>Progression</span><strong>${progress.percent}%</strong></div>
-        <div class="stat"><span>Appartements realises</span><strong>${progress.doneApartments}/${progress.totalApartments}</strong></div>
-        <div class="stat"><span>Machines analysees</span><strong>${progress.machines}</strong></div>
-        ${canEditExecution ? `<div class="stat"><span>Formulaire</span><strong>${escapeHtml(template?.name || "-")}</strong></div>` : ""}
-      </section>
-      <section class="progress-panel">
-        <div class="progress-line large"><span style="width:${progress.percent}%"></span></div>
-      </section>
-      <section class="execution-layout">
-        <div class="panel">
-          <div class="panel-header"><h2>Appartements du bloc</h2></div>
-          <div class="panel-body cards-list">
-            ${apartments.map((apartment) => executionApartmentButton(order, apartment, selectedApartment?.id)).join("") || `<div class="empty">Aucun appartement dans ce BT.</div>`}
-          </div>
-        </div>
-        <div class="stack">
-          <div class="panel">
-            <div class="panel-header">
-              <h2>Appartement ${escapeHtml(selectedApartment?.number || "-")}</h2>
-              ${canEditExecution ? `<div class="actions">
-                <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-unit-kind="interieure">+ Unité intérieure</button>
-                <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-unit-kind="exterieure">+ Unité extérieure</button>
-                <button class="primary-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}">Nouvelle activité</button>
-              </div>` : ""}
-            </div>
-            <div class="panel-body cards-list">
-              ${apartmentMachines.map((machine) => {
-                const intervention = apartmentInterventions.find((item) => item.equipmentId === machine.id);
-                return `
-                  <article class="list-item">
-                    <div class="actions" style="justify-content:space-between">
-                      <h3>${escapeHtml(machine.type)}</h3>
-                      ${intervention ? statusBadge("terminee") : statusBadge("planifie")}
-                    </div>
-                    <div class="meta">${escapeHtml(machine.brand)} ${escapeHtml(machine.model)} - ${escapeHtml(machine.location || "-")}</div>
-                    ${canEditExecution ? `<div class="actions">
-                      ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${machine.id}">Nouveau BT</button>` : ""}
-                      <button class="ghost-button" data-action="open-modal" data-modal="fieldIntervention" data-order="${order.id}" data-apartment="${selectedApartment?.id || ""}" data-equipment="${machine.id}">${intervention ? "Modifier le formulaire" : "Remplir le formulaire"}</button>
-                    </div>` : ""}
-                  </article>
-                `;
-              }).join("") || `<div class="empty">Aucune machine encore cadastrée pour cet appartement.</div>`}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header"><h2>Informations collectées</h2></div>
-            <div class="panel-body cards-list">
-              ${apartmentInterventions.map((intervention) => fieldResponseCard(intervention)).join("") || `<div class="empty">Aucune information saisie pour cet appartement.</div>`}
-            </div>
-          </div>
-        </div>
-      </section>
-    `);
+    return workOrdersViewModule.workOrderExecutionView();
   }
 
   function executionApartmentButton(order, apartment, selectedId) {
-    const interventions = interventionsForOrder(order.id).filter((item) => {
-      const equipment = state.equipment.find((eq) => eq.id === item.equipmentId);
-      return (item.apartmentId || equipment?.apartmentId) === apartment.id;
-    });
-    return `
-      <button class="mini-row ${selectedId === apartment.id ? "active" : ""}" data-action="select-execution-apartment" data-id="${apartment.id}">
-        <strong>Appartement ${escapeHtml(apartment.number)}</strong>
-        <span>${interventions.length ? `${interventions.length} machine(s) analysee(s)` : "A faire"}</span>
-      </button>
-    `;
+    return workOrdersViewModule.executionApartmentButton(order, apartment, selectedId);
   }
 
   function fieldResponseCard(intervention) {
-    const equipment = state.equipment.find((item) => item.id === intervention.equipmentId);
-    const responses = Object.entries(intervention.formResponses || {}).map(([key, value]) => {
-      const display = Array.isArray(value) ? value.join(", ") : value;
-      return `<div><span>${escapeHtml(key)}</span><strong>${escapeHtml(display || "-")}</strong></div>`;
-    }).join("");
-    return `
-      <article class="list-item">
-        <div class="actions" style="justify-content:space-between">
-          <h3>${escapeHtml(equipment?.type || "Machine")}</h3>
-          <span>${statusBadge(intervention.activityStatus || intervention.status)} ${statusBadge(intervention.machineStatus || equipment?.status)}</span>
-        </div>
-        <div class="meta">${intervention.unitKind === "exterieure" ? "Unité extérieure" : "Unité intérieure"} | Statut machine observé: ${statusText(intervention.machineStatus || equipment?.status)}</div>
-        <div class="definition compact">${responses || `<div><span>Formulaire</span><strong>Aucune reponse</strong></div>`}</div>
-        ${intervention.recommendation?.type ? `
-          <div class="definition compact">
-            <div><span>Recommandation</span><strong>${escapeHtml(dataFieldLabelByValue("recommendation_type", intervention.recommendation.type))}</strong></div>
-            <div><span>Priorité</span><strong>${escapeHtml(statusText(intervention.recommendation.priority) || "-")}</strong></div>
-            <div><span>Pièce nécessaire</span><strong>${escapeHtml(intervention.recommendation.part || "-")}</strong></div>
-            <div><span>Temps prévu</span><strong>${escapeHtml(intervention.recommendation.time || "-")}</strong></div>
-            <div><span>Statut</span><strong>${escapeHtml(statusText(intervention.recommendation.status || "a_valider"))}</strong></div>
-          </div>
-          <div class="meta">${escapeHtml(intervention.recommendation.description || "")}</div>
-        ` : ""}
-        ${intervention.attachments?.length ? `<div class="mini-list">${intervention.attachments.map((file) => {
-          const order = state.workOrders.find((item) => item.id === file.workOrderId || item.id === intervention.workOrderId);
-          return `<div class="meta">Pièce jointe: ${escapeHtml(file.name)} | Origine: ${escapeHtml(order?.number || "-")}</div>`;
-        }).join("")}</div>` : ""}
-        <div class="meta">${escapeHtml(intervention.summary || "")}</div>
-      </article>
-    `;
+    return workOrdersViewModule.fieldResponseCard(intervention);
   }
 
   const reportModule = window.ClimaParcReports.create({
@@ -3043,106 +2663,15 @@
   }
 
   function ticketModal(modal) {
-    const ticket = state.tickets.find((item) => item.id === modal.id) || {};
-    const equipmentOptions = scopedEquipment().map((item) => {
-      const { apartment, building } = equipmentContext(item.id);
-      const selectedEquipmentId = ticket.equipmentId || modal.equipmentId;
-      return `<option value="${item.id}" ${selectedEquipmentId === item.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment?.number || "")} - ${escapeHtml(item.type)}</option>`;
-    }).join("");
-    const serviceOptions = state.serviceTypes.map((type) => `<option value="${type.id}" ${ticket.serviceTypeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
-    return modalShell(ticket.id ? "Modifier la demande client" : "Nouvelle demande client", `
-      <form class="form-grid" data-form="ticket">
-        <input type="hidden" name="id" value="${escapeHtml(ticket.id || "")}">
-        ${ticket.id ? `<div class="field"><label>Numéro de demande</label><input value="${escapeHtml(ticket.number || ticket.id)}" readonly></div>` : ""}
-        <div class="field"><label>Équipement</label><select name="equipmentId" required>${equipmentOptions}</select></div>
-        <div class="field"><label>Type de demande</label><select name="serviceTypeId">${serviceOptions}</select></div>
-        <div class="split">
-          <div class="field"><label>Titre</label><input name="title" value="${escapeHtml(ticket.title || "")}" required placeholder="Ex.: Bruit anormal"></div>
-          <div class="field"><label>Priorité</label><select name="priority"><option value="normale" ${ticket.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${ticket.priority === "urgente" ? "selected" : ""}>Urgente</option><option value="basse" ${ticket.priority === "basse" ? "selected" : ""}>Basse</option></select></div>
-        </div>
-        <div class="field"><label>Statut</label><select name="status"><option value="ouvert" ${ticket.status === "ouvert" ? "selected" : ""}>Ouvert</option><option value="en_cours" ${ticket.status === "en_cours" ? "selected" : ""}>En cours</option><option value="ferme" ${ticket.status === "ferme" ? "selected" : ""}>Fermé</option></select></div>
-        <div class="field"><label>Description</label><textarea name="description" required>${escapeHtml(ticket.description || "")}</textarea></div>
-        <button class="primary-button" type="submit">${ticket.id ? "Enregistrer" : "Créer la demande"}</button>
-      </form>
-    `);
+    return ticketsViewModule.ticketModal(modal);
   }
 
   function workOrderModal(modal) {
-    const order = state.workOrders.find((item) => item.id === modal.id) || {};
-    const selectedScope = order.scope || (order.buildingId || !modal.equipmentId ? "building" : "equipment");
-    const selectedBuildingId = order.buildingId || equipmentContext(modal.equipmentId)?.building?.id || scopedBuildings()[0]?.id || "";
-    const buildingOptions = scopedBuildings().map((building) => `<option value="${building.id}" ${selectedBuildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("");
-    const equipmentOptions = scopedEquipment().map((item) => {
-      const { apartment, building } = equipmentContext(item.id);
-      const selectedEquipmentId = order.equipmentId || modal.equipmentId;
-      return `<option value="${item.id}" ${selectedEquipmentId === item.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment?.number || "")} - ${escapeHtml(item.type)}</option>`;
-    }).join("");
-    const typeOptions = state.interventionTypes.map((type) => `<option value="${type.id}" ${order.typeId === type.id ? "selected" : ""}>${escapeHtml(type.name)}</option>`).join("");
-    const formOptions = state.formTemplates.map((template) => `<option value="${template.id}" ${order.formTemplateId === template.id ? "selected" : ""}>${escapeHtml(template.name)}</option>`).join("");
-    const assignedIds = new Set([...(order.assignedTechnicianIds || []), order.technicianId].filter(Boolean));
-    const technicianChecks = state.users.filter((user) => user.role === "technicien").map((user) => `
-      <label><input type="checkbox" name="assignedTechnicianIds" value="${escapeHtml(user.id)}" ${assignedIds.has(user.id) ? "checked" : ""}> ${escapeHtml(user.name)}</label>
-    `).join("") || `<span class="meta">Aucun technicien créé.</span>`;
-    return modalShell(order.id ? "Modifier le bon de travail" : "Nouveau bon de travail", `
-      <form class="form-grid" data-form="workorder">
-        <input type="hidden" name="id" value="${escapeHtml(order.id || "")}">
-        <input type="hidden" name="ticketId" value="${escapeHtml(modal.ticketId || order.ticketId || "")}">
-        <input type="hidden" name="sourceReminderId" value="${escapeHtml(modal.reminderId || order.sourceReminderId || "")}">
-        <div class="split">
-          <div class="field"><label>Portee du BT</label><select name="scope"><option value="building" ${selectedScope === "building" ? "selected" : ""}>Bloc complet / immeuble</option><option value="equipment" ${selectedScope === "equipment" ? "selected" : ""}>Machine precise</option></select></div>
-          <div class="field"><label>Formulaire terrain</label><select name="formTemplateId">${formOptions}</select></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Immeuble</label><select name="buildingId"><option value="">-</option>${buildingOptions}</select></div>
-          <div class="field"><label>Equipement</label><select name="equipmentId"><option value="">-</option>${equipmentOptions}</select></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Type d'intervention</label><select name="typeId">${typeOptions}</select></div>
-          <div class="field"><label>Techniciens assignés</label><div class="choice-list">${technicianChecks}</div></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Date du RDV</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div>
-          <div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>Planifié</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>Terminé</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>Annulé</option></select></div>
-        </div>
-        <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(order.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${order.id ? "Enregistrer" : "Créer le BT"}</button>
-      </form>
-    `);
+    return workOrdersViewModule.workOrderModal(modal);
   }
 
   function equipmentModal(modal) {
-    const equipment = state.equipment.find((item) => item.id === modal.id) || { apartmentId: modal.apartmentId };
-    const equipmentFields = normalizeActivityFields({});
-    const statusOptions = dataFieldOptionsForSelect(equipmentFields.status);
-    const apartmentOptions = scopedApartments().map((apartment) => {
-      const building = buildingForApartment(apartment.id);
-      return `<option value="${apartment.id}" ${equipment.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(building?.name || "")} - Apt ${escapeHtml(apartment.number)}</option>`;
-    }).join("");
-    return modalShell(equipment.id ? "Modifier la machine" : "Nouvel équipement", `
-      <form class="form-grid" data-form="equipment">
-        <input type="hidden" name="id" value="${escapeHtml(equipment.id || "")}">
-        <div class="field"><label>Appartement</label><select name="apartmentId">${apartmentOptions}</select></div>
-        <div class="split">
-          <div class="field combo-field"><label>Type</label>${comboInput("type", equipment.type || "", activityOptions("type", equipmentFields.type), true)}</div>
-          <div class="field combo-field"><label>Localisation</label>${comboInput("location", equipment.location || "", activityOptions("location", equipmentFields.location), true)}</div>
-        </div>
-        <div class="split">
-          <div class="field combo-field"><label>Marque</label>${comboInput("brand", equipment.brand || "", activityOptions("brand", equipmentFields.brand), true)}</div>
-          <div class="field combo-field"><label>Modèle</label>${comboInput("model", equipment.model || "", activityOptions("model", equipmentFields.model), true)}</div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Numéro de série</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div>
-          <div class="field"><label>Date d'installation</label><input name="installDate" type="date" value="${escapeHtml(equipment.installDate || today())}"></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Dernier service</label><input name="lastService" type="date" value="${escapeHtml(equipment.lastService || "")}"></div>
-          <div class="field"><label>Prochain service</label><input name="nextService" type="date" value="${escapeHtml(equipment.nextService || "")}"></div>
-        </div>
-        <div class="field"><label>Statut</label><select name="status">${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${equipment.status === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
-        <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(equipment.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
-      </form>
-    `);
+    return equipmentViewModule.equipmentModal(modal);
   }
 
   function reminderModal(modal) {
@@ -4046,317 +3575,19 @@
   }
 
   async function createTicket(form, values) {
-    const previousTickets = JSON.parse(JSON.stringify(state.tickets));
-    const { building, apartment } = equipmentContext(values.equipmentId);
-    const serviceType = state.serviceTypes.find((item) => item.id === values.serviceTypeId) || state.serviceTypes[0];
-    const existing = state.tickets.find((item) => item.id === values.id);
-    let payload;
-    let successToast;
-    if (existing) {
-      const closedAt = values.status === "ferme" ? existing.closedAt || today() : "";
-      Object.assign(existing, {
-        serviceTypeId: values.serviceTypeId,
-        buildingId: building.id,
-        apartmentId: apartment.id,
-        equipmentId: values.equipmentId,
-        title: values.title,
-        description: values.description,
-        priority: values.priority,
-        status: values.status,
-        closedAt
-      });
-      payload = existing;
-      successToast = "Demande client modifiée.";
-    } else {
-      payload = {
-        id: uid("tk"),
-        number: nextTicketNumber(),
-        clientId: currentUser().role === "client" ? currentUser().clientId : clientForBuilding(building.id)?.id,
-        buildingId: building.id,
-        apartmentId: apartment.id,
-        equipmentId: values.equipmentId,
-        serviceTypeId: values.serviceTypeId || serviceType?.id || "",
-        title: values.title,
-        description: values.description,
-        priority: values.priority || serviceType?.defaultPriority || "normale",
-        status: values.status || "ouvert",
-        createdAt: today(),
-        closedAt: values.status === "ferme" ? today() : "",
-        createdBy: currentUser().id
-      };
-      state.tickets.unshift(payload);
-      successToast = "Demande client créée.";
-    }
-    const uiPatch = { activeView: "appels" };
-    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde de la demande..." });
-    try {
-      await saveDomainItemNow(api.saveTicket, payload, uiPatch, successToast);
-    } catch (error) {
-      state.tickets = previousTickets;
-      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Demande client non sauvegardée." });
-    }
+    return ticketsViewModule.createTicket(form, values);
   }
 
   async function createWorkOrder(form, values) {
-    const previousWorkOrders = JSON.parse(JSON.stringify(state.workOrders));
-    const previousTickets = JSON.parse(JSON.stringify(state.tickets));
-    const previousReminders = JSON.parse(JSON.stringify(state.reminders));
-    const scope = values.scope || "equipment";
-    const assignedTechnicianIds = Array.from(form.querySelectorAll('[name="assignedTechnicianIds"]:checked')).map((input) => input.value);
-    const technicianId = values.technicianId || assignedTechnicianIds[0] || "";
-    if (scope === "building" && !values.buildingId) {
-      showToast("Choisissez un immeuble pour le BT de bloc.");
-      return;
-    }
-    if (scope === "equipment" && !values.equipmentId) {
-      showToast("Choisissez un equipement pour le BT.");
-      return;
-    }
-    const existing = state.workOrders.find((item) => item.id === values.id);
-    let payload;
-    let successToast;
-    let linkedTicket = null;
-    if (existing) {
-      Object.assign(existing, {
-        scope,
-        buildingId: scope === "building" ? values.buildingId : "",
-        equipmentId: scope === "equipment" ? values.equipmentId : "",
-        typeId: values.typeId,
-        formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
-        technicianId,
-        assignedTeam: "",
-        assignedTechnicianIds,
-        scheduledDate: values.scheduledDate,
-        status: values.status,
-        notes: values.notes,
-        ticketId: values.ticketId || existing.ticketId || null,
-        sourceReminderId: values.sourceReminderId || existing.sourceReminderId || ""
-      });
-      if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, existing.id);
-      payload = existing;
-      successToast = "Bon de travail modifié.";
-    } else {
-      const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
-      payload = {
-        id: uid("wo"),
-        number,
-        ticketId: values.ticketId || null,
-        scope,
-        buildingId: scope === "building" ? values.buildingId : "",
-        equipmentId: scope === "equipment" ? values.equipmentId : "",
-        typeId: values.typeId,
-        formTemplateId: values.formTemplateId || state.formTemplates[0]?.id || "",
-        technicianId,
-        assignedTeam: "",
-        assignedTechnicianIds,
-        scheduledDate: values.scheduledDate,
-        status: values.status,
-        notes: values.notes,
-        sourceReminderId: values.sourceReminderId || ""
-      };
-      state.workOrders.unshift(payload);
-      if (values.sourceReminderId) markReminderWorkOrderOpened(values.sourceReminderId, payload.id);
-      if (values.ticketId) {
-        linkedTicket = state.tickets.find((item) => item.id === values.ticketId);
-        if (linkedTicket) linkedTicket.status = "en_cours";
-      }
-      successToast = "Bon de travail créé.";
-    }
-    const uiPatch = { activeView: "bons" };
-    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde du bon de travail..." });
-    try {
-      const reminderToSave = values.sourceReminderId
-        ? JSON.parse(JSON.stringify(state.reminders.find((item) => item.id === values.sourceReminderId) || null))
-        : null;
-      await saveDomainItemNow(api.saveWorkOrder, payload, uiPatch, successToast);
-      if (reminderToSave) {
-        const reminderPayload = await api.saveReminder(reminderToSave);
-        if (reminderPayload.state) {
-          rememberServerState(reminderPayload.state);
-          const uiState = currentUiState();
-          state = {
-            ...normalizeState(reminderPayload.state),
-            ...uiState,
-            ...uiPatch,
-            sessionUserId: uiState.sessionUserId,
-            modal: null,
-            toast: successToast
-          };
-          render();
-          scheduleToastClear();
-        }
-      }
-      if (linkedTicket) {
-        const ticketPayload = await api.saveTicket(linkedTicket);
-        if (ticketPayload.state) {
-          rememberServerState(ticketPayload.state);
-          const uiState = currentUiState();
-          state = {
-            ...normalizeState(ticketPayload.state),
-            ...uiState,
-            ...uiPatch,
-            sessionUserId: uiState.sessionUserId,
-            modal: null,
-            toast: successToast
-          };
-          render();
-          scheduleToastClear();
-        }
-      }
-    } catch (error) {
-      state.workOrders = previousWorkOrders;
-      state.tickets = previousTickets;
-      state.reminders = previousReminders;
-      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Bon de travail non sauvegardé." });
-    }
+    return workOrdersViewModule.createWorkOrder(form, values);
   }
 
   function markReminderWorkOrderOpened(reminderId, orderId) {
-    const reminder = state.reminders.find((item) => item.id === reminderId);
-    if (!reminder) return;
-    reminder.lastWorkOrderId = orderId;
-    reminder.lastOpenedAt = today();
-    reminder.lastSeenDueDate = reminder.nextDueDate || reminder.lastSeenDueDate || "";
+    return workOrdersViewModule.markReminderWorkOrderOpened(reminderId, orderId);
   }
 
   async function createEquipment(values) {
-    const previousEquipment = JSON.parse(JSON.stringify(state.equipment));
-    const previousSelectedEquipmentId = state.selectedEquipmentId;
-    const previousView = state.activeView;
-    const changedAt = new Date().toISOString();
-    const existing = state.equipment.find((item) => item.id === values.id);
-    if (existing) {
-      Object.assign(existing, {
-        apartmentId: values.apartmentId,
-        type: values.type,
-        brand: values.brand,
-        model: values.model,
-        serial: values.serial,
-        location: values.location,
-        installDate: values.installDate,
-        lastService: values.lastService,
-        nextService: values.nextService,
-        status: values.status,
-        notes: values.notes,
-        updatedAt: changedAt
-      });
-      updateUiState({ modal: null, selectedEquipmentId: existing.id, activeView: "detail", toast: "Sauvegarde de la machine..." });
-      try {
-        await saveEquipmentNow(existing, "Machine modifiée.");
-      } catch (error) {
-        state.equipment = previousEquipment;
-        state.selectedEquipmentId = previousSelectedEquipmentId;
-        state.activeView = previousView;
-        updateUiState({ modal: null, toast: error.message || "Machine non sauvegardée." });
-      }
-      return;
-    }
-    const equipment = {
-      id: uid("eq"),
-      apartmentId: values.apartmentId,
-      type: values.type,
-      brand: values.brand,
-      model: values.model,
-      serial: values.serial,
-      location: values.location,
-      installDate: values.installDate,
-      lastService: values.lastService || "",
-      nextService: values.nextService || "",
-      status: values.status || "actif",
-      notes: values.notes,
-      updatedAt: changedAt
-    };
-    state.equipment.unshift(equipment);
-    updateUiState({ modal: null, selectedEquipmentId: equipment.id, activeView: "detail", toast: "Sauvegarde de la machine..." });
-    try {
-      await saveEquipmentNow(equipment, "Équipement ajouté.");
-    } catch (error) {
-      state.equipment = previousEquipment;
-      state.selectedEquipmentId = previousSelectedEquipmentId;
-      state.activeView = previousView;
-      updateUiState({ modal: null, toast: error.message || "Équipement non sauvegardé." });
-    }
-  }
-
-  async function saveReminder(form, values) {
-    const previousReminders = JSON.parse(JSON.stringify(state.reminders));
-    const equipmentIds = new Set(Array.from(form.querySelectorAll("input[name='equipmentIds']:checked")).map((input) => input.value));
-    if (!values.id && values.rangeBuildingId && (values.rangeFrom || values.rangeTo)) {
-      const from = apartmentNumberValue(values.rangeFrom || "0");
-      const to = apartmentNumberValue(values.rangeTo || values.rangeFrom || "999999");
-      const min = Math.min(from, to);
-      const max = Math.max(from, to);
-      state.apartments
-        .filter((apartment) => apartment.buildingId === values.rangeBuildingId)
-        .filter((apartment) => {
-          const number = apartmentNumberValue(apartment.number);
-          return number >= min && number <= max;
-        })
-        .forEach((apartment) => {
-          state.equipment.filter((item) => item.apartmentId === apartment.id).forEach((item) => equipmentIds.add(item.id));
-        });
-    }
-    if (!equipmentIds.size) {
-      showToast("Sélectionnez au moins un équipement.");
-      return;
-    }
-    const payload = {
-      title: values.title,
-      frequencyValue: Math.max(1, Number(values.frequencyValue || 1)),
-      frequencyUnit: values.frequencyUnit || "years",
-      startDate: values.startDate || today(),
-      nextDueDate: values.nextDueDate || addDateInterval(values.startDate || today(), values.frequencyValue || 1, values.frequencyUnit || "years"),
-      status: values.status || "active",
-      notes: values.notes || ""
-    };
-    const existing = state.reminders.find((item) => item.id === values.id);
-    const selectedEquipmentIds = Array.from(equipmentIds);
-    let payloads = [];
-    let successToast = "";
-    if (existing) {
-      Object.assign(existing, {
-        ...payload,
-        equipmentId: selectedEquipmentIds[0],
-        lastSeenDueDate: existing.nextDueDate === payload.nextDueDate ? existing.lastSeenDueDate : ""
-      });
-      payloads = [existing];
-      successToast = "Rappel modifié.";
-    } else {
-      payloads = selectedEquipmentIds.map((equipmentId) => ({
-        id: uid("rem"),
-        equipmentId,
-        ...payload,
-        createdAt: today(),
-        lastSeenDueDate: ""
-      }));
-      payloads.slice().reverse().forEach((item) => state.reminders.unshift(item));
-      successToast = equipmentIds.size > 1 ? "Rappels créés." : "Rappel créé.";
-    }
-    if (!SERVER_ENABLED) {
-      setState({ modal: null, activeView: "alertes", toast: successToast });
-      return;
-    }
-    updateUiState({ modal: null, activeView: "alertes", toast: "Sauvegarde du rappel..." });
-    try {
-      const response = payloads.length > 1 ? await api.saveReminders(payloads) : await api.saveReminder(payloads[0]);
-      if (response.state) {
-        rememberServerState(response.state);
-        const uiState = currentUiState();
-        state = {
-          ...normalizeState(response.state),
-          ...uiState,
-          activeView: "alertes",
-          sessionUserId: uiState.sessionUserId,
-          modal: null,
-          toast: successToast
-        };
-        render();
-        scheduleToastClear();
-      }
-    } catch (error) {
-      state.reminders = previousReminders;
-      updateUiState({ modal: null, activeView: "alertes", toast: error.message || "Rappel non sauvegardé." });
-    }
+    return equipmentViewModule.createEquipment(values);
   }
 
   async function createUser(form, values) {

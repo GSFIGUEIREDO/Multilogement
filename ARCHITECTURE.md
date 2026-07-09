@@ -33,6 +33,9 @@ frontend/
     recommendations.js Regles frontend d'affichage des recommandations
     places.js          Vues, formulaires et actions Lieux/Appartements
     users.js           Vues, formulaires et actions Utilisateurs/Acces
+    equipment.js       Inventaire, dossier machine et edition des equipements
+    tickets.js         Demandes clients, suivi et creation
+    work-orders.js     Bons de travail, filtres, execution et planification
 
 start.py               Selection controlee FastAPI ou serveur legacy
 server.py              Serveur de retour temporaire pendant la transition
@@ -131,6 +134,9 @@ Frontend deja separe:
 - module Recommandations dans `frontend/views/recommendations.js`
 - module Lieux/Appartements dans `frontend/views/places.js`
 - module Utilisateurs/Acces dans `frontend/views/users.js`
+- module Equipements dans `frontend/views/equipment.js`
+- module Demandes clients dans `frontend/views/tickets.js`
+- module Bons de travail dans `frontend/views/work-orders.js`
 
 Auth deja prepare en architecture use case parallele:
 

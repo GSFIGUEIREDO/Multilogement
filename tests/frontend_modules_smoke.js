@@ -8,7 +8,9 @@ for (const file of [
   "frontend/views/users.js",
   "frontend/views/equipment.js",
   "frontend/views/tickets.js",
-  "frontend/views/work-orders.js"
+  "frontend/views/work-orders.js",
+  "frontend/views/settings.js",
+  "frontend/views/interventions.js"
 ]) {
   vm.runInThisContext(fs.readFileSync(file, "utf8"), { filename: file });
 }
@@ -18,6 +20,8 @@ const users = window.ClimaParcUsersView.create({ getState: () => ({}) });
 const equipment = window.ClimaParcEquipmentView.create({ getState: () => ({}) });
 const tickets = window.ClimaParcTicketsView.create({ getState: () => ({}) });
 const workOrders = window.ClimaParcWorkOrdersView.create({ getState: () => ({}) });
+const settings = window.ClimaParcSettingsView.create({ getState: () => ({}) });
+const interventions = window.ClimaParcInterventionsView.create({ getState: () => ({}) });
 
 for (const method of [
   "buildingsView",
@@ -78,6 +82,31 @@ for (const method of [
   }
 }
 
+for (const method of [
+  "settingsView",
+  "dataFieldModal",
+  "serviceTypeModal",
+  "interventionTypeModal",
+  "roleModal",
+  "saveDataField"
+]) {
+  if (typeof settings[method] !== "function") {
+    throw new Error(`ClimaParcSettingsView.${method} manquant.`);
+  }
+}
+
+for (const method of [
+  "activityTextInput",
+  "renderDynamicField",
+  "updateDynamicVisibility",
+  "visibleFormFieldIds",
+  "branchTargetForRuntimeField"
+]) {
+  if (typeof interventions[method] !== "function") {
+    throw new Error(`ClimaParcInterventionsView.${method} manquant.`);
+  }
+}
+
 const index = fs.readFileSync("index.html", "utf8");
 for (const script of [
   "frontend/views/places.js",
@@ -85,6 +114,8 @@ for (const script of [
   "frontend/views/equipment.js",
   "frontend/views/tickets.js",
   "frontend/views/work-orders.js",
+  "frontend/views/settings.js",
+  "frontend/views/interventions.js",
   "app.js"
 ]) {
   if (!index.includes(script)) {
@@ -105,6 +136,12 @@ if (index.indexOf("frontend/views/tickets.js") > index.indexOf("app.js")) {
 }
 if (index.indexOf("frontend/views/work-orders.js") > index.indexOf("app.js")) {
   throw new Error("work-orders.js doit etre charge avant app.js.");
+}
+if (index.indexOf("frontend/views/settings.js") > index.indexOf("app.js")) {
+  throw new Error("settings.js doit etre charge avant app.js.");
+}
+if (index.indexOf("frontend/views/interventions.js") > index.indexOf("app.js")) {
+  throw new Error("interventions.js doit etre charge avant app.js.");
 }
 
 console.log("frontend modules smoke: ok");

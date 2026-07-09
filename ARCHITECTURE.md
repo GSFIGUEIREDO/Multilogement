@@ -1,270 +1,239 @@
 # Architecture ClimaParc
 
-## Pattern choisi
+## Vue d'ensemble
 
-Le projet applique progressivement une combinaison de:
+ClimaParc utilise:
 
-- **MVC / Controller fin**: `server.py` recoit les requetes HTTP et sert l'interface.
-- **Service Layer**: `backend/services.py` contient les regles metier.
-- **Auth Service Layer**: `backend/auth_services.py` isole login, inscription, session et mot de passe oublie.
-- **Use Case / Interactor Pattern**: le nouveau domaine `Auth` est decoupe en actions unitaires dans `src/climaparc/auth/application/use_cases/`.
-- **Hexagonal Architecture**: les use cases dependent d'interfaces de domaine; les acces base, session et courriel sont branches par des adapters d'infrastructure.
-- **Repository Pattern**: `backend/repositories.py` isole les operations de persistence.
-- **Database Gateway**: `backend/database.py` centralise connexion, SQL compatible SQLite/Postgres et helpers de securite.
-- **Frontend Service Layer**: `frontend/api.js` isole les appels HTTP; `frontend/storage.js` isole le stockage local.
-- **Frontend View Modules**: les vues lourdes quittent progressivement `app.js` vers `frontend/views/`.
+- FastAPI comme serveur HTTP principal;
+- une architecture par domaines;
+- des use cases injectés par `Depends`;
+- des repositories derrière des interfaces de domaine;
+- Supabase/Postgres en production et SQLite en développement;
+- Supabase Storage privé pour les fichiers.
 
-Ce choix garde le deploiement actuel simple tout en separant les responsabilites pour audit et evolution.
-
-## Organisation
+Flux actif:
 
 ```text
-index.html             Charge l'interface et les couches frontend
-app.js                 Shell UI, navigation et orchestration cote navigateur
-styles.css             Styles de l'interface
+Frontend -> Router FastAPI -> Use Case -> Repository -> Postgres/Storage
+```
 
-frontend/
-  api.js               Service API cote navigateur
-  storage.js           Persistence locale cote navigateur
-  views/
-    dashboard.js       Vue Tableau de bord et widgets configurables
-    reports.js         Vue Rapports et logique de presentation des rapports
-    documents.js       Regles frontend de fichiers, types et limites d'upload
-    recommendations.js Regles frontend d'affichage des recommandations
-    places.js          Vues, formulaires et actions Lieux/Appartements
-    users.js           Vues, formulaires et actions Utilisateurs/Acces
-    equipment.js       Inventaire, dossier machine et edition des equipements
-    tickets.js         Demandes clients, suivi et creation
-    work-orders.js     Bons de travail, filtres, execution et planification
-    settings.js        Parametres, champs de donnees, roles et checklists
-    interventions.js   Champs terrain dynamiques et moteur de branchement
-    form-builder.js     Creation, edition, tri et branchement des formulaires
+Point de démarrage:
 
-start.py               Selection controlee FastAPI ou serveur legacy
-server.py              Serveur de retour temporaire pendant la transition
+```text
+python start.py
+CLIMAPARC_SERVER_MODE=fastapi
+```
 
-backend/
-  database.py          Connexion DB, helpers SQL/JSON/password
-  repositories.py      Lecture/ecriture etat, utilisateurs, equipements
-  security.py          Filtrage du state, permissions et controle de scope
-  services.py          Regles metier utilisateurs et equipements
-  auth_services.py     Login, inscription, sessions et reinitialisation mot de passe
-  file_storage.py      Upload, metadonnees, URLs signees et migration des anciens dataUrl
-  state_compatibility.py Merge du state legacy et detection des collections modifiees
+Le mode `legacy` est un fallback temporaire, pas l'architecture active.
+
+## Structure
+
+```text
+start.py                       Sélection FastAPI/legacy
+server.py                      Fallback HTTP historique
 
 src/climaparc/
-  main.py              Application FastAPI parallele, non activee comme serveur principal
-  shared/domain/       Erreurs applicatives communes
+  main.py                      Application FastAPI principale
   auth/
-    application/
-      commands.py      Entrees explicites des use cases Auth
-      use_cases/       Une action Auth par fichier et par classe
-    domain/            Protocols abstraits pour repositories, hash et courriel
-    infrastructure/    Adapters DB, session, token, hash et SMTP
-    presentation/      Router FastAPI et dependencies
   users/
-    application/
-      commands.py      Entrees explicites des use cases Utilisateurs
-      use_cases/       Creation, modification et suppression d'utilisateur
-    domain/            Protocols et policies de droits utilisateurs
-    infrastructure/    Adapters state et auth utilisateur
-    presentation/      Router FastAPI, dependencies et dispatch legacy
   places/
-    application/
-      commands.py      Entrees explicites des use cases Lieux/Appartements
-      use_cases/       Creation et modification de lieux et appartements
-    domain/            Protocols et policies de droits lieux
-    infrastructure/    Adapters state et payload relationnel
-    presentation/      Router FastAPI, dependencies et dispatch legacy
   equipment/
-    application/
-      commands.py      Entrees explicites des use cases Equipements
-      use_cases/       Creation et modification de machines
-    domain/            Protocols et policies de droits machines
-    infrastructure/    Adapters state et table equipements
-    presentation/      Router FastAPI, dependencies et dispatch legacy
   tickets/
-    application/
-      commands.py      Entrees explicites des use cases Demandes clients
-      use_cases/       Creation et modification de demandes
-    domain/            Protocols et policies de droits demandes
-    infrastructure/    Adapters state et table tickets
-    presentation/      Router FastAPI, dependencies et dispatch legacy
   work_orders/
-    application/
-      commands.py      Entrees explicites des use cases Bons de travail
-      use_cases/       Creation et modification de BT
-    domain/            Protocols et policies de droits BT
-    infrastructure/    Adapters state et table work orders
-    presentation/      Router FastAPI, dependencies et dispatch legacy
+  interventions/
+  documents/
+  recommendations/
+  reminders/
+  settings/
+  reports/
+  state/
+  web/
+
+backend/
+  database.py                  Connexion et primitives SQL
+  schema.py                    Initialisation du schéma
+  sync_services.py            Synchronisation relationnelle
+  security.py                 Isolation client et permissions
+  repositories.py             Repositories de compatibilité state/payload
+  state_compatibility.py       Merge du state historique
+  legacy_*.py                 Fallback `CLIMAPARC_SERVER_MODE=legacy`
+  services.py                  Adaptateurs de compatibilité vers les use cases
+  auth_services.py             Adaptateurs Auth du fallback legacy
+
+frontend/
+  api.js
+  storage.js
+  views/
+    dashboard.js
+    reports.js
+    documents.js
+    recommendations.js
+    places.js
+    users.js
+    equipment.js
+    tickets.js
+    work-orders.js
+    settings.js
+    interventions.js
+    form-builder.js
 ```
 
-## Regle de dependance
+Chaque domaine backend suit la structure:
 
 ```text
-UI -> Frontend Services -> HTTP Controller -> Backend Services -> Repositories -> Database
+domain/            Interfaces et politiques
+application/       Commandes et use cases
+infrastructure/    Repositories concrets
+presentation/      Router FastAPI, Depends et dispatch
 ```
 
-La couche UI ne doit pas appeler `fetch` directement ni manipuler `localStorage` directement.
-Le controller ne doit pas contenir de regles metier complexes.
-Toute nouvelle fonctionnalite persistante devrait suivre ce modele:
+## Statut par domaine
 
-```text
-app.js -> frontend/api.js -> server.py -> backend/services.py -> backend/repositories.py -> backend/database.py
-```
+`Migré` signifie que les règles et endpoints passent par des use cases. Cela
+ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 
-## Etat actuel
+| Domaine | Use cases | Router FastAPI | Persistance actuelle |
+|---|---:|---:|---|
+| Auth/session/reset | Oui | Oui | tables auth/session + state filtré |
+| Utilisateurs | Oui | Oui | table auth + `climaparc_state` |
+| Lieux/appartements | Oui | Oui | state + tables payload/normalisées |
+| Équipements | Oui | Oui | state + table équipement/payload |
+| Demandes clients | Oui | Oui | state + table ticket/payload |
+| Bons de travail | Oui | Oui | state + table BT/payload |
+| Interventions | Oui | Oui | state + table intervention/payload |
+| Documents | Oui | Oui | state/metadata + Supabase Storage |
+| Recommandations | Oui | Oui | intervention payload + state |
+| Rappels | Oui | Oui | state + table rappel/payload |
+| Paramètres/formulaires | Oui | Oui | state + tables payload/normalisées |
+| Rapports | Oui | Oui | lecture du state hydraté |
+| State compatibility | Oui | Oui | `climaparc_state` |
+| Web/statique/health | N/A | Oui | fichiers locaux + health DB |
 
-Routes deja migrees vers la nouvelle architecture:
+Tous les domaines applicatifs prévus ont donc été migrés vers l'architecture
+use case. Il n'existe plus de liste de « prochains domaines à migrer ».
 
-- `/api/login`, `/api/signup`, `/api/session`, `/api/logout`, `/api/password-reset/*`
-- `/api/equipment`
-- `/api/user`
-- `/api/file-upload`, `/api/file-url`, `/api/file-delete`
-- `/api/building`
-- `/api/apartment`
-- `/api/ticket`
-- `/api/work-order`
-- `/api/intervention`
+## Dépendances legacy restantes
 
-Frontend deja separe:
+### `climaparc_state`
 
-- appels serveur dans `frontend/api.js`
-- stockage local dans `frontend/storage.js`
-- module Tableau de bord dans `frontend/views/dashboard.js`
-- module Rapports dans `frontend/views/reports.js`
-- module Documents dans `frontend/views/documents.js`
-- module Recommandations dans `frontend/views/recommendations.js`
-- module Lieux/Appartements dans `frontend/views/places.js`
-- module Utilisateurs/Acces dans `frontend/views/users.js`
-- module Equipements dans `frontend/views/equipment.js`
-- module Demandes clients dans `frontend/views/tickets.js`
-- module Bons de travail dans `frontend/views/work-orders.js`
-- module Parametres dans `frontend/views/settings.js`
-- module Interventions terrain dans `frontend/views/interventions.js`
-- module Form Builder dans `frontend/views/form-builder.js`
+La majorité des `*StateRepository` utilise encore `LegacyStateRepository`.
+Les use cases chargent un état hydraté, appliquent les règles de scope,
+écrivent la collection concernée et retournent un state filtré.
 
-Auth deja prepare en architecture use case parallele:
+Domaines encore dépendants du state central:
 
-- `CreateSessionUseCase`
-- `ReadSessionUseCase`
-- `LogoutSessionUseCase`
-- `LoginUserUseCase`
-- `SignupClientUseCase`
-- `RequestPasswordResetUseCase`
-- `ConfirmPasswordResetUseCase`
+- Auth pour composer la session publique;
+- utilisateurs;
+- lieux et appartements;
+- équipements;
+- demandes clients;
+- bons de travail;
+- interventions;
+- documents et recommandations;
+- rappels;
+- paramètres/formulaires;
+- rapports.
 
-Les routes FastAPI correspondantes existent dans `src/climaparc/auth/presentation/router.py`. Le serveur legacy `server.py` reste le point de demarrage actuel jusqu'a la migration complete des autres domaines.
+La migration applicative est terminée, mais la migration de persistance ne
+l'est donc pas. La cible est que chaque repository lise et écrive directement
+ses tables normalisées, sans reconstruire l'application à partir d'un document
+JSON global.
 
-Utilisateurs deja migre vers use cases:
+### Colonnes `payload`
 
-- `CreateUserUseCase`
-- `UpdateUserUseCase`
-- `DeleteUserUseCase`
+Les tables relationnelles conservent des colonnes `payload` pour le dual-write
+et l'hydratation compatibles. Les tables enfants normalisées existent déjà,
+notamment pour:
 
-Les endpoints legacy `/api/user` et `/api/user-delete` passent maintenant par ces use cases, tout en gardant les memes URLs et le meme format de reponse pour le frontend actuel.
+- contacts des lieux;
+- techniciens des BT;
+- options des champs de données;
+- questions, options et branchements des formulaires;
+- permissions des rôles;
+- réponses et valeurs multiples d'intervention;
+- pièces jointes;
+- messages de recommandations.
 
-Lieux/Appartements deja migre vers use cases:
+Les nouveaux rapports, filtres et intégrations doivent privilégier les colonnes
+et tables normalisées. Le retrait des `payload` viendra après migration complète
+des repositories.
 
-- `CreateBuildingUseCase`
-- `UpdateBuildingUseCase`
-- `CreateApartmentUseCase`
-- `UpdateApartmentUseCase`
+### Services legacy
 
-Les endpoints legacy `/api/building` et `/api/apartment` passent maintenant par ces use cases. La suppression persistante d'appartement n'a pas encore d'endpoint public et reste hors de cette etape de refactor.
+- `backend/services.py`: adaptateurs fins vers les use cases, conservés pour
+  compatibilité et tests; ils ne portent plus les règles métier principales.
+- `backend/auth_services.py`: adaptateurs Auth utilisés par le serveur fallback
+  et certains tests.
+- `backend/legacy_*`: contrôleurs du mode `legacy` seulement.
 
-Equipements deja migre vers use cases:
+Le serveur FastAPI actif appelle directement les use cases via les dépendances
+de `src/climaparc/*/presentation`.
 
-- `CreateEquipmentUseCase`
-- `UpdateEquipmentUseCase`
+## Endpoints
 
-L'endpoint legacy `/api/equipment` passe maintenant par ces use cases. La regle existante qui preserve les pieces jointes d'une machine lors d'une modification sans `attachments` est conservee.
+### Endpoints FastAPI actifs
 
-Demandes des clients deja migre vers use cases:
+Le frontend utilise les routes suivantes, toutes desservies par FastAPI:
 
-- `CreateTicketUseCase`
-- `UpdateTicketUseCase`
+- `GET /api/health`
+- `GET /api/session`
+- `POST /api/login`
+- `POST /api/signup`
+- `POST /api/logout`
+- `POST /api/password-reset-request`
+- `POST /api/password-reset-confirm`
+- `POST /api/user`
+- `POST /api/user-delete`
+- `POST /api/building`
+- `POST /api/apartment`
+- `POST /api/equipment`
+- `POST /api/ticket`
+- `POST /api/work-order`
+- `POST /api/intervention`
+- `POST /api/reminder`
+- `POST /api/reminder-delete`
+- `POST /api/setting-item`
+- `POST /api/setting-item-delete`
+- `POST /api/report-context`
+- `POST /api/recommendation/client-response`
+- `POST /api/recommendation/review`
+- `POST /api/file-upload`
+- `POST /api/file-url`
+- `POST /api/file-delete`
 
-L'endpoint legacy `/api/ticket` passe maintenant par ces use cases en conservant les memes controles de scope client et les memes payloads.
+Ces URLs sont conservées pour compatibilité frontend, mais leurs implémentations
+actives ne sont pas des handlers legacy.
 
-Bons de travail deja migre vers use cases:
+### Endpoints de compatibilité
 
-- `CreateWorkOrderUseCase`
-- `UpdateWorkOrderUseCase`
+- `POST /api/state`: compatibilité temporaire pour les modifications globales;
+  limité aux profils `administrateur` et `equipe_interne`.
+- `GET /api/local-file`: fallback de fichiers en développement local.
+- Les routes définies dans `backend/legacy_routes.py` existent uniquement
+  lorsque `CLIMAPARC_SERVER_MODE=legacy`.
 
-L'endpoint legacy `/api/work-order` passe maintenant par ces use cases. Les regles existantes sont conservees: admin/equipe interne peuvent gerer les BT, les techniciens peuvent modifier les BT qui leur sont assignes, et les clients ne peuvent pas creer/modifier les BT.
+Les nouvelles fonctionnalités persistantes ne doivent pas utiliser
+`/api/state`; elles doivent avoir un endpoint, un use case et un repository de
+domaine.
 
-Le projet conserve encore un etat JSON central (`climaparc_state`) pour compatibilite. Les prochaines migrations recommandees sont:
+## Sécurité
 
-1. `Demandes des clients`
-2. `Bons de travail`
-3. `Lieux / Appartements`
-4. `Rappels`
-5. `Documents`
-6. Decoupage progressif de `app.js` en modules de vues par domaine (`dashboard`, `buildings`, `equipment`, `tickets`, `workOrders`, `interventions`, `documents`, `recommendations`, `users`, `settings`)
+- Le backend filtre les réponses par profil, client, lieux autorisés et droits.
+- Les use cases reçoivent l'utilisateur courant et appliquent l'autorisation.
+- `/api/state` n'est pas accessible aux clients ou techniciens.
+- Les mots de passe et tokens restent hors du state public.
+- La clé Supabase Service Role reste uniquement côté serveur.
+- Les documents sont autorisés avant génération d'une URL signée.
 
-Chaque migration doit suivre le meme modele: service metier, repository dedie, puis controller fin.
+## Travail technique restant
 
-## Securite et isolation des donnees
+Il ne reste pas de domaine à migrer vers les use cases. Les travaux suivants
+sont une consolidation de persistance:
 
-Le backend doit toujours appliquer les droits cote serveur, meme si l'interface cache deja certaines actions.
-
-- `backend/security.py` filtre le state retourne selon `role`, `clientId`, `allowedBuildingIds` et `portalRights`.
-- Les clients et techniciens ne recoivent pas le state global. Ils recoivent uniquement les clients, lieux, appartements, equipements, demandes, bons, interventions, documents et rappels autorises.
-- `/api/state` est reserve aux profils `administrateur` et `equipe_interne` comme route de compatibilite temporaire.
-- Les routes metier passent l'utilisateur courant a la couche applicative, qui applique le controle de scope. `Utilisateurs` utilise deja les use cases; les autres domaines utilisent encore les services legacy.
-- Les mots de passe ne doivent jamais etre stockes dans `climaparc_state`, les payloads relationnels, les seeds publics ou les reponses API. Ils passent uniquement par la table d'authentification avec hash et sel.
-- Les tokens de reinitialisation sont stockes dans `climaparc_password_reset_tokens`; le state ne garde que le suivi public de la demande.
-- Les fichiers sont servis par URLs temporaires generees par le backend. La cle `SUPABASE_SERVICE_ROLE_KEY` ne doit jamais etre exposee au navigateur.
-- Les droits canoniques pour les recommandations sont `recommendations`, `recommendation_prices` et `recommendation_approve`. Les anciens noms `prices` et `approve_recommendations` ne sont acceptes que comme compatibilite de donnees existantes.
-
-## Stockage des fichiers
-
-Le stockage cible est Supabase Storage dans un bucket prive, par defaut `climaparc-documents`.
-
-Le flux attendu:
-
-```text
-frontend/api.js -> POST /api/file-upload -> backend/file_storage.py -> Supabase Storage
-frontend/api.js -> POST /api/file-url -> backend/file_storage.py -> URL temporaire signee
-```
-
-Les nouveaux fichiers ne doivent pas etre convertis en `dataUrl` ni sauvegardes en base64. Les metadonnees conservees sont: `id`, `name`, `fileName`, `fileType`, `fileSize`, `storageBucket`, `storagePath`, `clientId`, `buildingId`, `apartmentId`, `equipmentId`, `visibleToClient`, `uploadedAt` et `uploadedBy`.
-
-Le fallback `local_uploads/` est reserve au developpement local quand Supabase Storage n'est pas configure. En production, l'absence de `SUPABASE_URL` ou `SUPABASE_SERVICE_ROLE_KEY` bloque les nouveaux uploads.
-
-## Normalisation de la base
-
-Le modele relationnel applique progressivement la 3e forme normale:
-
-- **1FN**: les listes et groupes repetes sont sortis du JSON vers des tables enfants.
-- **2FN**: les tables de liaison utilisent une cle composee ou une cle dediee ou chaque attribut depend de toute la cle.
-- **3FN**: les attributs descriptifs dependent de leur propre entite, pas d'un autre attribut non-cle.
-
-Tables enfants normalisees ajoutees:
-
-- `climaparc_building_contacts`: contacts sur place et facturation par lieu.
-- `climaparc_work_order_technicians`: plusieurs techniciens par bon de travail.
-- `climaparc_data_field_options`: options centralisees des champs de donnees.
-- `climaparc_form_template_fields`: questions des formulaires.
-- `climaparc_form_template_field_options`: options et branchements par question.
-- `climaparc_role_permissions`: droits par role.
-- `climaparc_intervention_responses`: reponses par intervention et question.
-- `climaparc_intervention_response_values`: valeurs multiples d'une reponse.
-- `climaparc_equipment_attachments`: fichiers rattaches a une machine.
-- `climaparc_intervention_attachments`: fichiers rattaches a une intervention.
-- `climaparc_recommendation_messages`: conversation autour d'une recommandation.
-
-La colonne `payload` reste presente comme couche de compatibilite avec l'interface actuelle. Elle ne doit plus etre consideree comme le modele cible pour les rapports, filtres avances ou integrations futures. Les nouveaux rapports et recherches doivent lire prioritairement les tables normalisees.
-
-## Statut de la migration
-
-La migration architecturale est terminee:
-
-- FastAPI est le serveur principal via `python start.py`.
-- Chaque domaine backend expose des use cases et des repositories injectes.
-- Les routers FastAPI couvrent tous les endpoints utilises par le frontend.
-- `backend/services.py` et `backend/auth_services.py` sont des adaptateurs de compatibilite fins.
-- `server.py` reste uniquement comme retour d'urgence avec `CLIMAPARC_SERVER_MODE=legacy`.
-- Les vues frontend sont separees par domaine dans `frontend/views/`.
-- `app.js` conserve le shell, la navigation, l'etat UI et la coordination des modules.
+1. remplacer progressivement chaque `*StateRepository` par des lectures
+   relationnelles directes;
+2. supprimer le dual-write `climaparc_state`/payload après comparaison;
+3. retirer `/api/state` du frontend;
+4. supprimer `server.py`, `backend/legacy_*` et les adaptateurs après la période
+   de stabilité FastAPI;
+5. ajouter des migrations SQL versionnées et des tests d'intégration Postgres.

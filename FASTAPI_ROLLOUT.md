@@ -1,38 +1,58 @@
-# Transition FastAPI sur Render
+# Exploitation FastAPI et fallback
 
-Le service Render, l'URL publique et la base Supabase restent les memes. Seul
-le processus Python qui sert l'application change.
+## État actuel
 
-## Configuration normale
-
-Le depot utilise maintenant:
+FastAPI est le serveur principal de ClimaParc en production.
 
 ```text
-Start Command: python start.py
-CLIMAPARC_SERVER_MODE: fastapi
-Health Check Path: /api/health
+python start.py
+CLIMAPARC_SERVER_MODE=fastapi
 ```
 
-`start.py` lit le port fourni par Render et lance Uvicorn avec
-`src.climaparc.main:app`.
+`start.py` lance Uvicorn avec `src.climaparc.main:app`, le port fourni par
+Render et les en-têtes proxy adaptés.
 
-## Verification apres deploiement
+Le service Render, l'URL publique et la base Supabase restent inchangés.
 
-1. Confirmer que le deploiement Render est `Live`.
-2. Ouvrir `/api/health` et verifier que `ok` vaut `true`.
-3. Tester la connexion, la creation d'un utilisateur et la modification d'un
-   equipement.
-4. Tester un document et une action avec un profil client.
-5. Examiner les logs Render pour confirmer l'absence d'erreurs 500.
+## Fallback legacy
 
-## Retour temporaire au serveur historique
+Le serveur historique est conservé temporairement pour permettre un retour
+rapide:
 
-Il n'est pas necessaire de modifier le code ni de changer de service Render:
+```text
+python start.py
+CLIMAPARC_SERVER_MODE=legacy
+```
 
-1. Ouvrir `Environment` dans le service Render.
-2. Modifier `CLIMAPARC_SERVER_MODE` de `fastapi` vers `legacy`.
-3. Enregistrer et relancer le service.
+Le mode legacy lance `server.py`. Il ne doit pas être configuré comme mode
+normal de production et ne doit pas recevoir de nouvelles fonctionnalités.
 
-Pour revenir a FastAPI, remettre la valeur `fastapi`.
+## Procédure de bascule
 
-Le fichier `server.py` reste disponible pendant la periode de transition.
+### FastAPI vers legacy
+
+1. Ouvrir le Web Service dans Render.
+2. Ouvrir `Environment`.
+3. modifier `CLIMAPARC_SERVER_MODE` vers `legacy`;
+4. enregistrer et attendre le redémarrage;
+5. vérifier `/api/health` et les fonctions critiques.
+
+### Legacy vers FastAPI
+
+1. remettre `CLIMAPARC_SERVER_MODE=fastapi`;
+2. conserver `Start Command: python start.py`;
+3. vérifier `/api/health`;
+4. tester les parcours critiques;
+5. consulter les logs Render.
+
+## Conditions de suppression du fallback
+
+`server.py` et `backend/legacy_*` pourront être supprimés seulement après:
+
+- une période de production FastAPI stable;
+- validation des parcours client, technicien et interne;
+- suppression de la dépendance fonctionnelle à `/api/state`;
+- migration des lectures/écritures restantes hors `climaparc_state`;
+- procédure de restauration basée sur un déploiement Git connu.
+
+Jusqu'à cette étape, le fallback reste du code de compatibilité isolé.

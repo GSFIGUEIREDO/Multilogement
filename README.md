@@ -1,56 +1,86 @@
-# ClimaParc - Gestion HVAC
+# ClimaParc / Multilogement
 
-Application web locale en français pour gérer un parc HVAC multi-immeubles.
+Application de gestion HVAC pour immeubles multilogements:
 
-## Ouvrir en mode local
+- lieux et appartements;
+- équipements et historique;
+- demandes des clients;
+- bons de travail et interventions terrain;
+- formulaires configurables avec branchement;
+- rappels, recommandations, documents et rapports;
+- profils administrateur, équipe interne, technicien et client.
 
-Ouvrez `index.html` dans un navigateur.
+## Démarrage local
 
-## Ouvrir en mode en ligne
-
-Lancez le serveur:
+Installer les dépendances:
 
 ```powershell
-python server.py
+pip install -r requirements.txt
 ```
 
-Puis ouvrez `http://127.0.0.1:8000`.
+Démarrer l'application principale FastAPI:
 
-En mode en ligne de production, les données sont conservées dans Supabase/Postgres. Sans `DATABASE_URL`, le serveur utilise `climaparc.sqlite3` comme fallback local.
+```powershell
+$env:CLIMAPARC_SERVER_MODE="fastapi"
+python start.py
+```
 
-## Comptes de démonstration
+L'application est disponible sur `http://127.0.0.1:8000`.
 
-- Administrateur: `admin@climaparc.ca` / `admin123`
-- Équipe interne: `operation@climaparc.ca` / `interne123`
-- Technicien: `tech@climaparc.ca` / `tech123`
-- Client: `client@gestionazur.ca` / `client123`
+Le mode par défaut est déjà `fastapi`; définir la variable explicitement est
+utile pour rendre l'environnement local lisible.
 
-## Documents et fichiers
+## Serveur de production
 
-En mode serveur, les nouveaux documents et pieces jointes sont envoyes au backend puis stockes dans Supabase Storage. La base conserve seulement les metadonnees du fichier: nom, type, taille, bucket, chemin de stockage, client, lieu, appartement, equipement et visibilite client.
+La production Render doit utiliser:
 
-Le frontend ne recoit jamais la cle `SUPABASE_SERVICE_ROLE_KEY`. Pour consulter ou telecharger un fichier, l'application demande au backend une URL temporaire signee.
+```text
+Start Command: python start.py
+CLIMAPARC_SERVER_MODE: fastapi
+Health Check Path: /api/health
+```
 
-Variables utiles:
+`python server.py` n'est pas le serveur de production. Il reste disponible
+uniquement à travers `CLIMAPARC_SERVER_MODE=legacy` comme retour temporaire.
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `CLIMAPARC_STORAGE_BUCKET`, par defaut `climaparc-documents`
+Voir [DEPLOYMENT.md](DEPLOYMENT.md) pour la configuration complète.
 
-Sans ces variables en local, le serveur utilise `local_uploads/` comme fallback de developpement. En production, Supabase Storage est obligatoire.
+## Architecture
 
-## Fonctions incluses
+Le serveur actif est FastAPI (`src/climaparc/main.py`). Les domaines backend
+sont organisés en:
 
-- Inventaire des équipements par client, immeuble et appartement
-- Création des lieux par nom de bâtiment et adresse
-- Contacts par lieu: ressource sur place, facturation, email, téléphone et notes
-- Appartements affichés à l'intérieur de chaque lieu
-- Historique des interventions par équipement
-- Portail client avec accès limité aux immeubles du client
-- Création et modification des équipements, appels de service, bons de travail et utilisateurs
-- Types d'appels de service configurables
-- Types de checklists / interventions configurables
-- Export de rapports CSV
-- Contrôle modifiable des rôles, droits et accès
+- `domain`: règles, politiques et interfaces;
+- `application/use_cases`: une action par use case;
+- `infrastructure`: repositories et adaptateurs;
+- `presentation`: routers FastAPI et injection de dépendances.
 
-En ouvrant seulement `index.html`, les données restent dans le stockage local du navigateur. En passant par `server.py` avec `DATABASE_URL`, elles sont centralisées dans Supabase.
+Le frontend charge des vues par domaine dans `frontend/views/`; `app.js`
+conserve le shell, la navigation et la coordination de l'état UI.
+
+Tous les domaines applicatifs sont migrés vers les use cases. La persistance
+reste toutefois en transition: plusieurs repositories utilisent encore
+`climaparc_state` et les colonnes `payload` comme couche de compatibilité.
+
+Voir [ARCHITECTURE.md](ARCHITECTURE.md) pour le statut précis par domaine.
+
+## Base de données et fichiers
+
+- Production: Supabase/Postgres via `DATABASE_URL`.
+- Développement: SQLite via `CLIMAPARC_DB`.
+- Fichiers de production: bucket privé Supabase Storage.
+- Fallback fichiers local: `local_uploads/`, développement seulement.
+
+Les mots de passe, tokens, clés de service et contenus base64 ne doivent jamais
+être exposés dans le frontend ou dans les réponses publiques.
+
+## Tests
+
+Les smoke tests couvrent les routers FastAPI, l'isolation multi-client,
+l'authentification, les domaines métier et le chargement des modules frontend.
+
+```powershell
+python tests/auth_fastapi_smoke.py
+python tests/security_smoke.py
+node tests/frontend_modules_smoke.js
+```

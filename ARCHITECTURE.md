@@ -31,8 +31,11 @@ frontend/
     reports.js         Vue Rapports et logique de presentation des rapports
     documents.js       Regles frontend de fichiers, types et limites d'upload
     recommendations.js Regles frontend d'affichage des recommandations
+    places.js          Vues, formulaires et actions Lieux/Appartements
+    users.js           Vues, formulaires et actions Utilisateurs/Acces
 
-server.py              Controller HTTP fin, routes et compatibilite legacy
+start.py               Selection controlee FastAPI ou serveur legacy
+server.py              Serveur de retour temporaire pendant la transition
 
 backend/
   database.py          Connexion DB, helpers SQL/JSON/password
@@ -126,6 +129,8 @@ Frontend deja separe:
 - module Rapports dans `frontend/views/reports.js`
 - module Documents dans `frontend/views/documents.js`
 - module Recommandations dans `frontend/views/recommendations.js`
+- module Lieux/Appartements dans `frontend/views/places.js`
+- module Utilisateurs/Acces dans `frontend/views/users.js`
 
 Auth deja prepare en architecture use case parallele:
 

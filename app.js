@@ -1162,6 +1162,19 @@
     lastServerState = sharedStateSnapshot(normalizeState(serverState || seed));
   }
 
+  function acceptServerState(serverState, uiPatch = {}) {
+    rememberServerState(serverState);
+    const uiState = currentUiState();
+    state = {
+      ...normalizeState(serverState),
+      ...uiState,
+      ...uiPatch,
+      sessionUserId: uiState.sessionUserId
+    };
+    render();
+    scheduleToastClear();
+  }
+
   function stableJson(value) {
     return JSON.stringify(value ?? null);
   }
@@ -1951,108 +1964,44 @@
     `;
   }
 
+  const placesViewModule = window.ClimaParcPlacesView.create({
+    getState: () => state,
+    api,
+    appShell,
+    renderTopbar,
+    currentUser,
+    can,
+    scopedBuildings,
+    apartmentsForBuilding,
+    equipmentForApartment,
+    escapeHtml,
+    displayPhone,
+    unitKindLabel,
+    statusText,
+    modalShell,
+    phoneField,
+    uid,
+    formatCanadianPhone,
+    updateUiState,
+    saveDomainItemNow,
+    showToast,
+    setState
+  });
+
   function buildingsView() {
-    const buildings = scopedBuildings().sort((a, b) => a.name.localeCompare(b.name, "fr"));
-    const actions = currentUser().role !== "client" && can("lieux")
-      ? `<button class="primary-button" data-action="open-modal" data-modal="building">Nouveau lieu</button>`
-      : "";
-    return appShell(`
-      ${renderTopbar("Lieux", "Organisation par nom de bâtiment et adresse, puis appartements et machines.", actions)}
-      <section class="cards-grid">
-        ${buildings.map((building) => buildingCard(building)).join("") || `<div class="empty">Aucun lieu enregistré.</div>`}
-      </section>
-    `);
+    return placesViewModule.buildingsView();
   }
 
   function buildingCard(building) {
-    const client = state.clients.find((item) => item.id === building.clientId);
-    const apartments = apartmentsForBuilding(building.id);
-    const equipmentCount = apartments.reduce((total, apartment) => total + equipmentForApartment(apartment.id).length, 0);
-    return `
-      <article class="place-card">
-        <div class="place-card-main">
-          <span class="badge neutral">${escapeHtml(client?.name || "Client")}</span>
-          <h2>${escapeHtml(building.name)}</h2>
-          <p>${escapeHtml(building.address)}</p>
-        </div>
-        <div class="place-metrics">
-          <span><strong>${apartments.length}</strong> appartements</span>
-          <span><strong>${equipmentCount}</strong> machines</span>
-        </div>
-        <div class="definition compact">
-          <div><span>Ressource sur place</span><strong>${escapeHtml(building.onsiteContactName || "-")}</strong></div>
-          <div><span>Facturation</span><strong>${escapeHtml(building.billingContactName || "-")}</strong></div>
-        </div>
-        <div class="actions">
-          <button class="primary-button" data-action="select-building" data-id="${building.id}">Ouvrir</button>
-          ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier</button>` : ""}
-        </div>
-      </article>
-    `;
+    return placesViewModule.buildingCard(building);
   }
 
   function buildingDetailView() {
-    const building = scopedBuildings().find((item) => item.id === state.selectedBuildingId) || scopedBuildings()[0];
-    if (!building) return buildingsView();
-    const client = state.clients.find((item) => item.id === building.clientId);
-    const apartments = apartmentsForBuilding(building.id);
-    const actions = `
-      <button class="ghost-button" data-action="go-back" data-fallback-view="lieux">Retour</button>
-      ${can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>` : ""}
-      ${currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="apartment" data-building="${building.id}">Nouvel appartement</button>` : ""}
-      ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier le lieu</button>` : ""}
-    `;
-    return appShell(`
-      ${renderTopbar(building.name, building.address, actions)}
-      <section class="detail-layout">
-        <div class="panel">
-          <div class="panel-header"><h2>Informations du lieu</h2></div>
-          <div class="panel-body definition">
-            <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
-            <div><span>Adresse</span><strong>${escapeHtml(building.address)}</strong></div>
-            <div><span>Ressource sur place</span><strong>${escapeHtml(building.onsiteContactName || "-")}</strong></div>
-            <div><span>Téléphone sur place</span><strong>${escapeHtml(displayPhone(building.onsiteContactPhone, building.onsiteContactPoste))}</strong></div>
-            <div><span>Email sur place</span><strong>${escapeHtml(building.onsiteContactEmail || "-")}</strong></div>
-            <div><span>Ressource facturation</span><strong>${escapeHtml(building.billingContactName || "-")}</strong></div>
-            <div><span>Téléphone facturation</span><strong>${escapeHtml(displayPhone(building.billingContactPhone, building.billingContactPoste))}</strong></div>
-            <div><span>Email facturation</span><strong>${escapeHtml(building.billingContactEmail || "-")}</strong></div>
-            <div><span>Notes</span><strong>${escapeHtml(building.notes || "-")}</strong></div>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-header"><h2>Appartements cadastrés</h2></div>
-          <div class="panel-body cards-list">
-            ${apartments.map((apartment) => apartmentBlock(apartment)).join("") || `<div class="empty">Aucun appartement dans ce lieu.</div>`}
-          </div>
-        </div>
-      </section>
-    `);
+    return placesViewModule.buildingDetailView();
   }
 
   function apartmentBlock(apartment) {
-    const machines = equipmentForApartment(apartment.id);
-    return `
-      <article class="list-item">
-        <div class="actions" style="justify-content:space-between">
-          <h3>Appartement ${escapeHtml(apartment.number)}</h3>
-          <span class="badge neutral">${machines.length} machine${machines.length > 1 ? "s" : ""}</span>
-        </div>
-        <div class="mini-list">
-          ${machines.map((item) => `
-            <button class="mini-row" data-action="select-equipment" data-id="${item.id}">
-              <strong>${escapeHtml(item.type)}</strong>
-              <span>${unitKindLabel(item.unitKind)} | ${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${statusText(item.status)}</span>
-            </button>
-          `).join("") || `<div class="meta">Aucune machine enregistrée.</div>`}
-        </div>
-        ${currentUser().role !== "client" ? `
-          <div class="actions">
-            <button class="ghost-button" data-action="open-modal" data-modal="apartment" data-id="${apartment.id}" data-building="${apartment.buildingId}">Modifier l'appartement</button>
-            <button class="primary-button" data-action="open-modal" data-modal="equipment" data-apartment="${apartment.id}">Ajouter une machine</button>
-          </div>
-        ` : ""}
-      </article>
-    `;
+    return placesViewModule.apartmentBlock(apartment);
   }
 
   const dashboardModule = window.ClimaParcDashboard.create({
@@ -2850,100 +2799,45 @@
     return reportModule.dataFieldLabelByValue(id, value);
   }
 
+  const usersViewModule = window.ClimaParcUsersView.create({
+    getState: () => state,
+    api,
+    appShell,
+    renderTopbar,
+    currentUser,
+    roleLabel,
+    escapeHtml,
+    modalShell,
+    scopedBuildings,
+    clientPortalRights,
+    portalRightsCatalog,
+    clientAllowedBuildingIds,
+    defaultPortalRights,
+    uid,
+    updateUiState,
+    saveUserNow,
+    showToast,
+    acceptServerState
+  });
+
   function usersView() {
-    const roles = state.roleDefinitions.map((role) => role.id);
-    const visibleUsers = currentUser()?.role === "client"
-      ? state.users.filter((user) => user.clientId === currentUser().clientId)
-      : state.users;
-    const title = currentUser()?.role === "client" ? "Utilisateurs client" : "Utilisateurs et accès";
-    const subtitle = currentUser()?.role === "client"
-      ? "Créer des accès par lieu et choisir les informations partagées."
-      : "Contrôle des rôles pour clients, techniciens, équipe interne et administrateurs.";
-    return appShell(`
-      ${renderTopbar(title, subtitle, `<button class="primary-button" data-action="open-modal" data-modal="user">Nouvel utilisateur</button>`)}
-      <section class="panel">
-        <div class="panel-body table-wrap">
-          <table>
-            <thead><tr><th>Nom</th><th>Courriel</th><th>Profil</th><th>Rôle</th><th>Client lié</th><th>Accès lieux</th><th></th></tr></thead>
-            <tbody>
-              ${visibleUsers.map((user) => {
-                const client = state.clients.find((item) => item.id === user.clientId);
-                return `<tr><td>${escapeHtml(user.name)}</td><td>${escapeHtml(user.email)}</td><td>${escapeHtml(roleLabel(user.role))}</td><td>${escapeHtml(user.role === "client" ? clientAccessLabel(user.clientAccessLevel) : "-")}</td><td>${escapeHtml(client?.name || "-")}</td><td>${escapeHtml(user.role === "client" ? userBuildingAccessLabel(user) : "-")}</td><td><button class="link-button" data-action="open-modal" data-modal="user" data-id="${user.id}">Modifier</button> ${canDeleteUser(user) ? `<button class="link-button danger-link" data-action="delete-user" data-id="${user.id}">Supprimer</button>` : ""}</td></tr>`;
-              }).join("")}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      ${currentUser()?.role === "client" ? "" : `<section class="panel" style="margin-top:16px">
-        <div class="panel-header"><h2>Profils client par client</h2></div>
-        <div class="panel-body cards-list">
-          ${state.clients.map((client) => {
-            const clientUsers = state.users.filter((user) => user.role === "client" && user.clientId === client.id);
-            return `
-              <article class="list-item">
-                <div class="actions" style="justify-content:space-between">
-                  <h3>${escapeHtml(client.name)}</h3>
-                  <button class="ghost-button" data-action="open-modal" data-modal="user" data-client="${escapeHtml(client.id)}">Nouveau profil</button>
-                </div>
-                <div class="mini-list">
-                  ${clientUsers.map((user) => `<div class="mini-row"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(clientAccessLabel(user.clientAccessLevel))} | ${escapeHtml(userBuildingAccessLabel(user))}</span></div>`).join("") || `<div class="meta">Aucun profil client créé.</div>`}
-                </div>
-              </article>
-            `;
-          }).join("")}
-        </div>
-      </section>
-      <section class="panel" style="margin-top:16px">
-        <div class="panel-header"><h2>Matrice d'accès</h2></div>
-        <div class="panel-body table-wrap">
-          <table>
-            <thead><tr><th>Profil</th><th>Inventaire</th><th>Appels</th><th>Bons</th><th>Rapports</th><th>Utilisateurs</th></tr></thead>
-            <tbody>
-              ${roles.map((role) => `<tr><td>${roleLabel(role)}</td><td>${role === "client" ? "Lecture client" : "Oui"}</td><td>${["administrateur", "equipe_interne", "client"].includes(role) ? "Oui" : "Non"}</td><td>${role === "client" ? "Lecture" : role === "technicien" ? "Assignés" : "Oui"}</td><td>${role === "client" ? "Client" : role === "technicien" ? "Technicien" : ["administrateur", "equipe_interne"].includes(role) ? "Interne" : "Non"}</td><td>${["administrateur", "equipe_interne"].includes(role) ? "Oui" : "Non"}</td></tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      </section>`}
-    `);
+    return usersViewModule.usersView();
   }
 
   function clientAccessLabel(level) {
-    return {
-      direction: "Direction",
-      gestionnaire: "Gestionnaire de lieu",
-      maintenance: "Maintenance client"
-    }[level || "direction"] || level;
+    return usersViewModule.clientAccessLabel(level);
   }
 
   function canDeleteUser(user) {
-    const actor = currentUser();
-    if (!actor || !user || actor.id === user.id) return false;
-    if (actor.role === "client") return user.role === "client" && user.clientId === actor.clientId;
-    return ["administrateur", "equipe_interne"].includes(actor.role);
+    return usersViewModule.canDeleteUser(user);
   }
 
   function userBuildingAccessLabel(user) {
-    const ids = user.allowedBuildingIds || [];
-    if (!ids.length) return "Tous les lieux";
-    return ids.map((id) => state.buildings.find((building) => building.id === id)?.name).filter(Boolean).join(", ") || "-";
+    return usersViewModule.userBuildingAccessLabel(user);
   }
 
   function rightsCatalog() {
-    return [
-      ["all", "Accès complet"],
-      ["lieux", "Lieux et appartements"],
-      ["equipment", "Équipements"],
-      ["alerts", "Alertes et rappels"],
-      ["tickets", "Demandes des clients"],
-      ["workorders", "Bons de travail"],
-      ["interventions", "Interventions"],
-      ["recommendations", "Recommandations"],
-      ["documents", "Documents client"],
-      ["reports", "Rapports"],
-      ["users", "Utilisateurs"],
-      ["settings", "Paramètres"],
-      ["portal", "Portail client"]
-    ];
+    return usersViewModule.rightsCatalog();
   }
 
   function settingsView() {
@@ -3141,55 +3035,11 @@
   }
 
   function buildingModal(modal) {
-    const building = state.buildings.find((item) => item.id === modal.id) || {};
-    const clientOptions = state.clients.map((client) => `<option value="${client.id}" ${building.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
-    return modalShell(building.id ? "Modifier le lieu" : "Nouveau lieu", `
-      <form class="form-grid" data-form="building">
-        <input type="hidden" name="id" value="${escapeHtml(building.id || "")}">
-        <div class="split">
-          <div class="field"><label>Nom du bâtiment</label><input name="name" value="${escapeHtml(building.name || "")}" required></div>
-          <div class="field"><label>Client / administrateur</label><select name="clientId" required>${clientOptions}</select></div>
-        </div>
-        <div class="field"><label>Adresse</label><input name="address" value="${escapeHtml(building.address || "")}" required></div>
-        <div class="split">
-          <div class="field"><label>Personne ressource sur place</label><input name="onsiteContactName" value="${escapeHtml(building.onsiteContactName || "")}"></div>
-          <div class="field"><label>Téléphone sur place</label>${phoneField("onsiteContactPhone", building.onsiteContactPhone || "")}</div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Poste sur place</label><input name="onsiteContactPoste" value="${escapeHtml(building.onsiteContactPoste || "")}" inputmode="numeric" placeholder="Ex.: 1234"></div>
-          <div class="field"><label>Email sur place</label><input name="onsiteContactEmail" type="email" value="${escapeHtml(building.onsiteContactEmail || "")}"></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Personne ressource facturation</label><input name="billingContactName" value="${escapeHtml(building.billingContactName || "")}"></div>
-          <div class="field"><label>Téléphone facturation</label>${phoneField("billingContactPhone", building.billingContactPhone || "")}</div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Poste facturation</label><input name="billingContactPoste" value="${escapeHtml(building.billingContactPoste || "")}" inputmode="numeric" placeholder="Ex.: 1234"></div>
-          <div class="field"><label>Email facturation</label><input name="billingContactEmail" type="email" value="${escapeHtml(building.billingContactEmail || "")}"></div>
-        </div>
-        <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(building.notes || "")}</textarea></div>
-        <button class="primary-button" type="submit">${building.id ? "Enregistrer" : "Créer le lieu"}</button>
-      </form>
-    `);
+    return placesViewModule.buildingModal(modal);
   }
 
   function apartmentModal(modal) {
-    const apartment = state.apartments.find((item) => item.id === modal.id) || { buildingId: modal.buildingId || state.selectedBuildingId };
-    const buildingOptions = scopedBuildings().map((building) => `<option value="${building.id}" ${apartment.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("");
-    return modalShell(apartment.id ? "Modifier l'appartement" : "Nouvel appartement", `
-      <form class="form-grid" data-form="apartment">
-        <input type="hidden" name="id" value="${escapeHtml(apartment.id || "")}">
-        <div class="field"><label>Lieu</label><select name="buildingId" required>${buildingOptions}</select></div>
-        <div class="split">
-          <div class="field"><label>Numéro d'appartement</label><input name="number" value="${escapeHtml(apartment.number || "")}" required></div>
-          <div class="field"><label>Occupant</label><input name="occupant" value="${escapeHtml(apartment.occupant || "")}"></div>
-        </div>
-        <div class="actions form-actions">
-          <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "Créer l'appartement"}</button>
-          ${apartment.id && can("lieux") && currentUser().role !== "client" ? `<button class="danger-button" type="button" data-action="delete-apartment" data-id="${escapeHtml(apartment.id)}">Supprimer</button>` : ""}
-        </div>
-      </form>
-    `);
+    return placesViewModule.apartmentModal(modal);
   }
 
   function ticketModal(modal) {
@@ -3358,62 +3208,7 @@
   }
 
   function userModal(modal) {
-    const user = state.users.find((item) => item.id === modal.id) || {};
-    const isClientManager = currentUser()?.role === "client";
-    const isClientUserForm = isClientManager || user.role === "client" || Boolean(modal.clientId);
-    const effectiveUser = {
-      role: isClientUserForm ? "client" : user.role,
-      clientId: isClientManager ? currentUser().clientId : user.clientId || modal.clientId || "",
-      clientAccessLevel: user.clientAccessLevel || (isClientUserForm ? "gestionnaire" : ""),
-      allowedBuildingIds: user.allowedBuildingIds || [],
-      portalRights: user.portalRights || [],
-      ...user
-    };
-    const clients = state.clients.map((client) => `<option value="${client.id}" ${effectiveUser.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
-    const roles = state.roleDefinitions
-      .map((role) => `<option value="${role.id}" ${effectiveUser.role === role.id ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("");
-    const clientRoleOptions = [
-      ["direction", "Direction / headquarters"],
-      ["gestionnaire", "Gestionnaire de lieu"],
-      ["maintenance", "Maintenance client"]
-    ].map(([value, label]) => `<option value="${value}" ${effectiveUser.clientAccessLevel === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
-    const clientBuildings = (isClientManager ? scopedBuildings() : state.buildings.filter((building) => building.clientId === effectiveUser.clientId || !effectiveUser.clientId))
-      .map((building) => `
-        <label><input type="checkbox" name="allowedBuildingIds" value="${escapeHtml(building.id)}" ${(effectiveUser.allowedBuildingIds || []).includes(building.id) ? "checked" : ""}> ${escapeHtml(building.name)}</label>
-      `).join("") || `<span class="meta">Aucun lieu disponible.</span>`;
-    const rights = clientPortalRights(effectiveUser);
-    const portalChecks = portalRightsCatalog().map(([right, label]) => `
-      <label><input type="checkbox" name="portalRights" value="${escapeHtml(right)}" ${rights.includes(right) ? "checked" : ""}> ${escapeHtml(label)}</label>
-    `).join("");
-    return modalShell(user.id ? "Modifier l'utilisateur" : "Nouvel utilisateur", `
-      <form class="form-grid" data-form="user">
-        <input type="hidden" name="id" value="${escapeHtml(user.id || "")}">
-        ${isClientManager ? `<input type="hidden" name="clientId" value="${escapeHtml(currentUser().clientId || "")}">` : ""}
-        ${isClientUserForm ? `<input type="hidden" name="role" value="client">` : ""}
-        <div class="split">
-          <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(user.name || "")}" required></div>
-          <div class="field"><label>Courriel</label><input name="email" type="email" value="${escapeHtml(user.email || "")}" required></div>
-        </div>
-        <div class="split">
-          <div class="field"><label>Mot de passe</label><input name="password" ${user.id ? `value="" placeholder="Laisser vide pour conserver"` : `value="temp123" required`}></div>
-          ${isClientUserForm
-            ? `<div class="field"><label>Profil</label><input value="Client" readonly></div>`
-            : `<div class="field"><label>Profil</label><select name="role">${roles}</select></div>`}
-        </div>
-        ${isClientUserForm ? `<div class="field"><label>Rôle</label><select name="clientAccessLevel">${clientRoleOptions}</select></div>` : ""}
-        ${isClientManager ? "" : `<div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>`}
-        ${isClientManager || effectiveUser.role === "client" ? `<div class="client-access-editor">
-          <div class="split">
-            <div class="field"><label>Accès aux lieux</label><div class="choice-list"><label><input type="checkbox" name="allBuildings" value="1" ${!(effectiveUser.allowedBuildingIds || []).length ? "checked" : ""}> Tous les lieux autorisés</label>${clientBuildings}</div></div>
-          </div>
-          <div class="field"><label>Informations partagées</label><div class="choice-list">${portalChecks}</div></div>
-        </div>` : ""}
-        <div class="actions form-actions">
-          <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
-          ${canDeleteUser(effectiveUser) ? `<button class="danger-button" type="button" data-action="delete-user" data-id="${escapeHtml(effectiveUser.id)}">Supprimer</button>` : ""}
-        </div>
-      </form>
-    `);
+    return usersViewModule.userModal(modal);
   }
 
   function dataFieldModal(modal) {
@@ -4239,74 +4034,15 @@
   }
 
   async function saveBuilding(values) {
-    const previousBuildings = JSON.parse(JSON.stringify(state.buildings));
-    const payload = {
-      id: values.id || uid("b"),
-      clientId: values.clientId,
-      name: values.name,
-      address: values.address,
-      onsiteContactName: values.onsiteContactName,
-      onsiteContactPhone: formatCanadianPhone(values.onsiteContactPhone),
-      onsiteContactPoste: values.onsiteContactPoste,
-      onsiteContactEmail: values.onsiteContactEmail,
-      billingContactName: values.billingContactName,
-      billingContactPhone: formatCanadianPhone(values.billingContactPhone),
-      billingContactPoste: values.billingContactPoste,
-      billingContactEmail: values.billingContactEmail,
-      notes: values.notes
-    };
-    const index = state.buildings.findIndex((item) => item.id === payload.id);
-    if (index >= 0) state.buildings[index] = payload;
-    else state.buildings.unshift(payload);
-    const uiPatch = { selectedBuildingId: payload.id, activeView: "lieu_detail" };
-    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde du lieu..." });
-    try {
-      await saveDomainItemNow(api.saveBuilding, payload, uiPatch, index >= 0 ? "Lieu modifié." : "Lieu créé.");
-    } catch (error) {
-      state.buildings = previousBuildings;
-      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Lieu non sauvegardé." });
-    }
+    return placesViewModule.saveBuilding(values);
   }
 
   async function saveApartment(values) {
-    const previousApartments = JSON.parse(JSON.stringify(state.apartments));
-    const payload = {
-      id: values.id || uid("apt"),
-      buildingId: values.buildingId,
-      number: values.number,
-      occupant: values.occupant
-    };
-    const index = state.apartments.findIndex((item) => item.id === payload.id);
-    if (index >= 0) state.apartments[index] = payload;
-    else state.apartments.push(payload);
-    const uiPatch = { selectedBuildingId: payload.buildingId, activeView: "lieu_detail" };
-    updateUiState({ modal: null, ...uiPatch, toast: "Sauvegarde de l'appartement..." });
-    try {
-      await saveDomainItemNow(api.saveApartment, payload, uiPatch, index >= 0 ? "Appartement modifié." : "Appartement créé.");
-    } catch (error) {
-      state.apartments = previousApartments;
-      updateUiState({ modal: null, ...uiPatch, toast: error.message || "Appartement non sauvegardé." });
-    }
+    return placesViewModule.saveApartment(values);
   }
 
   function deleteApartment(id) {
-    const apartment = state.apartments.find((item) => item.id === id);
-    if (!apartment) return;
-    const linkedEquipment = equipmentForApartment(id);
-    if (linkedEquipment.length) {
-      showToast("Impossible de supprimer cet appartement: déplacez ou supprimez d'abord les machines associées.");
-      return;
-    }
-    if (!confirm(`Supprimer l'appartement ${apartment.number}? Cette action est définitive.`)) return;
-    state.apartments = state.apartments.filter((item) => item.id !== id);
-    state.interventions = state.interventions.filter((item) => item.apartmentId !== id);
-    setState({
-      modal: null,
-      selectedBuildingId: apartment.buildingId,
-      selectedExecutionApartmentId: state.selectedExecutionApartmentId === id ? null : state.selectedExecutionApartmentId,
-      activeView: "lieu_detail",
-      toast: "Appartement supprimé."
-    });
+    return placesViewModule.deleteApartment(id);
   }
 
   async function createTicket(form, values) {
@@ -4624,103 +4360,11 @@
   }
 
   async function createUser(form, values) {
-    const creator = currentUser();
-    const changedAt = new Date().toISOString();
-    const isClientManager = creator?.role === "client";
-    const role = isClientManager ? "client" : values.role;
-    const clientId = isClientManager ? creator.clientId : values.clientId || null;
-    const allowedByCreator = isClientManager ? clientAllowedBuildingIds(creator) : null;
-    const creatorHasFullClientAccess = !isClientManager || !(creator.allowedBuildingIds || []).length;
-    const selectedBuildingIds = Array.from(form.querySelectorAll('[name="allowedBuildingIds"]:checked')).map((input) => input.value);
-    const allowedBuildingIds = values.allBuildings
-      ? (creatorHasFullClientAccess ? [] : allowedByCreator)
-      : (allowedByCreator ? selectedBuildingIds.filter((id) => allowedByCreator.includes(id)) : selectedBuildingIds);
-    const selectedPortalRights = Array.from(form.querySelectorAll('[name="portalRights"]:checked')).map((input) => input.value);
-    const portalRights = role === "client"
-      ? (selectedPortalRights.length ? selectedPortalRights : defaultPortalRights(values.clientAccessLevel || "gestionnaire").filter((right) => right !== "portal"))
-      : [];
-    const previousUsers = JSON.parse(JSON.stringify(state.users));
-    const existing = state.users.find((item) => item.id === values.id);
-    if (existing) {
-      if (isClientManager && existing.clientId !== creator.clientId) {
-        showToast("Vous ne pouvez modifier que les utilisateurs de votre client.");
-        return;
-      }
-      Object.assign(existing, {
-        name: values.name,
-        email: values.email,
-        role,
-        clientId,
-        clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
-        allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
-        portalRights,
-        parentUserId: existing.parentUserId || (isClientManager ? creator.id : ""),
-        updatedAt: changedAt
-      });
-      const userPayload = { ...existing, password: values.password || "" };
-      updateUiState({ modal: null, activeView: "utilisateurs", toast: "Sauvegarde de l'utilisateur..." });
-      try {
-        await saveUserNow(userPayload, "Utilisateur modifié.");
-      } catch (error) {
-        state.users = previousUsers;
-        updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non sauvegardé." });
-      }
-      return;
-    }
-    const newUser = {
-      id: uid("u"),
-      name: values.name,
-      email: values.email,
-      role,
-      clientId,
-      clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
-      allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
-      portalRights,
-      parentUserId: isClientManager ? creator.id : "",
-      updatedAt: changedAt
-    };
-    const newUserPayload = { ...newUser, password: values.password };
-    state.users.push(newUser);
-    updateUiState({ modal: null, activeView: "utilisateurs", toast: "Sauvegarde de l'utilisateur..." });
-    try {
-      await saveUserNow(newUserPayload, "Utilisateur créé.");
-    } catch (error) {
-      state.users = previousUsers;
-      updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non sauvegardé." });
-    }
+    return usersViewModule.createUser(form, values);
   }
 
   async function deleteUser(userId) {
-    const user = state.users.find((item) => item.id === userId);
-    if (!user) return;
-    if (!canDeleteUser(user)) {
-      showToast("Droits insuffisants pour supprimer cet utilisateur.");
-      return;
-    }
-    if (!confirm(`Supprimer l'utilisateur ${user.name}? Cette action est définitive.`)) return;
-    const previousUsers = JSON.parse(JSON.stringify(state.users));
-    state.users = state.users.filter((item) => item.id !== userId);
-    updateUiState({ modal: null, activeView: "utilisateurs", toast: "Suppression de l'utilisateur..." });
-    try {
-      const payload = await api.deleteUser(userId);
-      if (payload.state) {
-        rememberServerState(payload.state);
-        const uiState = currentUiState();
-        state = {
-          ...normalizeState(payload.state),
-          ...uiState,
-          activeView: "utilisateurs",
-          sessionUserId: uiState.sessionUserId,
-          modal: null,
-          toast: "Utilisateur supprimé."
-        };
-        render();
-        scheduleToastClear();
-      }
-    } catch (error) {
-      state.users = previousUsers;
-      updateUiState({ modal: null, activeView: "utilisateurs", toast: error.message || "Utilisateur non supprimé." });
-    }
+    return usersViewModule.deleteUser(userId);
   }
 
   async function saveServiceType(values) {

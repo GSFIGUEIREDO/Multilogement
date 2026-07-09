@@ -10,7 +10,8 @@ for (const file of [
   "frontend/views/tickets.js",
   "frontend/views/work-orders.js",
   "frontend/views/settings.js",
-  "frontend/views/interventions.js"
+  "frontend/views/interventions.js",
+  "frontend/views/form-builder.js"
 ]) {
   vm.runInThisContext(fs.readFileSync(file, "utf8"), { filename: file });
 }
@@ -22,6 +23,7 @@ const tickets = window.ClimaParcTicketsView.create({ getState: () => ({}) });
 const workOrders = window.ClimaParcWorkOrdersView.create({ getState: () => ({}) });
 const settings = window.ClimaParcSettingsView.create({ getState: () => ({}) });
 const interventions = window.ClimaParcInterventionsView.create({ getState: () => ({}) });
+const formBuilder = window.ClimaParcFormBuilder.create({ getState: () => ({}) });
 
 for (const method of [
   "buildingsView",
@@ -34,6 +36,19 @@ for (const method of [
 ]) {
   if (typeof places[method] !== "function") {
     throw new Error(`ClimaParcPlacesView.${method} manquant.`);
+  }
+}
+
+for (const method of [
+  "formTemplateModal",
+  "saveFormTemplate",
+  "addFormQuestion",
+  "addFormSection",
+  "duplicateFormTemplate",
+  "refreshFormBranching"
+]) {
+  if (typeof formBuilder[method] !== "function") {
+    throw new Error(`ClimaParcFormBuilder.${method} manquant.`);
   }
 }
 
@@ -117,6 +132,7 @@ for (const script of [
   "frontend/views/work-orders.js",
   "frontend/views/settings.js",
   "frontend/views/interventions.js",
+  "frontend/views/form-builder.js",
   "app.js"
 ]) {
   if (!index.includes(script)) {
@@ -144,10 +160,17 @@ if (index.indexOf("frontend/views/settings.js") > index.indexOf("app.js")) {
 if (index.indexOf("frontend/views/interventions.js") > index.indexOf("app.js")) {
   throw new Error("interventions.js doit etre charge avant app.js.");
 }
+if (index.indexOf("frontend/views/form-builder.js") > index.indexOf("app.js")) {
+  throw new Error("form-builder.js doit etre charge avant app.js.");
+}
 
 const slugifyBody = appSource.match(/function slugify\(value\) \{([\s\S]*?)\n  \}/)?.[1] || "";
 if (slugifyBody.includes("settingsViewModule")) {
   throw new Error("slugify ne peut pas dependre de settingsViewModule pendant le bootstrap.");
+}
+const bootstrapSource = appSource.slice(0, appSource.indexOf("const placesViewModule"));
+if (/\b(?:settingsViewModule|interventionsViewModule|formBuilderModule|placesViewModule|usersViewModule|equipmentViewModule|ticketsViewModule|workOrdersViewModule)\b/.test(bootstrapSource)) {
+  throw new Error("Le bootstrap ne peut pas dependre d'un module de vue initialise plus tard.");
 }
 
 console.log("frontend modules smoke: ok");

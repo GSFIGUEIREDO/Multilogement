@@ -2460,116 +2460,21 @@
     return usersViewModule.rightsCatalog();
   }
 
+  const settingsViewModule = window.ClimaParcSettingsView.create({
+    getState: () => state, appShell, renderTopbar, escapeHtml, statusText,
+    fieldTypeLabel, rightsCatalog, modalShell, uid, saveSettingCollectionItem
+  });
+
   function settingsView() {
-    return appShell(`
-      ${renderTopbar("Paramètres", "Types de demandes, checklists et droits d'accès.", `
-        <button class="primary-button" data-action="open-modal" data-modal="dataField">Champ de données</button>
-        <button class="primary-button" data-action="open-modal" data-modal="serviceType">Type de demande</button>
-        <button class="ghost-button" data-action="open-modal" data-modal="interventionType">Type de checklist</button>
-        <button class="ghost-button" data-action="open-modal" data-modal="formTemplate">Formulaire terrain</button>
-      `)}
-      <section class="grid">
-        <div class="stack">
-          <div class="panel">
-            <div class="panel-header"><h2>Champs de données</h2></div>
-            <div class="panel-body cards-list">
-              ${dataFieldGroups().map(([group, fields]) => `
-                <div class="data-field-group">
-                  <div class="data-field-group-title">${escapeHtml(group)} <span>${fields.length}</span></div>
-                  ${fields.map((field) => `
-                    <article class="list-item data-field-item">
-                      <div>
-                        <h3>${escapeHtml(field.name)}</h3>
-                        <div class="meta">${dataFieldTypeLabel(field.type)} | ${field.options.length} option${field.options.length > 1 ? "s" : ""} | ${field.appliesTo.map((item) => item === "activity" ? "Activité" : "Machine").join(", ")}</div>
-                      </div>
-                      <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="dataField" data-id="${field.id}">Modifier</button></div>
-                    </article>
-                  `).join("")}
-                </div>
-              `).join("")}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header"><h2>Types de demandes clients</h2></div>
-            <div class="panel-body cards-list">
-              ${state.serviceTypes.map((type) => {
-                const linked = state.interventionTypes.find((item) => item.id === type.linkedInterventionTypeId);
-                return `
-                  <article class="list-item">
-                    <h3>${escapeHtml(type.name)}</h3>
-                    <div class="meta">Priorité par défaut: ${statusText(type.defaultPriority)} | Checklist liée: ${escapeHtml(linked?.name || "-")}</div>
-                    <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="serviceType" data-id="${type.id}">Modifier</button></div>
-                  </article>
-                `;
-              }).join("")}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header"><h2>Types de checklist / intervention</h2></div>
-            <div class="panel-body cards-list">
-              ${state.interventionTypes.map((type) => `
-                <article class="list-item">
-                  <h3>${escapeHtml(type.name)}</h3>
-                  <div class="meta">Durée estimée: ${type.defaultDuration} min | ${type.checklist.length} étapes</div>
-                  <div class="mini-list">${type.checklist.map((item) => `<div class="meta">- ${escapeHtml(item)}</div>`).join("")}</div>
-                  <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="interventionType" data-id="${type.id}">Modifier</button></div>
-                </article>
-              `).join("")}
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-header"><h2>Formulaires terrain</h2></div>
-            <div class="panel-body cards-list">
-              ${state.formTemplates.map((template) => `
-                <article class="list-item">
-                  <h3>${escapeHtml(template.name)}</h3>
-                  <div class="meta">${template.fields.length} question${template.fields.length > 1 ? "s" : ""}</div>
-                  <div class="mini-list">${template.fields.slice(0, 4).map((field) => `<div class="meta">- ${escapeHtml(field.label)} (${fieldTypeLabel(field.type)})</div>`).join("")}</div>
-                  <div class="actions">
-                    <button class="ghost-button" data-action="open-modal" data-modal="formTemplate" data-id="${template.id}">Modifier</button>
-                    <button class="ghost-button" data-action="duplicate-form-template" data-id="${template.id}">Dupliquer</button>
-                  </div>
-                </article>
-              `).join("")}
-            </div>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-header"><h2>Rôles et droits</h2></div>
-          <div class="panel-body cards-list">
-            ${state.roleDefinitions.map((role) => `
-              <article class="list-item">
-                <h3>${escapeHtml(role.name)}</h3>
-                <div class="meta">${role.rights.includes("all") ? "Tous les droits" : role.rights.map((right) => rightsCatalog().find((item) => item[0] === right)?.[1] || right).join(", ")}</div>
-                <div class="actions"><button class="ghost-button" data-action="open-modal" data-modal="role" data-id="${role.id}">Modifier</button></div>
-              </article>
-            `).join("")}
-          </div>
-        </div>
-      </section>
-    `);
+    return settingsViewModule.settingsView();
   }
 
   function dataFieldGroups() {
-    const groups = new Map();
-    state.dataFields.forEach((field) => {
-      const group = field.group || "Non groupé";
-      if (!groups.has(group)) groups.set(group, []);
-      groups.get(group).push(field);
-    });
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
+    return settingsViewModule.dataFieldGroups();
   }
 
   function dataFieldTypeLabel(type) {
-    return {
-      text: "Texte",
-      long: "Texte long",
-      single: "Option unique",
-      multiple: "Options multiples",
-      number: "Numérique",
-      date: "Date",
-      phone: "Téléphone"
-    }[type] || type;
+    return settingsViewModule.dataFieldTypeLabel(type);
   }
 
   function renderModal() {
@@ -2741,72 +2646,19 @@
   }
 
   function dataFieldModal(modal) {
-    const field = state.dataFields.find((item) => item.id === modal.id) || { type: "single", group: "Machine", appliesTo: ["activity", "equipment"], options: [] };
-    return modalShell(field.id ? "Modifier le champ de données" : "Nouveau champ de données", `
-      <form class="form-grid" data-form="dataField">
-        <input type="hidden" name="id" value="${escapeHtml(field.id || "")}">
-        <div class="split">
-          <div class="field"><label>Nom du champ</label><input name="name" value="${escapeHtml(field.name || "")}" required placeholder="Ex.: Marque"></div>
-          <div class="field"><label>Groupe de champs</label><input name="group" value="${escapeHtml(field.group || "Machine")}" required placeholder="Ex.: Machine"></div>
-        </div>
-        <div class="split">
-          <div class="field">
-            <label>Type de champ</label>
-            <select name="type">
-              ${["text", "long", "single", "multiple", "number", "date", "phone"].map((type) => `<option value="${type}" ${field.type === type ? "selected" : ""}>${dataFieldTypeLabel(type)}</option>`).join("")}
-            </select>
-          </div>
-          <div class="field">
-            <label>Appliquer à</label>
-            <div class="choice-list">
-              <label><input type="checkbox" name="appliesTo" value="activity" ${field.appliesTo?.includes("activity") ? "checked" : ""}> Activités terrain</label>
-              <label><input type="checkbox" name="appliesTo" value="equipment" ${field.appliesTo?.includes("equipment") ? "checked" : ""}> Dossier machine</label>
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label>Options</label>
-          <p class="meta">Une option par ligne. Pour une valeur interne différente, utilisez: Étiquette | valeur</p>
-          <textarea name="options" rows="12" placeholder="Carrier&#10;Gree&#10;Actif | actif">${escapeHtml(dataFieldOptionLines(field))}</textarea>
-        </div>
-        <button class="primary-button" type="submit">${field.id ? "Enregistrer" : "Créer le champ"}</button>
-      </form>
-    `);
+    return settingsViewModule.dataFieldModal(modal);
   }
 
   function dataFieldOptionLines(field) {
-    return (field.options || []).map((option) => option.value && option.value !== option.label ? `${option.label} | ${option.value}` : option.label).join("\n");
+    return settingsViewModule.dataFieldOptionLines(field);
   }
 
   function serviceTypeModal(modal) {
-    const type = state.serviceTypes.find((item) => item.id === modal.id) || {};
-    const checklistOptions = state.interventionTypes.map((item) => `<option value="${item.id}" ${type.linkedInterventionTypeId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
-    return modalShell(type.id ? "Modifier le type de demande" : "Nouveau type de demande", `
-      <form class="form-grid" data-form="serviceType">
-        <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
-        <div class="field"><label>Nom du type de demande</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
-        <div class="split">
-          <div class="field"><label>Priorité par défaut</label><select name="defaultPriority"><option value="basse" ${type.defaultPriority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${type.defaultPriority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${type.defaultPriority === "urgente" ? "selected" : ""}>Urgente</option></select></div>
-          <div class="field"><label>Checklist liée</label><select name="linkedInterventionTypeId">${checklistOptions}</select></div>
-        </div>
-        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "Créer le type"}</button>
-      </form>
-    `);
+    return settingsViewModule.serviceTypeModal(modal);
   }
 
   function interventionTypeModal(modal) {
-    const type = state.interventionTypes.find((item) => item.id === modal.id) || {};
-    return modalShell(type.id ? "Modifier le type de checklist" : "Nouveau type de checklist", `
-      <form class="form-grid" data-form="interventionType">
-        <input type="hidden" name="id" value="${escapeHtml(type.id || "")}">
-        <div class="split">
-          <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(type.name || "")}" required></div>
-          <div class="field"><label>Durée estimée (minutes)</label><input name="defaultDuration" type="number" min="1" value="${escapeHtml(type.defaultDuration || 60)}" required></div>
-        </div>
-        <div class="field"><label>Étapes de checklist</label><textarea name="checklist" required placeholder="Une étape par ligne">${escapeHtml((type.checklist || []).join("\n"))}</textarea></div>
-        <button class="primary-button" type="submit">${type.id ? "Enregistrer" : "Créer la checklist"}</button>
-      </form>
-    `);
+    return settingsViewModule.interventionTypeModal(modal);
   }
 
   function formTemplateModal(modal) {
@@ -3013,24 +2865,7 @@
   }
 
   function roleModal(modal) {
-    const role = state.roleDefinitions.find((item) => item.id === modal.id) || {};
-    const checks = rightsCatalog().map(([right, label]) => `
-      <label class="check-row">
-        <input type="checkbox" name="right-${right}" ${role.rights?.includes(right) ? "checked" : ""}>
-        <span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(right)}</span></span>
-      </label>
-    `).join("");
-    return modalShell(role.id ? "Modifier le rôle" : "Nouveau rôle", `
-      <form class="form-grid" data-form="role">
-        <input type="hidden" name="id" value="${escapeHtml(role.id || "")}">
-        <div class="split">
-          <div class="field"><label>Identifiant du rôle</label><input name="roleId" value="${escapeHtml(role.id || "")}" ${role.id ? "readonly" : ""} required></div>
-          <div class="field"><label>Nom affiché</label><input name="name" value="${escapeHtml(role.name || "")}" required></div>
-        </div>
-        <div class="checklist">${checks}</div>
-        <button class="primary-button" type="submit">${role.id ? "Enregistrer" : "Créer le rôle"}</button>
-      </form>
-    `);
+    return settingsViewModule.roleModal(modal);
   }
 
   function checklistModal(orderId) {
@@ -3250,84 +3085,33 @@
     `, "modal-card-wide");
   }
 
+  const interventionsViewModule = window.ClimaParcInterventionsView.create({
+    getState: () => state, escapeHtml, formatCanadianPhone,
+    normalizeDataOptions, formTemplateForOrder
+  });
+
   function activityTextInput(name, config, value) {
-    const options = activityOptions(name, config);
-    return `
-      <div class="field combo-field">
-        <label>${escapeHtml(config.label)}${config.required ? " *" : ""}</label>
-        ${comboInput(name, value || "", options, config.required)}
-      </div>
-    `;
+    return interventionsViewModule.activityTextInput(name, config, value);
   }
 
   function activityOptions(name, config = {}) {
-    const localOptions = config.options || [];
-    if (config.dataFieldId) {
-      const centralOptions = dataFieldOptionsForConfig(config).map((option) => option.value);
-      return Array.from(new Set([...centralOptions, ...localOptions])).sort((a, b) => a.localeCompare(b, "fr"));
-    }
-    const fromInventory = state.equipment.map((item) => ({
-      type: item.type,
-      location: item.location,
-      brand: item.brand,
-      model: item.model
-    }[name])).filter(Boolean);
-    return Array.from(new Set([...localOptions, ...fromInventory])).sort((a, b) => a.localeCompare(b, "fr"));
+    return interventionsViewModule.activityOptions(name, config);
   }
 
   function dataFieldOptionsForConfig(config = {}) {
-    const dataField = state.dataFields.find((field) => field.id === config.dataFieldId);
-    if (!dataField) return normalizeDataOptions(config.options || []);
-    const selected = config.optionIds || [];
-    return dataField.options.filter((option) => option.active !== false && (!selected.length || selected.includes(option.id)));
+    return interventionsViewModule.dataFieldOptionsForConfig(config);
   }
 
   function dataFieldOptionsForSelect(config = {}) {
-    return dataFieldOptionsForConfig(config).map((option) => ({
-      value: option.value,
-      label: option.label
-    }));
+    return interventionsViewModule.dataFieldOptionsForSelect(config);
   }
 
   function comboInput(name, value, options, required = false) {
-    const uniqueOptions = Array.from(new Set(options || [])).filter(Boolean);
-    return `
-      <input name="${escapeHtml(name)}" value="${escapeHtml(value || "")}" ${required ? "required" : ""} placeholder="Tapez ou choisissez" autocomplete="off" data-combo-input>
-      <div class="combo-options hidden" data-combo-options>
-        ${uniqueOptions.map((option) => `<button type="button" data-action="combo-option" data-value="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("") || `<span>Aucune option</span>`}
-      </div>
-    `;
+    return interventionsViewModule.comboInput(name, value, options, required);
   }
 
   function renderDynamicField(field, value) {
-    if (field.type === "section") {
-      return `<div class="form-runtime-section dynamic-field" data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scope="${escapeHtml(field.unitScope || "all")}"><h3>${escapeHtml(field.label)}</h3></div>`;
-    }
-    const fieldMeta = `data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scope="${escapeHtml(field.unitScope || "all")}"`;
-    const options = field.options?.length ? field.options : ["Oui"];
-    const required = field.required ? "required" : "";
-    const label = `${escapeHtml(field.label)}${field.required ? " *" : ""}`;
-    const layoutClass = field.layout === "half" ? " half-field" : "";
-    if (field.type === "long") {
-      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><textarea name="field-${field.id}" ${required}>${escapeHtml(value || "")}</textarea></div>`;
-    }
-    if (field.type === "checkbox") {
-      const values = Array.isArray(value) ? value : [value].filter(Boolean);
-      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list checkbox-choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${values.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
-    }
-    if (field.type === "single") {
-      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option, index) => `<label><input type="radio" name="field-${field.id}" value="${escapeHtml(option)}" ${value === option ? "checked" : ""} ${field.required && index === 0 ? "required" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
-    }
-    if (field.type === "multiple") {
-      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta} data-required="${field.required ? "true" : "false"}"><label>${label}</label><div class="choice-list">${options.map((option) => `<label><input type="checkbox" name="field-${field.id}" value="${escapeHtml(option)}" ${Array.isArray(value) && value.includes(option) ? "checked" : ""}> ${escapeHtml(option)}</label>`).join("")}</div></div>`;
-    }
-    if (field.type === "select") {
-      return `<div class="field combo-field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label>${comboInput(`field-${field.id}`, value || "", options, field.required)}</div>`;
-    }
-    if (field.type === "phone") {
-      return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(formatCanadianPhone(value || ""))}" inputmode="tel" autocomplete="tel" placeholder="(514) 555-0123" data-phone-input ${required}></div>`;
-    }
-    return `<div class="field dynamic-field${layoutClass}" ${fieldMeta}><label>${label}</label><input name="field-${field.id}" value="${escapeHtml(value || "")}" ${required}></div>`;
+    return interventionsViewModule.renderDynamicField(field, value);
   }
 
   async function handleSubmit(event) {
@@ -3599,50 +3383,19 @@
   }
 
   async function saveServiceType(values) {
-    const payload = {
-      id: values.id || uid("appel"),
-      name: values.name,
-      defaultPriority: values.defaultPriority,
-      linkedInterventionTypeId: values.linkedInterventionTypeId
-    };
-    const index = state.serviceTypes.findIndex((item) => item.id === payload.id);
-    await saveSettingCollectionItem("serviceTypes", payload, index >= 0 ? "Type de demande modifié." : "Type de demande créé.");
+    return settingsViewModule.saveServiceType(values);
   }
 
   async function saveInterventionType(values) {
-    const payload = {
-      id: values.id || uid("check"),
-      name: values.name,
-      defaultDuration: Number(values.defaultDuration || 60),
-      checklist: values.checklist.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
-    };
-    const index = state.interventionTypes.findIndex((item) => item.id === payload.id);
-    await saveSettingCollectionItem("interventionTypes", payload, index >= 0 ? "Checklist modifiée." : "Checklist créée.");
+    return settingsViewModule.saveInterventionType(values);
   }
 
   async function saveDataField(form, values) {
-    const appliesTo = Array.from(form.querySelectorAll('[name="appliesTo"]:checked')).map((input) => input.value);
-    const payload = {
-      id: values.id || uid("datafield"),
-      name: values.name.trim(),
-      group: values.group.trim() || "Non groupé",
-      type: values.type || "single",
-      appliesTo: appliesTo.length ? appliesTo : ["activity"],
-      options: parseDataFieldOptions(values.options || "")
-    };
-    const index = state.dataFields.findIndex((item) => item.id === payload.id);
-    await saveSettingCollectionItem("dataFields", payload, index >= 0 ? "Champ de données modifié." : "Champ de données créé.");
+    return settingsViewModule.saveDataField(form, values);
   }
 
   function parseDataFieldOptions(value) {
-    return value.split(/\r?\n/).map((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return null;
-      const [labelPart, valuePart] = trimmed.split("|").map((part) => part.trim());
-      const label = labelPart || valuePart;
-      const optionValue = valuePart || labelPart;
-      return { id: slugify(optionValue || label), label, value: optionValue, active: true };
-    }).filter(Boolean);
+    return settingsViewModule.parseDataFieldOptions(value);
   }
 
   async function saveFormTemplate(form, values) {
@@ -3747,23 +3500,11 @@
   }
 
   function slugify(value) {
-    return String(value || "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "") || uid("q");
+    return settingsViewModule.slugify(value);
   }
 
   async function saveRole(form, values) {
-    const roleId = values.id || values.roleId.trim().toLowerCase().replace(/\s+/g, "_");
-    const rights = rightsCatalog()
-      .map(([right]) => right)
-      .filter((right) => form.querySelector(`[name="right-${right}"]`)?.checked);
-    const payload = { id: roleId, name: values.name, rights };
-    const index = state.roleDefinitions.findIndex((item) => item.id === roleId);
-    await saveSettingCollectionItem("roleDefinitions", payload, index >= 0 ? "Rôle modifié." : "Rôle créé.");
+    return settingsViewModule.saveRole(form, values);
   }
 
   async function saveChecklist(form, values) {
@@ -4993,79 +4734,31 @@
   }
 
   function updateDynamicVisibility(form) {
-    if (!form || form.dataset.form !== "fieldIntervention") return;
-    const order = state.workOrders.find((item) => item.id === form.dataset.orderId);
-    const template = formTemplateForOrder(order);
-    const fields = template?.fields || [];
-    if (!fields.length) return;
-    const visible = visibleFormFieldIds(form, fields);
-    form.querySelectorAll("[data-dynamic-field-id]").forEach((wrapper) => {
-      const hidden = !visible.has(wrapper.dataset.dynamicFieldId);
-      wrapper.classList.toggle("hidden", hidden);
-      wrapper.querySelectorAll("input, select, textarea").forEach((input) => {
-        input.disabled = hidden;
-      });
-    });
+    return interventionsViewModule.updateDynamicVisibility(form);
   }
 
   function visibleFormFieldIds(form, fields) {
-    const visible = new Set();
-    const indexById = new Map(fields.map((field, index) => [field.id, index]));
-    let index = 0;
-    let guard = 0;
-    while (index >= 0 && index < fields.length && guard < fields.length * 3) {
-      guard += 1;
-      const field = fields[index];
-      if (!fieldAppliesToCurrentUnit(form, field) || !legacyShowWhenMatches(form, field)) {
-        index += 1;
-        continue;
-      }
-      visible.add(field.id);
-      const target = branchTargetForRuntimeField(form, field);
-      if (target === "__end") break;
-      if (target && indexById.has(target)) {
-        index = indexById.get(target);
-        continue;
-      }
-      index += 1;
-    }
-    return visible;
+    return interventionsViewModule.visibleFormFieldIds(form, fields);
   }
 
   function fieldAppliesToCurrentUnit(form, field) {
-    const scope = field.unitScope || "all";
-    if (scope === "all") return true;
-    const unitKind = form.querySelector('[name="unitKind"]')?.value || "interieure";
-    return scope === unitKind;
+    return interventionsViewModule.fieldAppliesToCurrentUnit(form, field);
   }
 
   function legacyShowWhenMatches(form, field) {
-    if (!field.showWhen?.fieldId || !field.showWhen?.value) return true;
-    const source = fieldsByRuntimeForm(form).find((item) => item.id === field.showWhen.fieldId);
-    if (!source) return true;
-    return runtimeFieldValues(form, source).includes(field.showWhen.value);
+    return interventionsViewModule.legacyShowWhenMatches(form, field);
   }
 
   function fieldsByRuntimeForm(form) {
-    const order = state.workOrders.find((item) => item.id === form.dataset.orderId);
-    return formTemplateForOrder(order)?.fields || [];
+    return interventionsViewModule.fieldsByRuntimeForm(form);
   }
 
   function branchTargetForRuntimeField(form, field) {
-    if (field.type === "section") return field.nextFieldId || "";
-    const values = runtimeFieldValues(form, field);
-    const branchRules = field.branchRules || {};
-    const orderedValues = (field.options || []).filter((option) => values.includes(option));
-    const matched = [...orderedValues, ...values].find((value) => branchRules[value]);
-    return matched ? branchRules[matched] : field.nextFieldId || "";
+    return interventionsViewModule.branchTargetForRuntimeField(form, field);
   }
 
   function runtimeFieldValues(form, field) {
-    const inputs = Array.from(form.querySelectorAll(`[name="field-${field.id}"]`));
-    if (!inputs.length) return [];
-    if (["checkbox", "multiple"].includes(field.type)) return inputs.filter((input) => input.checked).map((input) => input.value).filter(Boolean);
-    if (field.type === "single") return [inputs.find((input) => input.checked)?.value].filter(Boolean);
-    return [inputs[0].value].filter(Boolean);
+    return interventionsViewModule.runtimeFieldValues(form, field);
   }
 
   function handleFilter(event) {

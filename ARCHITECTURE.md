@@ -36,6 +36,8 @@ frontend/
     equipment.js       Inventaire, dossier machine et edition des equipements
     tickets.js         Demandes clients, suivi et creation
     work-orders.js     Bons de travail, filtres, execution et planification
+    settings.js        Parametres, champs de donnees, roles et checklists
+    interventions.js   Champs terrain dynamiques et moteur de branchement
 
 start.py               Selection controlee FastAPI ou serveur legacy
 server.py              Serveur de retour temporaire pendant la transition
@@ -137,6 +139,8 @@ Frontend deja separe:
 - module Equipements dans `frontend/views/equipment.js`
 - module Demandes clients dans `frontend/views/tickets.js`
 - module Bons de travail dans `frontend/views/work-orders.js`
+- module Parametres dans `frontend/views/settings.js`
+- module Interventions terrain dans `frontend/views/interventions.js`
 
 Auth deja prepare en architecture use case parallele:
 

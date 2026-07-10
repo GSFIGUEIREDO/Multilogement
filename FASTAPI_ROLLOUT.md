@@ -99,3 +99,5 @@ Domaines consolidés partiellement:
   fichiers passent par `climaparc_client_documents`, les payloads equipement/
   intervention concernes et Supabase Storage/local storage; `climaparc_state`
   n'est plus reecrit pour ces operations.
+- `reports` / `Rapports`: les contextes de rapports sont lus directement depuis
+  les tables normalisées. Ils ne lisent ni ne réécrivent `climaparc_state`.

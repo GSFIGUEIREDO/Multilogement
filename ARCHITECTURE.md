@@ -105,7 +105,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Recommandations | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
 | Rappels | Oui | Oui | lecture state hydraté + écritures table rappel/payload |
 | Paramètres/formulaires | Oui | Oui | lecture state hydraté + écritures relationnelles/payload |
-| Rapports | Oui | Oui | lecture du state hydraté |
+| Rapports | Oui | Oui | lecture directe des tables normalisées |
 | State compatibility | Oui | Oui | `climaparc_state` |
 | Web/statique/health | N/A | Oui | fichiers locaux + health DB |
 
@@ -156,6 +156,9 @@ Exceptions déjà consolidées:
   mais les uploads de documents client et suppressions de fichiers ecrivent
   uniquement dans `climaparc_client_documents`, les payloads equipement/
   intervention concernes et Supabase Storage/local storage.
+- `reports` / `Rapports` compose ses contextes directement depuis les tables
+  normalisées de profils, clients, lieux, appartements, équipements, demandes,
+  BT, interventions, rappels et paramètres. Aucun état JSON global n'est lu.
 
 Domaines encore dépendants du state central:
 
@@ -168,7 +171,6 @@ Domaines encore dépendants du state central:
 - documents pour la lecture de contexte seulement;
 - rappels pour la lecture de contexte seulement;
 - paramètres/formulaires pour la lecture de contexte seulement;
-- rapports.
 
 La migration applicative est terminée, mais la migration de persistance ne
 l'est donc pas. La cible est que chaque repository lise et écrive directement

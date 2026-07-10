@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,8 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_domain_handlers  # noqa: E402
+from backend.database import row_get  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -67,6 +70,23 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state_json() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row_get(row, "state_json")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def settings_snapshot(state: dict) -> dict:
+    keys = ["serviceTypes", "interventionTypes", "formTemplates", "roleDefinitions", "dataFields"]
+    return {key: copy.deepcopy(state.get(key, [])) for key in keys}
+
+
+def table_rows(statement: str, params: tuple = ()) -> list:
+    with server.db() as connection:
+        return server.execute(connection, statement, params).fetchall()
+
+
 def login(client, email: str, password: str):
     response = client.post("/api/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -77,8 +97,8 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.save_setting_item_with_use_case.__module__ == "src.climaparc.settings.presentation.dispatch"
-    assert server.delete_setting_item_with_use_case.__module__ == "src.climaparc.settings.presentation.dispatch"
+    assert legacy_domain_handlers.save_setting_item_with_use_case.__module__ == "src.climaparc.settings.presentation.dispatch"
+    assert legacy_domain_handlers.delete_setting_item_with_use_case.__module__ == "src.climaparc.settings.presentation.dispatch"
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -94,10 +114,14 @@ def run() -> None:
         assert created.status_code == 200, created.text
         assert created.json()["item"]["id"] == "field-brand"
         assert any(item["id"] == "field-brand" for item in current_state()["dataFields"])
+        assert len(table_rows("select option_id from climaparc_data_field_options where data_field_id = ?", ("field-brand",))) == 1
+        before_raw_settings = settings_snapshot(raw_state_json())
 
         service_type = {"id": "svc-new", "name": "Urgence", "defaultPriority": "urgente", "linkedInterventionTypeId": "int-existing"}
         service_created = admin_client.post("/api/setting-item", json={"collectionKey": "serviceTypes", "item": service_type})
         assert service_created.status_code == 200, service_created.text
+        assert any(item["id"] == "svc-new" for item in service_created.json()["state"]["serviceTypes"])
+        assert settings_snapshot(raw_state_json()) == before_raw_settings
 
         form_template = {
             "id": "form-new",
@@ -107,10 +131,12 @@ def run() -> None:
         }
         form_created = admin_client.post("/api/setting-item", json={"collectionKey": "formTemplates", "item": form_template})
         assert form_created.status_code == 200, form_created.text
+        assert len(table_rows("select field_id from climaparc_form_template_fields where template_id = ?", ("form-new",))) == 1
 
         role = {"id": "role-new", "name": "Maintenance", "rights": ["equipment", "workorders"]}
         role_created = admin_client.post("/api/setting-item", json={"collectionKey": "roleDefinitions", "item": role})
         assert role_created.status_code == 200, role_created.text
+        assert len(table_rows("select permission from climaparc_role_permissions where role_id = ?", ("role-new",))) == 2
 
         invalid_collection = admin_client.post("/api/setting-item", json={"collectionKey": "unknown", "item": {"id": "x"}})
         assert invalid_collection.status_code == 400, invalid_collection.text
@@ -124,6 +150,13 @@ def run() -> None:
         deleted = admin_client.post("/api/setting-item-delete", json={"collectionKey": "serviceTypes", "itemId": "svc-new"})
         assert deleted.status_code == 200, deleted.text
         assert all(item["id"] != "svc-new" for item in current_state()["serviceTypes"])
+        assert all(item["id"] != "svc-new" for item in deleted.json()["state"]["serviceTypes"])
+        assert settings_snapshot(raw_state_json()) == before_raw_settings
+
+        field_deleted = admin_client.post("/api/setting-item-delete", json={"collectionKey": "dataFields", "itemId": "field-brand"})
+        assert field_deleted.status_code == 200, field_deleted.text
+        assert not table_rows("select option_id from climaparc_data_field_options where data_field_id = ?", ("field-brand",))
+        assert all(item["id"] != "field-brand" for item in field_deleted.json()["state"]["dataFields"])
 
     with TestClient(app) as internal_client:
         login(internal_client, "internal@test.local", "Internal12345")
@@ -148,4 +181,3 @@ if __name__ == "__main__":
         run()
     finally:
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
-

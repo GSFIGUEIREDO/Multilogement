@@ -28,7 +28,7 @@ class DeleteSettingItemUseCase:
         if not item_id:
             raise ApplicationError("Element de parametres invalide.")
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
         collection = state.setdefault(command.collection_key, [])
@@ -41,11 +41,11 @@ class DeleteSettingItemUseCase:
         collection.pop(index)
         clear_ui_state(state)
         self.payload_repository.delete(command.collection_key, item_id)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {
             "ok": True,
             "state": filter_state_for_user(state, command.current_user),
             "deletedItemId": item_id,
             "collectionKey": command.collection_key,
         }
-

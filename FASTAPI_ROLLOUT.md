@@ -77,3 +77,6 @@ Domaines consolidés partiellement:
 - `places` / `Lieux et appartements`: les créations et mises à jour passent par
   `climaparc_buildings`, `climaparc_apartments` et les contacts normalisés;
   `climaparc_state` n'est plus réécrit pour ces opérations.
+- `tickets` / `Demandes clients`: les créations et mises à jour passent par
+  `climaparc_tickets`; `climaparc_state` n'est plus réécrit pour ces
+  opérations.

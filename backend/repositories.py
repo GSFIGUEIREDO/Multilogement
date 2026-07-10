@@ -146,6 +146,7 @@ class PayloadTableRepository:
 
 
 PAYLOAD_TABLE_COLLECTIONS = {
+    "users": "climaparc_user_profiles",
     "clients": "climaparc_clients",
     "buildings": "climaparc_buildings",
     "apartments": "climaparc_apartments",

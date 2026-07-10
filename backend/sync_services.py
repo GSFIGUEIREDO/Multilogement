@@ -71,6 +71,16 @@ def response_values(value: Any) -> list[str]:
 
 
 RELATIONAL_SYNC_SPECS = {
+    "users": {
+        "table": "climaparc_user_profiles",
+        "columns": [
+            ("name", "name"),
+            ("email", "email"),
+            ("role", "role"),
+            ("client_id", "clientId"),
+            ("client_access_level", "clientAccessLevel"),
+        ],
+    },
     "clients": {"table": "climaparc_clients", "columns": [("name", "name"), ("contact", "contact"), ("email", "email"), ("phone", "phone")]},
     "buildings": {
         "table": "climaparc_buildings",
@@ -612,4 +622,3 @@ def sync_relational_tables_safely(state: dict, collection_keys: set[str] | None 
             sync_relational_tables(connection, sanitize_state_for_storage(state), collection_keys)
     except Exception as error:
         print(f"Relational table sync skipped: {error}")
-

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .database import USE_POSTGRES, connect, execute, row_get
+from .security import sanitize_state_for_storage
 
 
 def rel_table(name: str) -> str:
@@ -71,6 +73,13 @@ def create_payload_table(connection, table: str, columns: list[tuple[str, str]])
 
 
 PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
+    "climaparc_user_profiles": [
+        ("name", "text"),
+        ("email", "text"),
+        ("role", "text"),
+        ("client_id", "text"),
+        ("client_access_level", "text"),
+    ],
     "climaparc_clients": [("name", "text"), ("contact", "text"), ("email", "text"), ("phone", "text")],
     "climaparc_buildings": [
         ("client_id", "text"),
@@ -300,6 +309,8 @@ CHILD_TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
 
 
 INDEXES = [
+    ("climaparc_user_profiles_client_id_idx", "climaparc_user_profiles", "client_id"),
+    ("climaparc_user_profiles_email_idx", "climaparc_user_profiles", "email"),
     ("climaparc_buildings_client_id_idx", "climaparc_buildings", "client_id"),
     ("climaparc_apartments_building_id_idx", "climaparc_apartments", "building_id"),
     ("climaparc_equipment_apartment_id_idx", "climaparc_equipment", "apartment_id"),
@@ -346,6 +357,29 @@ def init_relational_tables(connection) -> None:
         ensure_table_columns(connection, table, columns)
     for index_name, table, columns in INDEXES:
         connection.execute(f"create index if not exists {index_name} on {rel_table(table)}({columns})")
+
+
+def migrate_legacy_user_profiles(connection) -> None:
+    """Seed public user profiles once, without replacing the legacy state document."""
+    profile_count = execute(connection, f"select count(*) as count from {rel_table('climaparc_user_profiles')}").fetchone()
+    if profile_count and int(row_get(profile_count, "count") or 0) > 0:
+        return
+
+    state_row = execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    if not state_row:
+        return
+    raw_state = row_get(state_row, "state_json")
+    try:
+        state = json.loads(raw_state) if isinstance(raw_state, str) else raw_state
+    except json.JSONDecodeError:
+        return
+    if not isinstance(state, dict) or not isinstance(state.get("users"), list):
+        return
+
+    # Imported lazily to keep schema initialization independent from runtime modules.
+    from .sync_services import sync_collection_table
+
+    sync_collection_table(connection, sanitize_state_for_storage(state), "users")
 
 
 def init_db() -> None:
@@ -400,6 +434,7 @@ def init_db() -> None:
             connection.execute("create index if not exists climaparc_sessions_expires_at_idx on public.climaparc_sessions(expires_at)")
             connection.execute("create index if not exists climaparc_password_reset_tokens_user_id_idx on public.climaparc_password_reset_tokens(user_id)")
             init_relational_tables(connection)
+            migrate_legacy_user_profiles(connection)
             return
 
         connection.executescript(
@@ -442,4 +477,4 @@ def init_db() -> None:
             """
         )
         init_relational_tables(connection)
-
+        migrate_legacy_user_profiles(connection)

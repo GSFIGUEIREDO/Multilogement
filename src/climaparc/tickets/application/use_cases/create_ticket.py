@@ -20,7 +20,7 @@ class CreateTicketUseCase:
             raise ApplicationError("Session expiree.", HTTPStatus.UNAUTHORIZED)
         ticket = stamp_payload(normalize_ticket_payload(command.ticket))
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.")
         tickets = state.setdefault("tickets", [])
@@ -34,6 +34,6 @@ class CreateTicketUseCase:
         tickets.insert(0, ticket)
         clear_ui_state(state)
         self.payload_repository.upsert(ticket)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": ticket}
-

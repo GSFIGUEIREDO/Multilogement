@@ -97,7 +97,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Auth/session/reset | Oui | Oui | tables auth/session + state filtré |
 | Utilisateurs | Oui | Oui | table auth + `climaparc_state` |
 | Lieux/appartements | Oui | Oui | state + tables payload/normalisées |
-| Équipements | Oui | Oui | state + table équipement/payload |
+| Équipements | Oui | Oui | lecture state hydraté + écritures table équipement/payload |
 | Demandes clients | Oui | Oui | state + table ticket/payload |
 | Bons de travail | Oui | Oui | state + table BT/payload |
 | Interventions | Oui | Oui | state + table intervention/payload |
@@ -128,13 +128,16 @@ Exceptions déjà consolidées:
 - `reminders` / `Rappels` conserve la lecture de contexte via l'état hydraté,
   mais ses créations, mises à jour, lots et suppressions écrivent uniquement
   dans `climaparc_reminders`.
+- `equipment` / `Équipements` conserve la lecture de contexte via l'état
+  hydraté, mais ses créations et mises à jour écrivent uniquement dans
+  `climaparc_equipment` et synchronisent les pièces jointes normalisées.
 
 Domaines encore dépendants du state central:
 
 - Auth pour composer la session publique;
 - utilisateurs;
 - lieux et appartements;
-- équipements;
+- équipements pour la lecture de contexte seulement;
 - demandes clients;
 - bons de travail;
 - interventions;

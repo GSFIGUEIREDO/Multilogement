@@ -71,3 +71,6 @@ Domaines consolidés partiellement:
 - `reminders` / `Rappels`: les créations, mises à jour, sauvegardes en lot et
   suppressions passent par `climaparc_reminders`; `climaparc_state` n'est plus
   réécrit pour ces opérations.
+- `equipment` / `Équipements`: les créations et mises à jour passent par
+  `climaparc_equipment` et les pièces jointes normalisées; `climaparc_state`
+  n'est plus réécrit pour ces opérations.

@@ -7,7 +7,17 @@ class StateRepository(Protocol):
     def get(self, lock: bool = False) -> dict | None:
         ...
 
-    def save(self, state: dict) -> None:
+
+class ClientRepository(Protocol):
+    def upsert(self, client: dict) -> None:
+        ...
+
+
+class PasswordResetRequestRepository(Protocol):
+    def upsert(self, request: dict) -> None:
+        ...
+
+    def mark(self, request_id: str, status: str, used_at: str | None = None) -> None:
         ...
 
 

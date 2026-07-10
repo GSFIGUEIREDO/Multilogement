@@ -7,11 +7,8 @@ class UserStateRepository(Protocol):
     def get(self, lock: bool = False) -> dict | None:
         ...
 
-    def save(self, state: dict) -> None:
-        ...
 
-
-class AuthUserRepository(Protocol):
+class UserAccountRepository(Protocol):
     def upsert(self, user: dict) -> None:
         ...
 
@@ -25,4 +22,3 @@ class UserLookupRepository(Protocol):
 
     def get_auth_user_by_id(self, user_id: str) -> dict | None:
         ...
-

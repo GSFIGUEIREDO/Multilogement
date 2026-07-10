@@ -3,9 +3,10 @@ from __future__ import annotations
 import secrets
 from http import HTTPStatus
 
+from backend.repositories import stamp_payload
 from backend.security import filter_state_for_user, public_user
 from src.climaparc.auth.application.commands import SignupClientCommand
-from src.climaparc.auth.domain.repositories import AuthUserRepository, SessionRepository, StateRepository
+from src.climaparc.auth.domain.repositories import AuthUserRepository, ClientRepository, SessionRepository, StateRepository
 from src.climaparc.shared.domain.errors import ApplicationError
 
 
@@ -15,10 +16,12 @@ class SignupClientUseCase:
         auth_user_repository: AuthUserRepository,
         session_repository: SessionRepository,
         state_repository: StateRepository,
+        client_repository: ClientRepository,
     ):
         self.auth_user_repository = auth_user_repository
         self.session_repository = session_repository
         self.state_repository = state_repository
+        self.client_repository = client_repository
 
     def __call__(self, command: SignupClientCommand) -> dict:
         email = str(command.email or "").strip().lower()
@@ -35,30 +38,29 @@ class SignupClientUseCase:
             raise ApplicationError("Un compte existe deja avec ce courriel.", HTTPStatus.CONFLICT)
 
         state = self.state_repository.get(lock=True) or command.fallback_state or {}
-        client = {
+        client = stamp_payload({
             "id": f"client-{secrets.token_hex(6)}",
             "name": company_name,
             "contact": name,
             "email": email,
             "phone": str(command.phone or "").strip(),
-        }
-        user = {
+        })
+        user = stamp_payload({
             "id": f"u-{secrets.token_hex(6)}",
             "name": name,
             "email": email,
             "password": password,
             "role": "client",
             "clientId": client["id"],
-        }
-        state.setdefault("clients", []).append(client)
-        state.setdefault("users", []).append(public_user(user))
+        })
+        self.client_repository.upsert(client)
         self.auth_user_repository.upsert(user)
-        self.state_repository.save(state)
         token = self.session_repository.create(user["id"])
         user_public = public_user(user)
+        refreshed_state = self.state_repository.get() or state
         return {
             "token": token,
             "client": client,
             "user": user_public,
-            "state": filter_state_for_user(state, user_public),
+            "state": filter_state_for_user(refreshed_state, user_public),
         }

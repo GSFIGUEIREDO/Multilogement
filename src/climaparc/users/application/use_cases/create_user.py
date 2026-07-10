@@ -7,7 +7,6 @@ from backend.security import filter_state_for_user
 from src.climaparc.shared.domain.errors import ApplicationError
 from src.climaparc.users.application.commands import CreateUserCommand
 from src.climaparc.users.domain.policies import (
-    clear_ui_state,
     ensure_unique_email,
     find_user_index,
     normalize_user_payload,
@@ -15,13 +14,13 @@ from src.climaparc.users.domain.policies import (
     requester_from_state_or_session,
     require_user_manager,
 )
-from src.climaparc.users.domain.repositories import AuthUserRepository, UserStateRepository
+from src.climaparc.users.domain.repositories import UserAccountRepository, UserStateRepository
 
 
 class CreateUserUseCase:
-    def __init__(self, state_repository: UserStateRepository, auth_repository: AuthUserRepository):
+    def __init__(self, state_repository: UserStateRepository, account_repository: UserAccountRepository):
         self.state_repository = state_repository
-        self.auth_repository = auth_repository
+        self.account_repository = account_repository
 
     def __call__(self, command: CreateUserCommand) -> dict:
         if not command.current_user:
@@ -46,9 +45,7 @@ class CreateUserUseCase:
         ensure_unique_email(users, user)
 
         user = stamp_payload(user)
-        self.auth_repository.upsert(user)
+        self.account_repository.upsert(user)
         stored_user = clean_public_user(user)
-        users.append(stored_user)
-        clear_ui_state(state)
-        self.state_repository.save(state)
-        return {"ok": True, "state": filter_state_for_user(state, command.current_user), "user": stored_user}
+        refreshed_state = self.state_repository.get() or state
+        return {"ok": True, "state": filter_state_for_user(refreshed_state, command.current_user), "user": stored_user}

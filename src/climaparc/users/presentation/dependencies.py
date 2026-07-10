@@ -5,7 +5,7 @@ from src.climaparc.users.application.use_cases.create_user import CreateUserUseC
 from src.climaparc.users.application.use_cases.delete_user import DeleteUserUseCase
 from src.climaparc.users.application.use_cases.update_user import UpdateUserUseCase
 from src.climaparc.users.infrastructure.repositories import (
-    DatabaseAuthUserRepository,
+    DatabaseUserAccountRepository,
     DatabaseUserLookupRepository,
     DatabaseUserStateRepository,
 )
@@ -15,8 +15,8 @@ def get_user_state_repository() -> DatabaseUserStateRepository:
     return DatabaseUserStateRepository()
 
 
-def get_auth_user_repository() -> DatabaseAuthUserRepository:
-    return DatabaseAuthUserRepository()
+def get_user_account_repository() -> DatabaseUserAccountRepository:
+    return DatabaseUserAccountRepository()
 
 
 def get_user_lookup_repository() -> DatabaseUserLookupRepository:
@@ -28,13 +28,12 @@ def get_session_repository() -> DatabaseSessionRepository:
 
 
 def get_create_user_use_case() -> CreateUserUseCase:
-    return CreateUserUseCase(get_user_state_repository(), get_auth_user_repository())
+    return CreateUserUseCase(get_user_state_repository(), get_user_account_repository())
 
 
 def get_update_user_use_case() -> UpdateUserUseCase:
-    return UpdateUserUseCase(get_user_state_repository(), get_auth_user_repository())
+    return UpdateUserUseCase(get_user_state_repository(), get_user_account_repository())
 
 
 def get_delete_user_use_case() -> DeleteUserUseCase:
-    return DeleteUserUseCase(get_user_state_repository(), get_auth_user_repository())
-
+    return DeleteUserUseCase(get_user_state_repository(), get_user_account_repository())

@@ -12,8 +12,11 @@ from src.climaparc.auth.application.use_cases.signup_client import SignupClientU
 from src.climaparc.auth.infrastructure.email_client import SmtpEmailClient
 from src.climaparc.auth.infrastructure.repositories import (
     DatabaseAuthUserRepository,
+    DatabaseClientRepository,
     DatabasePasswordResetTokenRepository,
+    DatabasePasswordResetRequestRepository,
     DatabaseSessionRepository,
+    DatabaseSignupUserRepository,
     DatabaseStateRepository,
     Pbkdf2PasswordHasher,
 )
@@ -27,12 +30,24 @@ def get_auth_user_repository() -> DatabaseAuthUserRepository:
     return DatabaseAuthUserRepository()
 
 
+def get_signup_user_repository() -> DatabaseSignupUserRepository:
+    return DatabaseSignupUserRepository()
+
+
+def get_client_repository() -> DatabaseClientRepository:
+    return DatabaseClientRepository()
+
+
 def get_session_repository() -> DatabaseSessionRepository:
     return DatabaseSessionRepository()
 
 
 def get_password_reset_token_repository() -> DatabasePasswordResetTokenRepository:
     return DatabasePasswordResetTokenRepository()
+
+
+def get_password_reset_request_repository() -> DatabasePasswordResetRequestRepository:
+    return DatabasePasswordResetRequestRepository()
 
 
 def get_password_hasher() -> Pbkdf2PasswordHasher:
@@ -73,9 +88,10 @@ def get_login_user_use_case() -> LoginUserUseCase:
 
 def get_signup_client_use_case() -> SignupClientUseCase:
     return SignupClientUseCase(
-        get_auth_user_repository(),
+        get_signup_user_repository(),
         get_session_repository(),
         get_state_repository(),
+        get_client_repository(),
     )
 
 
@@ -83,6 +99,7 @@ def get_request_password_reset_use_case() -> RequestPasswordResetUseCase:
     return RequestPasswordResetUseCase(
         get_auth_user_repository(),
         get_password_reset_token_repository(),
+        get_password_reset_request_repository(),
         get_state_repository(),
         get_email_client(),
         int(os.environ.get("CLIMAPARC_PASSWORD_RESET_TTL", "3600")),
@@ -93,5 +110,6 @@ def get_confirm_password_reset_use_case() -> ConfirmPasswordResetUseCase:
     return ConfirmPasswordResetUseCase(
         get_auth_user_repository(),
         get_password_reset_token_repository(),
+        get_password_reset_request_repository(),
         get_state_repository(),
     )

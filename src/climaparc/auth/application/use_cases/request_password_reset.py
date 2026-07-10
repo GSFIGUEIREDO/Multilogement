@@ -4,9 +4,15 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from backend.repositories import stamp_payload
 from src.climaparc.auth.application.commands import PasswordResetRequestCommand
 from src.climaparc.auth.domain.email import EmailClient
-from src.climaparc.auth.domain.repositories import AuthUserRepository, PasswordResetTokenRepository, StateRepository
+from src.climaparc.auth.domain.repositories import (
+    AuthUserRepository,
+    PasswordResetRequestRepository,
+    PasswordResetTokenRepository,
+    StateRepository,
+)
 
 
 class RequestPasswordResetUseCase:
@@ -14,19 +20,21 @@ class RequestPasswordResetUseCase:
         self,
         auth_user_repository: AuthUserRepository,
         password_reset_token_repository: PasswordResetTokenRepository,
+        password_reset_request_repository: PasswordResetRequestRepository,
         state_repository: StateRepository,
         email_client: EmailClient,
         reset_ttl_seconds: int = 3600,
     ):
         self.auth_user_repository = auth_user_repository
         self.password_reset_token_repository = password_reset_token_repository
+        self.password_reset_request_repository = password_reset_request_repository
         self.state_repository = state_repository
         self.email_client = email_client
         self.reset_ttl_seconds = reset_ttl_seconds
 
     def __call__(self, command: PasswordResetRequestCommand) -> dict:
         email = str(command.email or "").strip().lower()
-        state = self.state_repository.get(lock=True) or command.fallback_state or {}
+        state = self.state_repository.get() or command.fallback_state or {}
         if not email:
             return {"ok": True, "emailSent": False, "mailConfigured": self.email_client.configured, "state": state}
 
@@ -52,7 +60,5 @@ class RequestPasswordResetUseCase:
                 "status": "email_envoye" if email_sent else "email_non_configure",
                 "emailSent": email_sent,
             })
-        state.setdefault("passwordResetRequests", []).insert(0, reset_record)
-        state["passwordResetRequests"] = state["passwordResetRequests"][:100]
-        self.state_repository.save(state)
+        self.password_reset_request_repository.upsert(stamp_payload(reset_record))
         return {"ok": True, "emailSent": email_sent, "mailConfigured": self.email_client.configured, "state": state}

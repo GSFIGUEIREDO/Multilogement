@@ -7,18 +7,17 @@ from backend.security import filter_state_for_user
 from src.climaparc.shared.domain.errors import ApplicationError
 from src.climaparc.users.application.commands import DeleteUserCommand
 from src.climaparc.users.domain.policies import (
-    clear_ui_state,
     ensure_client_can_delete_target,
     requester_from_state_or_session,
     require_user_manager,
 )
-from src.climaparc.users.domain.repositories import AuthUserRepository, UserStateRepository
+from src.climaparc.users.domain.repositories import UserAccountRepository, UserStateRepository
 
 
 class DeleteUserUseCase:
-    def __init__(self, state_repository: UserStateRepository, auth_repository: AuthUserRepository):
+    def __init__(self, state_repository: UserStateRepository, account_repository: UserAccountRepository):
         self.state_repository = state_repository
-        self.auth_repository = auth_repository
+        self.account_repository = account_repository
 
     def __call__(self, command: DeleteUserCommand) -> dict:
         if not command.current_user:
@@ -43,9 +42,6 @@ class DeleteUserUseCase:
             raise ApplicationError("Utilisateur introuvable.", HTTPStatus.NOT_FOUND)
         ensure_client_can_delete_target(requester, target)
 
-        state["users"] = [item for item in users if not (isinstance(item, dict) and item.get("id") == user_id)]
-        clear_ui_state(state)
-        self.auth_repository.delete(user_id)
-        self.state_repository.save(state)
-        return {"ok": True, "state": filter_state_for_user(state, command.current_user), "deletedUserId": user_id}
-
+        self.account_repository.delete(user_id)
+        refreshed_state = self.state_repository.get() or state
+        return {"ok": True, "state": filter_state_for_user(refreshed_state, command.current_user), "deletedUserId": user_id}

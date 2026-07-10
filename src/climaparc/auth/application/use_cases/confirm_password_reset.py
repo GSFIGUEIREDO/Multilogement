@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 
 from src.climaparc.auth.application.commands import ConfirmPasswordResetCommand
-from src.climaparc.auth.domain.repositories import AuthUserRepository, PasswordResetTokenRepository, StateRepository
+from src.climaparc.auth.domain.repositories import (
+    AuthUserRepository,
+    PasswordResetRequestRepository,
+    PasswordResetTokenRepository,
+    StateRepository,
+)
 from src.climaparc.shared.domain.errors import ApplicationError
 
 
@@ -14,10 +19,12 @@ class ConfirmPasswordResetUseCase:
         self,
         auth_user_repository: AuthUserRepository,
         password_reset_token_repository: PasswordResetTokenRepository,
+        password_reset_request_repository: PasswordResetRequestRepository,
         state_repository: StateRepository,
     ):
         self.auth_user_repository = auth_user_repository
         self.password_reset_token_repository = password_reset_token_repository
+        self.password_reset_request_repository = password_reset_request_repository
         self.state_repository = state_repository
 
     def __call__(self, command: ConfirmPasswordResetCommand) -> dict:
@@ -36,7 +43,7 @@ class ConfirmPasswordResetUseCase:
                 self.password_reset_token_repository.mark(hashed, "expire")
             raise ApplicationError("Lien expire ou invalide.", HTTPStatus.BAD_REQUEST)
 
-        state = self.state_repository.get(lock=True) or command.fallback_state or {}
+        state = self.state_repository.get() or command.fallback_state or {}
         user = self.auth_user_repository.get_by_id(reset_token["user_id"])
         if not user:
             raise ApplicationError("Compte introuvable.", HTTPStatus.NOT_FOUND)
@@ -48,12 +55,9 @@ class ConfirmPasswordResetUseCase:
             "clientId": user.get("client_id"),
             "password": command.password,
         })
-        reset_request = self._reset_request_from_state(state, reset_token.get("reset_id", ""))
-        if reset_request:
-            reset_request["status"] = "utilise"
-            reset_request["usedAt"] = datetime.now(timezone.utc).isoformat()
+        used_at = datetime.now(timezone.utc).isoformat()
         self.password_reset_token_repository.mark(hashed, "utilise")
-        self.state_repository.save(state)
+        self.password_reset_request_repository.mark(reset_token.get("reset_id", ""), "utilise", used_at)
         return {"ok": True, "state": state}
 
     @staticmethod
@@ -64,13 +68,3 @@ class ConfirmPasswordResetUseCase:
             return datetime.fromisoformat(value) < datetime.now(timezone.utc)
         except ValueError:
             return True
-
-    @staticmethod
-    def _reset_request_from_state(state: dict, reset_id: str) -> dict | None:
-        return next(
-            (
-                item for item in state.get("passwordResetRequests", [])
-                if isinstance(item, dict) and item.get("id") == reset_id
-            ),
-            None,
-        )

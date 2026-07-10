@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import io
+import json
 import os
 import shutil
 import sys
@@ -27,6 +28,7 @@ os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
 from backend import legacy_file_handlers  # noqa: E402
+from backend.database import row_get  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -160,6 +162,56 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state_json() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row_get(row, "state_json")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def raw_client_documents() -> list:
+    return copy.deepcopy(raw_state_json().get("clientDocuments", []))
+
+
+def raw_equipment() -> list:
+    return copy.deepcopy(raw_state_json().get("equipment", []))
+
+
+def document_row(document_id: str):
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select id, client_id, building_id, storage_path, payload from climaparc_client_documents where id = ?",
+            (document_id,),
+        ).fetchone()
+
+
+def document_payload(document_id: str) -> dict:
+    row = document_row(document_id)
+    payload = row_get(row, "payload")
+    return json.loads(payload) if isinstance(payload, str) else payload
+
+
+def equipment_payload(equipment_id: str) -> dict:
+    with server.db() as connection:
+        row = server.execute(
+            connection,
+            "select payload from climaparc_equipment where id = ?",
+            (equipment_id,),
+        ).fetchone()
+    payload = row_get(row, "payload")
+    return json.loads(payload) if isinstance(payload, str) else payload
+
+
+def equipment_attachment_row(file_id: str):
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select id from climaparc_equipment_attachments where id = ?",
+            (file_id,),
+        ).fetchone()
+
+
 def login(client, email: str, password: str):
     response = client.post("/api/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -211,6 +263,8 @@ def run() -> None:
     assert legacy_file_handlers.upload_file_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
     assert legacy_file_handlers.generate_file_url_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
     assert legacy_file_handlers.delete_file_with_use_case.__module__ == "src.climaparc.documents.presentation.dispatch"
+    before_raw_documents = raw_client_documents()
+    before_raw_equipment = raw_equipment()
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -221,6 +275,9 @@ def run() -> None:
         assert file["storagePath"]
         assert "dataUrl" not in file
         assert any(item["id"] == "doc-a" for item in current_state()["clientDocuments"])
+        assert row_get(document_row("doc-a"), "client_id") == "client-a"
+        assert document_payload("doc-a")["storagePath"] == file["storagePath"]
+        assert all(item.get("id") != "doc-a" for item in raw_client_documents())
 
         url_response = admin_client.post("/api/file-url", json={"fileId": "doc-a"})
         assert url_response.status_code == 200, url_response.text
@@ -237,10 +294,15 @@ def run() -> None:
         state_after_attachment_delete = current_state()
         equipment = next(item for item in state_after_attachment_delete["equipment"] if item["id"] == "eq-a")
         assert equipment.get("attachments") == []
+        assert equipment_payload("eq-a").get("attachments") == []
+        assert equipment_attachment_row("file-eq-a") is None
+        assert raw_equipment() == before_raw_equipment
 
         deleted_doc = admin_client.post("/api/file-delete", json={"fileId": "doc-a"})
         assert deleted_doc.status_code == 200, deleted_doc.text
         assert all(item["id"] != "doc-a" for item in current_state()["clientDocuments"])
+        assert document_row("doc-a") is None
+        assert raw_client_documents() == before_raw_documents
 
     with TestClient(app) as client_a:
         login(client_a, "client-a@test.local", "Client12345")

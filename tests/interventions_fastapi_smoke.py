@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,8 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_domain_handlers  # noqa: E402
+from backend.database import row_get  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -163,6 +166,64 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state_json() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row_get(row, "state_json")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def raw_interventions() -> list:
+    return copy.deepcopy(raw_state_json().get("interventions", []))
+
+
+def intervention_row(intervention_id: str):
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select id, status, payload from climaparc_interventions where id = ?",
+            (intervention_id,),
+        ).fetchone()
+
+
+def intervention_payload(intervention_id: str) -> dict:
+    row = intervention_row(intervention_id)
+    payload = row_get(row, "payload")
+    return json.loads(payload) if isinstance(payload, str) else payload
+
+
+def response_rows(intervention_id: str) -> list:
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select field_key, response_text from climaparc_intervention_responses where intervention_id = ? order by field_key",
+            (intervention_id,),
+        ).fetchall()
+
+
+def response_value_rows(intervention_id: str) -> list:
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            """
+            select field_key, value_index, value_text
+            from climaparc_intervention_response_values
+            where intervention_id = ?
+            order by field_key, value_index
+            """,
+            (intervention_id,),
+        ).fetchall()
+
+
+def recommendation_message_rows(intervention_id: str) -> list:
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select author_role, message_text from climaparc_recommendation_messages where intervention_id = ? order by message_text",
+            (intervention_id,),
+        ).fetchall()
+
+
 def login(client, email: str, password: str):
     response = client.post("/api/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -173,7 +234,8 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.save_intervention_with_use_cases.__module__ == "src.climaparc.interventions.presentation.dispatch"
+    assert legacy_domain_handlers.save_intervention_with_use_cases.__module__ == "src.climaparc.interventions.presentation.dispatch"
+    before_raw_interventions = raw_interventions()
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -194,6 +256,12 @@ def run() -> None:
         assert created.status_code == 200, created.text
         assert created.json()["item"]["id"] == "int-created"
         assert any(item["id"] == "int-created" for item in current_state()["interventions"])
+        assert any(item["id"] == "int-created" for item in created.json()["state"]["interventions"])
+        assert row_get(intervention_row("int-created"), "status") == "en_cours"
+        assert intervention_payload("int-created")["formResponses"]["statut"] == "OK"
+        assert row_get(response_rows("int-created")[0], "response_text") == "OK"
+        assert row_get(response_value_rows("int-created")[0], "value_text") == "OK"
+        assert raw_interventions() == before_raw_interventions
 
     with TestClient(app) as tech_client:
         login(tech_client, "tech@test.local", "Tech12345")
@@ -220,6 +288,10 @@ def run() -> None:
         )
         assert tech_update.status_code == 200, tech_update.text
         assert tech_update.json()["item"]["formResponses"]["statut"] == "Termine"
+        assert row_get(intervention_row("int-a"), "status") == "terminee"
+        assert intervention_payload("int-a")["formResponses"]["statut"] == "Termine"
+        assert row_get(response_rows("int-a")[0], "response_text") == "Termine"
+        assert raw_interventions() == before_raw_interventions
 
         blocked = tech_client.post(
             "/api/intervention",
@@ -257,8 +329,12 @@ def run() -> None:
         assert item["recommendation"]["status"] == "approuvee"
         assert item["recommendation"]["clientComment"] == "Approuve"
         assert item["recommendation"]["messages"][0]["text"] == "Merci"
+        assert intervention_payload("int-a")["recommendation"]["status"] == "approuvee"
+        assert row_get(recommendation_message_rows("int-a")[0], "message_text") == "Merci"
+        assert raw_interventions() == before_raw_interventions
 
     write_seed_state()
+    before_raw_interventions = raw_interventions()
     with TestClient(app) as limited_client:
         login(limited_client, "limited@test.local", "Client12345")
         forbidden_approval = limited_client.post(
@@ -281,6 +357,8 @@ def run() -> None:
         )
         assert info_request.status_code == 200, info_request.text
         assert info_request.json()["item"]["recommendation"]["status"] == "information_demandee"
+        assert intervention_payload("int-a")["recommendation"]["status"] == "information_demandee"
+        assert raw_interventions() == before_raw_interventions
 
         cross_client = limited_client.post(
             "/api/intervention",

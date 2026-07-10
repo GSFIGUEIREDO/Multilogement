@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,7 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend.database import row_get  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -165,6 +167,41 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state_json() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row_get(row, "state_json")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def raw_interventions() -> list:
+    return copy.deepcopy(raw_state_json().get("interventions", []))
+
+
+def intervention_row(intervention_id: str):
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select id, status, payload from climaparc_interventions where id = ?",
+            (intervention_id,),
+        ).fetchone()
+
+
+def intervention_payload(intervention_id: str) -> dict:
+    row = intervention_row(intervention_id)
+    payload = row_get(row, "payload")
+    return json.loads(payload) if isinstance(payload, str) else payload
+
+
+def recommendation_message_rows(intervention_id: str) -> list:
+    with server.db() as connection:
+        return server.execute(
+            connection,
+            "select author_role, message_text from climaparc_recommendation_messages where intervention_id = ? order by message_text",
+            (intervention_id,),
+        ).fetchall()
+
+
 def login(client, email: str, password: str):
     response = client.post("/api/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -175,6 +212,7 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
+    before_raw_interventions = raw_interventions()
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -202,6 +240,9 @@ def run() -> None:
         assert recommendation["status"] == "envoyee"
         assert recommendation["price"] == "450.00"
         assert recommendation["messages"][0]["authorRole"] == "interne"
+        assert intervention_payload("int-a")["recommendation"]["price"] == "450.00"
+        assert row_get(recommendation_message_rows("int-a")[0], "author_role") == "interne"
+        assert raw_interventions() == before_raw_interventions
 
     with TestClient(app) as limited_client:
         login(limited_client, "limited@test.local", "Client12345")
@@ -225,6 +266,9 @@ def run() -> None:
         assert info_request.status_code == 200, info_request.text
         assert info_request.json()["item"]["recommendation"]["status"] == "information_demandee"
         assert info_request.json()["item"]["recommendation"]["messages"][-1]["authorRole"] == "client"
+        assert intervention_payload("int-a")["recommendation"]["status"] == "information_demandee"
+        assert any(row_get(row, "author_role") == "client" for row in recommendation_message_rows("int-a"))
+        assert raw_interventions() == before_raw_interventions
 
         cross_client = limited_client.post(
             "/api/recommendation/client-response",
@@ -233,6 +277,7 @@ def run() -> None:
         assert cross_client.status_code == 403, cross_client.text
 
     write_seed_state()
+    before_raw_interventions = raw_interventions()
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
         sent = admin_client.post(
@@ -243,6 +288,8 @@ def run() -> None:
             },
         )
         assert sent.status_code == 200, sent.text
+        assert intervention_payload("int-a")["recommendation"]["status"] == "envoyee"
+        assert raw_interventions() == before_raw_interventions
 
     with TestClient(app) as approver_client:
         login(approver_client, "approver@test.local", "Client12345")
@@ -264,6 +311,9 @@ def run() -> None:
         assert item["status"] != "tampered"
         assert item["recommendation"]["status"] == "approuvee"
         assert item["recommendation"]["messages"][-1]["text"] == "Approuve"
+        assert intervention_payload("int-a")["recommendation"]["status"] == "approuvee"
+        assert any(row_get(row, "message_text") == "Approuve" for row in recommendation_message_rows("int-a"))
+        assert raw_interventions() == before_raw_interventions
 
     with TestClient(app) as client_a:
         login(client_a, "approver@test.local", "Client12345")

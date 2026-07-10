@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,7 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_domain_handlers  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -106,6 +108,18 @@ def auth_row(user_id: str):
         return server.execute(connection, "select * from climaparc_users where id = ?", (user_id,)).fetchone()
 
 
+def profile_row(user_id: str):
+    with server.db() as connection:
+        return server.execute(connection, "select * from climaparc_user_profiles where id = ?", (user_id,)).fetchone()
+
+
+def raw_state() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row["state_json"]
+    return json.loads(value) if isinstance(value, str) else value
+
+
 def assert_no_key(value, key: str) -> None:
     if isinstance(value, dict):
         assert key not in value, f"{key} leaked in {value}"
@@ -126,7 +140,8 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.save_user_with_use_cases.__module__ == "src.climaparc.users.presentation.dispatch"
+    original_user_ids = {item["id"] for item in raw_state()["users"]}
+    assert legacy_domain_handlers.save_user_with_use_cases.__module__ == "src.climaparc.users.presentation.dispatch"
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -146,6 +161,12 @@ def run() -> None:
         assert created.json()["user"]["id"] == "u-created"
         assert_no_key(created.json()["state"], "password")
         assert auth_row("u-created") is not None
+        profile = profile_row("u-created")
+        assert profile is not None
+        profile_payload = json.loads(profile["payload"])
+        assert profile_payload["name"] == "Created User"
+        assert "password" not in profile_payload
+        assert {item["id"] for item in raw_state()["users"]} == original_user_ids
 
         updated = admin_client.post(
             "/api/user",
@@ -161,6 +182,8 @@ def run() -> None:
         )
         assert updated.status_code == 200, updated.text
         assert updated.json()["user"]["name"] == "Created User Updated"
+        assert json.loads(profile_row("u-created")["payload"])["name"] == "Created User Updated"
+        assert {item["id"] for item in raw_state()["users"]} == original_user_ids
         assert_no_key(current_state(), "password")
 
         duplicate = admin_client.post(
@@ -205,6 +228,8 @@ def run() -> None:
         assert user["clientId"] == "client-a"
         visible_users = client_created.json()["state"]["users"]
         assert all(item.get("clientId") == "client-a" for item in visible_users)
+        assert profile_row("u-client-created") is not None
+        assert {item["id"] for item in raw_state()["users"]} == original_user_ids
 
         other_client_update = manager_client.post(
             "/api/user",
@@ -244,7 +269,9 @@ def run() -> None:
         assert deleted.status_code == 200, deleted.text
         assert deleted.json()["deletedUserId"] == "u-created"
         assert auth_row("u-created") is None
+        assert profile_row("u-created") is None
         assert all(item.get("id") != "u-created" for item in current_state()["users"])
+        assert {item["id"] for item in raw_state()["users"]} == original_user_ids
 
     print("users_fastapi_smoke: ok")
 
@@ -254,4 +281,3 @@ if __name__ == "__main__":
         run()
     finally:
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
-

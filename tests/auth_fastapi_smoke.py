@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -94,10 +95,24 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row["state_json"]
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def table_row(table: str, item_id: str):
+    with server.db() as connection:
+        return server.execute(connection, f"select * from {table} where id = ?", (item_id,)).fetchone()
+
+
 def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
+    original_user_ids = {item["id"] for item in raw_state()["users"]}
+    original_client_ids = {item["id"] for item in raw_state()["clients"]}
     with TestClient(app) as client:
         assert client.get("/api/session").status_code == 401
 
@@ -138,16 +153,31 @@ def run() -> None:
         assert signup.status_code == 200, signup.text
         assert signup.json()["user"]["role"] == "client"
         assert_no_key(signup.json()["state"], "password")
+        signup_user = signup.json()["user"]
+        profile = table_row("climaparc_user_profiles", signup_user["id"])
+        assert profile is not None
+        assert "password" not in json.loads(profile["payload"])
+        signup_client = signup.json()["state"]["clients"][0]
+        assert table_row("climaparc_clients", signup_client["id"]) is not None
+        assert {item["id"] for item in raw_state()["users"]} == original_user_ids
+        assert {item["id"] for item in raw_state()["clients"]} == original_client_ids
 
         reset_request = client.post("/api/password-reset-request", json={"email": "admin@test.local"})
         assert reset_request.status_code == 200
         assert reset_request.json()["ok"] is True
+        reset_rows = []
+        with server.db() as connection:
+            reset_rows = server.execute(connection, "select * from climaparc_password_reset_requests").fetchall()
+        assert reset_rows
+        assert all("token" not in json.loads(row["payload"]) for row in reset_rows)
+        assert raw_state()["passwordResetRequests"] == []
         assert_no_key(current_state(), "tokenHash")
 
         token = "known-reset-token"
         hashed = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        request_id = reset_rows[0]["id"]
         DatabasePasswordResetTokenRepository().save(
-            "reset-known",
+            request_id,
             "u-admin",
             "admin@test.local",
             hashed,
@@ -158,6 +188,9 @@ def run() -> None:
             json={"token": token, "password": "Changed12345", "confirmPassword": "Changed12345"},
         )
         assert confirm.status_code == 200, confirm.text
+        used_reset = table_row("climaparc_password_reset_requests", request_id)
+        assert used_reset is not None
+        assert json.loads(used_reset["payload"])["status"] == "utilise"
 
         changed_login = client.post("/api/login", json={"email": "admin@test.local", "password": "Changed12345"})
         assert changed_login.status_code == 200, changed_login.text

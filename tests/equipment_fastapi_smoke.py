@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,8 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_domain_handlers  # noqa: E402
+from backend.database import row_get  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -105,6 +108,28 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state_json() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row_get(row, "state_json")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def raw_equipment() -> list:
+    return copy.deepcopy(raw_state_json().get("equipment", []))
+
+
+def equipment_row(equipment_id: str):
+    with server.db() as connection:
+        return server.execute(connection, "select id, serial, payload from climaparc_equipment where id = ?", (equipment_id,)).fetchone()
+
+
+def equipment_payload(equipment_id: str) -> dict:
+    row = equipment_row(equipment_id)
+    payload = row_get(row, "payload")
+    return json.loads(payload) if isinstance(payload, str) else payload
+
+
 def login(client, email: str, password: str):
     response = client.post("/api/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -115,7 +140,8 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.save_equipment_with_use_cases.__module__ == "src.climaparc.equipment.presentation.dispatch"
+    assert legacy_domain_handlers.save_equipment_with_use_cases.__module__ == "src.climaparc.equipment.presentation.dispatch"
+    before_raw_equipment = raw_equipment()
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -136,6 +162,9 @@ def run() -> None:
         assert created.status_code == 200, created.text
         assert created.json()["equipment"]["id"] == "eq-created"
         assert any(item["id"] == "eq-created" for item in current_state()["equipment"])
+        assert any(item["id"] == "eq-created" for item in created.json()["state"]["equipment"])
+        assert row_get(equipment_row("eq-created"), "serial") == "NEW-1"
+        assert raw_equipment() == before_raw_equipment
 
         updated = admin_client.post(
             "/api/equipment",
@@ -155,6 +184,10 @@ def run() -> None:
         payload = updated.json()["equipment"]
         assert payload["serial"] == "SER-UPDATED"
         assert payload["attachments"][0]["id"] == "file-1"
+        assert next(item for item in updated.json()["state"]["equipment"] if item["id"] == "eq-existing")["serial"] == "SER-UPDATED"
+        assert row_get(equipment_row("eq-existing"), "serial") == "SER-UPDATED"
+        assert equipment_payload("eq-existing")["attachments"][0]["id"] == "file-1"
+        assert raw_equipment() == before_raw_equipment
 
     with TestClient(app) as client_a:
         login(client_a, "client-a@test.local", "ClientA12345")
@@ -172,6 +205,8 @@ def run() -> None:
         )
         assert allowed.status_code == 200, allowed.text
         assert allowed.json()["equipment"]["id"] == "eq-tech"
+        assert row_get(equipment_row("eq-tech"), "serial") == "TECH-1"
+        assert raw_equipment() == before_raw_equipment
 
         blocked = tech_client.post(
             "/api/equipment",
@@ -187,4 +222,3 @@ if __name__ == "__main__":
         run()
     finally:
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
-

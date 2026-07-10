@@ -63,8 +63,11 @@ La migration applicative FastAPI/use cases est terminée. La phase suivante,
 déjà commencée, consiste à retirer progressivement les écritures dépendantes de
 `climaparc_state`.
 
-Premier domaine consolidé partiellement:
+Domaines consolidés partiellement:
 
 - `settings` / `Paramètres`: les sauvegardes et suppressions passent par les
   tables relationnelles/payload du domaine; `climaparc_state` n'est plus
+  réécrit pour ces opérations.
+- `reminders` / `Rappels`: les créations, mises à jour, sauvegardes en lot et
+  suppressions passent par `climaparc_reminders`; `climaparc_state` n'est plus
   réécrit pour ces opérations.

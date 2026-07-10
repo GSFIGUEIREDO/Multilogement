@@ -103,7 +103,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Interventions | Oui | Oui | state + table intervention/payload |
 | Documents | Oui | Oui | state/metadata + Supabase Storage |
 | Recommandations | Oui | Oui | intervention payload + state |
-| Rappels | Oui | Oui | state + table rappel/payload |
+| Rappels | Oui | Oui | lecture state hydraté + écritures table rappel/payload |
 | Paramètres/formulaires | Oui | Oui | lecture state hydraté + écritures relationnelles/payload |
 | Rapports | Oui | Oui | lecture du state hydraté |
 | State compatibility | Oui | Oui | `climaparc_state` |
@@ -120,9 +120,14 @@ La majorité des `*StateRepository` utilise encore `LegacyStateRepository`.
 Les use cases chargent un état hydraté, appliquent les règles de scope,
 écrivent la collection concernée et retournent un state filtré.
 
-Exception déjà consolidée: `settings` lit encore un état hydraté pour composer
-la réponse frontend, mais ses sauvegardes et suppressions écrivent uniquement
-dans les tables relationnelles/payload et ne réécrivent plus `climaparc_state`.
+Exceptions déjà consolidées:
+
+- `settings` lit encore un état hydraté pour composer la réponse frontend, mais
+  ses sauvegardes et suppressions écrivent uniquement dans les tables
+  relationnelles/payload et ne réécrivent plus `climaparc_state`.
+- `reminders` / `Rappels` conserve la lecture de contexte via l'état hydraté,
+  mais ses créations, mises à jour, lots et suppressions écrivent uniquement
+  dans `climaparc_reminders`.
 
 Domaines encore dépendants du state central:
 
@@ -134,7 +139,7 @@ Domaines encore dépendants du state central:
 - bons de travail;
 - interventions;
 - documents et recommandations;
-- rappels;
+- rappels pour la lecture de contexte seulement;
 - paramètres/formulaires pour la lecture de contexte seulement;
 - rapports.
 

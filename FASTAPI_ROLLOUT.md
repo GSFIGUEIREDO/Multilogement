@@ -74,3 +74,6 @@ Domaines consolidés partiellement:
 - `equipment` / `Équipements`: les créations et mises à jour passent par
   `climaparc_equipment` et les pièces jointes normalisées; `climaparc_state`
   n'est plus réécrit pour ces opérations.
+- `places` / `Lieux et appartements`: les créations et mises à jour passent par
+  `climaparc_buildings`, `climaparc_apartments` et les contacts normalisés;
+  `climaparc_state` n'est plus réécrit pour ces opérations.

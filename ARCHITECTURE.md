@@ -96,7 +96,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 |---|---:|---:|---|
 | Auth/session/reset | Oui | Oui | tables auth/session + state filtré |
 | Utilisateurs | Oui | Oui | table auth + `climaparc_state` |
-| Lieux/appartements | Oui | Oui | state + tables payload/normalisées |
+| Lieux/appartements | Oui | Oui | lecture state hydraté + écritures tables lieux/appartements |
 | Équipements | Oui | Oui | lecture state hydraté + écritures table équipement/payload |
 | Demandes clients | Oui | Oui | state + table ticket/payload |
 | Bons de travail | Oui | Oui | state + table BT/payload |
@@ -131,12 +131,15 @@ Exceptions déjà consolidées:
 - `equipment` / `Équipements` conserve la lecture de contexte via l'état
   hydraté, mais ses créations et mises à jour écrivent uniquement dans
   `climaparc_equipment` et synchronisent les pièces jointes normalisées.
+- `places` / `Lieux et appartements` conserve la lecture de contexte via
+  l'état hydraté, mais ses créations et mises à jour écrivent uniquement dans
+  `climaparc_buildings`, `climaparc_apartments` et `climaparc_building_contacts`.
 
 Domaines encore dépendants du state central:
 
 - Auth pour composer la session publique;
 - utilisateurs;
-- lieux et appartements;
+- lieux et appartements pour la lecture de contexte seulement;
 - équipements pour la lecture de contexte seulement;
 - demandes clients;
 - bons de travail;

@@ -83,3 +83,9 @@ Domaines consolidés partiellement:
 - `work_orders` / `Bons de travail`: les créations et mises à jour passent par
   `climaparc_work_orders` et les techniciens assignés normalisés;
   `climaparc_state` n'est plus réécrit pour ces opérations.
+- `interventions` / `Interventions` et `recommendations` / `Recommandations`:
+  les creations, mises a jour, approbations/refus et demandes d'information
+  passent par `climaparc_interventions`; les reponses de formulaire, valeurs
+  multiples, pieces jointes et messages de recommandation sont synchronises
+  dans leurs tables normalisees; `climaparc_state` n'est plus reecrit pour ces
+  operations.

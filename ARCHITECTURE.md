@@ -100,9 +100,9 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Équipements | Oui | Oui | lecture state hydraté + écritures table équipement/payload |
 | Demandes clients | Oui | Oui | lecture state hydraté + écritures table ticket/payload |
 | Bons de travail | Oui | Oui | lecture state hydraté + écritures table BT/payload |
-| Interventions | Oui | Oui | state + table intervention/payload |
+| Interventions | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
 | Documents | Oui | Oui | state/metadata + Supabase Storage |
-| Recommandations | Oui | Oui | intervention payload + state |
+| Recommandations | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
 | Rappels | Oui | Oui | lecture state hydraté + écritures table rappel/payload |
 | Paramètres/formulaires | Oui | Oui | lecture state hydraté + écritures relationnelles/payload |
 | Rapports | Oui | Oui | lecture du state hydraté |
@@ -140,6 +140,11 @@ Exceptions déjà consolidées:
 - `work_orders` / `Bons de travail` conserve la lecture de contexte via l'état
   hydraté, mais ses créations et mises à jour écrivent uniquement dans
   `climaparc_work_orders` et synchronisent les techniciens assignés.
+- `interventions` / `Interventions` et `recommendations` / `Recommandations`
+  conservent la lecture de contexte via l'etat hydrate, mais leurs creations,
+  mises a jour et reponses client ecrivent uniquement dans
+  `climaparc_interventions` et synchronisent les reponses de formulaire, les
+  valeurs multiples, les pieces jointes et les messages de recommandation.
 
 Domaines encore dépendants du state central:
 
@@ -149,8 +154,8 @@ Domaines encore dépendants du state central:
 - équipements pour la lecture de contexte seulement;
 - demandes clients pour la lecture de contexte seulement;
 - bons de travail pour la lecture de contexte seulement;
-- interventions;
-- documents et recommandations;
+- interventions et recommandations pour la lecture de contexte seulement;
+- documents;
 - rappels pour la lecture de contexte seulement;
 - paramètres/formulaires pour la lecture de contexte seulement;
 - rapports.

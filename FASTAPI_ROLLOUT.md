@@ -89,3 +89,7 @@ Domaines consolidés partiellement:
   multiples, pieces jointes et messages de recommandation sont synchronises
   dans leurs tables normalisees; `climaparc_state` n'est plus reecrit pour ces
   operations.
+- `documents` / `Documents`: les uploads de documents client et suppressions de
+  fichiers passent par `climaparc_client_documents`, les payloads equipement/
+  intervention concernes et Supabase Storage/local storage; `climaparc_state`
+  n'est plus reecrit pour ces operations.

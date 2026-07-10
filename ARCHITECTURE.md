@@ -101,7 +101,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Demandes clients | Oui | Oui | lecture state hydraté + écritures table ticket/payload |
 | Bons de travail | Oui | Oui | lecture state hydraté + écritures table BT/payload |
 | Interventions | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
-| Documents | Oui | Oui | state/metadata + Supabase Storage |
+| Documents | Oui | Oui | lecture state hydrate + metadata table + Supabase Storage |
 | Recommandations | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
 | Rappels | Oui | Oui | lecture state hydraté + écritures table rappel/payload |
 | Paramètres/formulaires | Oui | Oui | lecture state hydraté + écritures relationnelles/payload |
@@ -145,6 +145,10 @@ Exceptions déjà consolidées:
   mises a jour et reponses client ecrivent uniquement dans
   `climaparc_interventions` et synchronisent les reponses de formulaire, les
   valeurs multiples, les pieces jointes et les messages de recommandation.
+- `documents` / `Documents` conserve la lecture de contexte via l'etat hydrate,
+  mais les uploads de documents client et suppressions de fichiers ecrivent
+  uniquement dans `climaparc_client_documents`, les payloads equipement/
+  intervention concernes et Supabase Storage/local storage.
 
 Domaines encore dépendants du state central:
 
@@ -155,7 +159,7 @@ Domaines encore dépendants du state central:
 - demandes clients pour la lecture de contexte seulement;
 - bons de travail pour la lecture de contexte seulement;
 - interventions et recommandations pour la lecture de contexte seulement;
-- documents;
+- documents pour la lecture de contexte seulement;
 - rappels pour la lecture de contexte seulement;
 - paramètres/formulaires pour la lecture de contexte seulement;
 - rapports.

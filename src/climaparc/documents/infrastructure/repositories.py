@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from backend.database import connect, execute
+from backend.database import connect, execute, row_get
 from backend.file_storage import StorageBackend, storage_backend
-from backend.repositories import EquipmentRepository, PayloadTableRepository
+from backend.repositories import EquipmentRepository, PayloadTableRepository, decode_payload
 from backend.repositories import StateRepository as LegacyStateRepository
+from backend.sync_services import rel_table
+
+
+CLIENT_DOCUMENTS_TABLE = "climaparc_client_documents"
+
+
+def load_client_documents(connection) -> list[dict]:
+    rows = execute(connection, f"select payload from {rel_table(CLIENT_DOCUMENTS_TABLE)} order by updated_at desc").fetchall()
+    return [payload for payload in (decode_payload(row_get(row, "payload")) for row in rows) if payload]
 
 
 class DatabaseDocumentStateRepository:
@@ -12,11 +21,9 @@ class DatabaseDocumentStateRepository:
 
     def get(self, lock: bool = False) -> dict | None:
         with connect() as connection:
-            return self.legacy_repository.get(connection, lock=lock)
-
-    def save(self, state: dict) -> None:
-        with connect() as connection:
-            self.legacy_repository.save(connection, state)
+            state = self.legacy_repository.get(connection, lock=False) or {}
+            state["clientDocuments"] = load_client_documents(connection)
+            return state
 
 
 class DatabaseDocumentPayloadRepository:
@@ -69,9 +76,9 @@ class DatabaseDocumentPayloadRepository:
 
     def delete_file(self, file_id: str) -> None:
         with connect() as connection:
-            execute(connection, "delete from climaparc_client_documents where id = ?", (file_id,))
-            execute(connection, "delete from climaparc_equipment_attachments where id = ?", (file_id,))
-            execute(connection, "delete from climaparc_intervention_attachments where id = ?", (file_id,))
+            execute(connection, f"delete from {rel_table('climaparc_client_documents')} where id = ?", (file_id,))
+            execute(connection, f"delete from {rel_table('climaparc_equipment_attachments')} where id = ?", (file_id,))
+            execute(connection, f"delete from {rel_table('climaparc_intervention_attachments')} where id = ?", (file_id,))
 
 
 def get_storage_gateway() -> StorageBackend:

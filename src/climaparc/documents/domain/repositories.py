@@ -7,9 +7,6 @@ class DocumentStateRepository(Protocol):
     def get(self, lock: bool = False) -> dict | None:
         ...
 
-    def save(self, state: dict) -> None:
-        ...
-
 
 class DocumentPayloadRepository(Protocol):
     def upsert_client_document(self, document: dict) -> None:

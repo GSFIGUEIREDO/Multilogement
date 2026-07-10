@@ -36,7 +36,7 @@ class UploadFileUseCase:
             raise ApplicationError("Session expiree.", HTTPStatus.UNAUTHORIZED)
         filename, content, content_type, _ = validate_upload_file(command.fields, command.file_part)
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
         metadata = build_document_metadata(
@@ -59,6 +59,7 @@ class UploadFileUseCase:
             upsert_client_document(state, metadata)
             clear_ui_state(state)
             self.payload_repository.upsert_client_document(metadata)
-            self.state_repository.save(state)
+            state = self.state_repository.get(lock=False) or state
+            clear_ui_state(state)
 
         return {"ok": True, "file": metadata, "state": filter_state_for_user(state, command.current_user)}

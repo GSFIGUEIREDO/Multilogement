@@ -35,7 +35,7 @@ class DeleteFileUseCase:
         if not command.current_user:
             raise ApplicationError("Session expiree.", HTTPStatus.UNAUTHORIZED)
         file_id = normalize_file_id(command.file_id)
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
         kind, file = find_file_record(state, file_id)
@@ -58,5 +58,6 @@ class DeleteFileUseCase:
                 self.payload_repository.upsert_equipment(item)
             elif item_kind == "intervention":
                 self.payload_repository.upsert_intervention(item)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user)}

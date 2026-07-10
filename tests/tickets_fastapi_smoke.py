@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,8 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_domain_handlers  # noqa: E402
+from backend.database import row_get  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -122,6 +125,28 @@ def current_state() -> dict:
         return server.get_state(connection)
 
 
+def raw_state_json() -> dict:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+    value = row_get(row, "state_json")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def raw_tickets() -> list:
+    return copy.deepcopy(raw_state_json().get("tickets", []))
+
+
+def ticket_row(ticket_id: str):
+    with server.db() as connection:
+        return server.execute(connection, "select id, title, status, payload from climaparc_tickets where id = ?", (ticket_id,)).fetchone()
+
+
+def ticket_payload(ticket_id: str) -> dict:
+    row = ticket_row(ticket_id)
+    payload = row_get(row, "payload")
+    return json.loads(payload) if isinstance(payload, str) else payload
+
+
 def login(client, email: str, password: str):
     response = client.post("/api/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -132,7 +157,8 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.save_ticket_with_use_cases.__module__ == "src.climaparc.tickets.presentation.dispatch"
+    assert legacy_domain_handlers.save_ticket_with_use_cases.__module__ == "src.climaparc.tickets.presentation.dispatch"
+    before_raw_tickets = raw_tickets()
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -156,6 +182,9 @@ def run() -> None:
         assert created.status_code == 200, created.text
         assert created.json()["item"]["id"] == "tk-created"
         assert any(item["id"] == "tk-created" for item in current_state()["tickets"])
+        assert any(item["id"] == "tk-created" for item in created.json()["state"]["tickets"])
+        assert row_get(ticket_row("tk-created"), "title") == "Entretien"
+        assert raw_tickets() == before_raw_tickets
 
         updated = admin_client.post(
             "/api/ticket",
@@ -176,6 +205,10 @@ def run() -> None:
         )
         assert updated.status_code == 200, updated.text
         assert updated.json()["item"]["title"] == "Entretien modifie"
+        assert next(item for item in updated.json()["state"]["tickets"] if item["id"] == "tk-created")["status"] == "en_cours"
+        assert row_get(ticket_row("tk-created"), "status") == "en_cours"
+        assert ticket_payload("tk-created")["title"] == "Entretien modifie"
+        assert raw_tickets() == before_raw_tickets
 
     with TestClient(app) as client_a:
         login(client_a, "client-a@test.local", "ClientA12345")
@@ -199,6 +232,8 @@ def run() -> None:
         assert client_created.status_code == 200, client_created.text
         visible = client_created.json()["state"]["tickets"]
         assert all(item.get("clientId") == "client-a" for item in visible)
+        assert row_get(ticket_row("tk-client"), "title") == "Client demande"
+        assert raw_tickets() == before_raw_tickets
 
         cross_client = client_a.post(
             "/api/ticket",
@@ -248,4 +283,3 @@ if __name__ == "__main__":
         run()
     finally:
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
-

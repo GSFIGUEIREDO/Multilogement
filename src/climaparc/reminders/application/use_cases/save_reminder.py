@@ -27,7 +27,7 @@ class SaveReminderUseCase:
         require_can_manage_reminders(command.current_user)
         reminder = stamp_payload(normalize_reminder_payload(command.reminder))
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
         if not reminder_equipment_exists(state, reminder):
@@ -44,5 +44,6 @@ class SaveReminderUseCase:
             reminders.insert(0, reminder)
         clear_ui_state(state)
         self.payload_repository.upsert(reminder)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": reminder}

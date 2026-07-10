@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-from backend.database import connect, execute
-from backend.repositories import PayloadTableRepository
+from backend.database import connect, execute, row_get
+from backend.repositories import PayloadTableRepository, decode_payload
 from backend.repositories import StateRepository as LegacyStateRepository
+from backend.sync_services import rel_table
+
+
+REMINDERS_TABLE = "climaparc_reminders"
+
+
+def load_reminders(connection) -> list[dict]:
+    rows = execute(connection, f"select payload from {rel_table(REMINDERS_TABLE)} order by updated_at desc").fetchall()
+    return [payload for payload in (decode_payload(row_get(row, "payload")) for row in rows) if payload]
 
 
 class DatabaseReminderStateRepository:
@@ -11,11 +20,9 @@ class DatabaseReminderStateRepository:
 
     def get(self, lock: bool = False) -> dict | None:
         with connect() as connection:
-            return self.legacy_repository.get(connection, lock=lock)
-
-    def save(self, state: dict) -> None:
-        with connect() as connection:
-            self.legacy_repository.save(connection, state)
+            state = self.legacy_repository.get(connection, lock=False) or {}
+            state["reminders"] = load_reminders(connection)
+            return state
 
 
 class DatabaseReminderPayloadRepository:
@@ -40,4 +47,4 @@ class DatabaseReminderPayloadRepository:
 
     def delete(self, reminder_id: str) -> None:
         with connect() as connection:
-            execute(connection, "delete from climaparc_reminders where id = ?", (reminder_id,))
+            execute(connection, f"delete from {rel_table(REMINDERS_TABLE)} where id = ?", (reminder_id,))

@@ -7,9 +7,6 @@ class ReminderStateRepository(Protocol):
     def get(self, lock: bool = False) -> dict | None:
         ...
 
-    def save(self, state: dict) -> None:
-        ...
-
 
 class ReminderPayloadRepository(Protocol):
     def upsert(self, reminder: dict) -> None:

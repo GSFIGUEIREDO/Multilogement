@@ -22,7 +22,7 @@ class DeleteReminderUseCase:
         if not reminder_id:
             raise ApplicationError("Rappel invalide.")
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
         reminders = state.setdefault("reminders", [])
@@ -35,5 +35,6 @@ class DeleteReminderUseCase:
         reminders.pop(index)
         clear_ui_state(state)
         self.payload_repository.delete(reminder_id)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "deletedReminderId": reminder_id}

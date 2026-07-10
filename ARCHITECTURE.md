@@ -104,7 +104,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Documents | Oui | Oui | state/metadata + Supabase Storage |
 | Recommandations | Oui | Oui | intervention payload + state |
 | Rappels | Oui | Oui | state + table rappel/payload |
-| Paramètres/formulaires | Oui | Oui | state + tables payload/normalisées |
+| Paramètres/formulaires | Oui | Oui | lecture state hydraté + écritures relationnelles/payload |
 | Rapports | Oui | Oui | lecture du state hydraté |
 | State compatibility | Oui | Oui | `climaparc_state` |
 | Web/statique/health | N/A | Oui | fichiers locaux + health DB |
@@ -120,6 +120,10 @@ La majorité des `*StateRepository` utilise encore `LegacyStateRepository`.
 Les use cases chargent un état hydraté, appliquent les règles de scope,
 écrivent la collection concernée et retournent un state filtré.
 
+Exception déjà consolidée: `settings` lit encore un état hydraté pour composer
+la réponse frontend, mais ses sauvegardes et suppressions écrivent uniquement
+dans les tables relationnelles/payload et ne réécrivent plus `climaparc_state`.
+
 Domaines encore dépendants du state central:
 
 - Auth pour composer la session publique;
@@ -131,7 +135,7 @@ Domaines encore dépendants du state central:
 - interventions;
 - documents et recommandations;
 - rappels;
-- paramètres/formulaires;
+- paramètres/formulaires pour la lecture de contexte seulement;
 - rapports.
 
 La migration applicative est terminée, mais la migration de persistance ne
@@ -232,8 +236,11 @@ sont une consolidation de persistance:
 
 1. remplacer progressivement chaque `*StateRepository` par des lectures
    relationnelles directes;
-2. supprimer le dual-write `climaparc_state`/payload après comparaison;
-3. retirer `/api/state` du frontend;
-4. supprimer `server.py`, `backend/legacy_*` et les adaptateurs après la période
+2. étendre à tous les domaines le modèle déjà appliqué à `settings`: écrire
+   uniquement dans les tables de domaine, puis reconstruire la réponse depuis
+   ces tables;
+3. supprimer le dual-write `climaparc_state`/payload après comparaison;
+4. retirer `/api/state` du frontend;
+5. supprimer `server.py`, `backend/legacy_*` et les adaptateurs après la période
    de stabilité FastAPI;
-5. ajouter des migrations SQL versionnées et des tests d'intégration Postgres.
+6. ajouter des migrations SQL versionnées et des tests d'intégration Postgres.

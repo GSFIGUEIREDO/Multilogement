@@ -56,3 +56,15 @@ normal de production et ne doit pas recevoir de nouvelles fonctionnalités.
 - procédure de restauration basée sur un déploiement Git connu.
 
 Jusqu'à cette étape, le fallback reste du code de compatibilité isolé.
+
+## Avancement de la consolidation de persistance
+
+La migration applicative FastAPI/use cases est terminée. La phase suivante,
+déjà commencée, consiste à retirer progressivement les écritures dépendantes de
+`climaparc_state`.
+
+Premier domaine consolidé partiellement:
+
+- `settings` / `Paramètres`: les sauvegardes et suppressions passent par les
+  tables relationnelles/payload du domaine; `climaparc_state` n'est plus
+  réécrit pour ces opérations.

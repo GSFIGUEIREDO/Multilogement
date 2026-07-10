@@ -27,7 +27,7 @@ class InternalReviewRecommendationUseCase:
         intervention_id = normalize_intervention_id(command.intervention_id)
         recommendation = normalize_recommendation_payload(command.recommendation)
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
         intervention = stamp_payload(apply_internal_recommendation_review(state, command.current_user, intervention_id, recommendation))
@@ -36,5 +36,6 @@ class InternalReviewRecommendationUseCase:
         interventions[index] = intervention
         clear_ui_state(state)
         self.payload_repository.upsert_intervention(intervention)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": intervention}

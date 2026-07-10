@@ -3,6 +3,8 @@ from __future__ import annotations
 from backend.database import connect
 from backend.repositories import PayloadTableRepository
 from backend.repositories import StateRepository as LegacyStateRepository
+from backend.sync_services import sync_intervention_children
+from src.climaparc.interventions.infrastructure.repositories import load_interventions
 
 
 class DatabaseRecommendationStateRepository:
@@ -11,11 +13,9 @@ class DatabaseRecommendationStateRepository:
 
     def get(self, lock: bool = False) -> dict | None:
         with connect() as connection:
-            return self.legacy_repository.get(connection, lock=lock)
-
-    def save(self, state: dict) -> None:
-        with connect() as connection:
-            self.legacy_repository.save(connection, state)
+            state = self.legacy_repository.get(connection, lock=False) or {}
+            state["interventions"] = load_interventions(connection)
+            return state
 
 
 class DatabaseRecommendationPayloadRepository:
@@ -38,3 +38,4 @@ class DatabaseRecommendationPayloadRepository:
     def upsert_intervention(self, intervention: dict) -> None:
         with connect() as connection:
             self.legacy_repository.upsert(connection, intervention)
+            sync_intervention_children(connection, [intervention])

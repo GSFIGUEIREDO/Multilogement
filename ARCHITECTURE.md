@@ -99,7 +99,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Lieux/appartements | Oui | Oui | lecture state hydraté + écritures tables lieux/appartements |
 | Équipements | Oui | Oui | lecture state hydraté + écritures table équipement/payload |
 | Demandes clients | Oui | Oui | lecture state hydraté + écritures table ticket/payload |
-| Bons de travail | Oui | Oui | state + table BT/payload |
+| Bons de travail | Oui | Oui | lecture state hydraté + écritures table BT/payload |
 | Interventions | Oui | Oui | state + table intervention/payload |
 | Documents | Oui | Oui | state/metadata + Supabase Storage |
 | Recommandations | Oui | Oui | intervention payload + state |
@@ -137,6 +137,9 @@ Exceptions déjà consolidées:
 - `tickets` / `Demandes clients` conserve la lecture de contexte via l'état
   hydraté, mais ses créations et mises à jour écrivent uniquement dans
   `climaparc_tickets`.
+- `work_orders` / `Bons de travail` conserve la lecture de contexte via l'état
+  hydraté, mais ses créations et mises à jour écrivent uniquement dans
+  `climaparc_work_orders` et synchronisent les techniciens assignés.
 
 Domaines encore dépendants du state central:
 
@@ -145,7 +148,7 @@ Domaines encore dépendants du state central:
 - lieux et appartements pour la lecture de contexte seulement;
 - équipements pour la lecture de contexte seulement;
 - demandes clients pour la lecture de contexte seulement;
-- bons de travail;
+- bons de travail pour la lecture de contexte seulement;
 - interventions;
 - documents et recommandations;
 - rappels pour la lecture de contexte seulement;

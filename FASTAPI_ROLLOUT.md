@@ -80,3 +80,6 @@ Domaines consolidés partiellement:
 - `tickets` / `Demandes clients`: les créations et mises à jour passent par
   `climaparc_tickets`; `climaparc_state` n'est plus réécrit pour ces
   opérations.
+- `work_orders` / `Bons de travail`: les créations et mises à jour passent par
+  `climaparc_work_orders` et les techniciens assignés normalisés;
+  `climaparc_state` n'est plus réécrit pour ces opérations.

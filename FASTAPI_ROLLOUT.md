@@ -65,6 +65,12 @@ déjà commencée, consiste à retirer progressivement les écritures dépendant
 
 Domaines consolidés partiellement:
 
+- `auth` / `utilisateurs`: les créations, mises à jour et suppressions des
+  utilisateurs passent par `climaparc_users` et `climaparc_user_profiles`;
+  les inscriptions créent aussi le client dans `climaparc_clients`; les
+  demandes de réinitialisation passent par
+  `climaparc_password_reset_requests`. `climaparc_state` n'est plus réécrit
+  pour ces opérations.
 - `settings` / `Paramètres`: les sauvegardes et suppressions passent par les
   tables relationnelles/payload du domaine; `climaparc_state` n'est plus
   réécrit pour ces opérations.

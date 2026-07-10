@@ -94,8 +94,8 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 
 | Domaine | Use cases | Router FastAPI | Persistance actuelle |
 |---|---:|---:|---|
-| Auth/session/reset | Oui | Oui | tables auth/session + state filtré |
-| Utilisateurs | Oui | Oui | table auth + `climaparc_state` |
+| Auth/session/reset | Oui | Oui | tables auth/session/reset + profils publics hydratés |
+| Utilisateurs | Oui | Oui | table auth + `climaparc_user_profiles` |
 | Lieux/appartements | Oui | Oui | lecture state hydraté + écritures tables lieux/appartements |
 | Équipements | Oui | Oui | lecture state hydraté + écritures table équipement/payload |
 | Demandes clients | Oui | Oui | lecture state hydraté + écritures table ticket/payload |
@@ -122,6 +122,13 @@ Les use cases chargent un état hydraté, appliquent les règles de scope,
 
 Exceptions déjà consolidées:
 
+- `auth` / `utilisateurs` conserve la lecture d'un état hydraté pour composer
+  les réponses frontend et appliquer le scope. Les créations, mises à jour et
+  suppressions d'utilisateurs écrivent dans `climaparc_users` et
+  `climaparc_user_profiles`; les inscriptions écrivent aussi dans
+  `climaparc_clients`; les demandes de reset écrivent dans
+  `climaparc_password_reset_requests`. Ces opérations ne réécrivent plus
+  `climaparc_state`.
 - `settings` lit encore un état hydraté pour composer la réponse frontend, mais
   ses sauvegardes et suppressions écrivent uniquement dans les tables
   relationnelles/payload et ne réécrivent plus `climaparc_state`.
@@ -152,8 +159,7 @@ Exceptions déjà consolidées:
 
 Domaines encore dépendants du state central:
 
-- Auth pour composer la session publique;
-- utilisateurs;
+- Auth et utilisateurs pour composer les réponses publiques et le scope seulement;
 - lieux et appartements pour la lecture de contexte seulement;
 - équipements pour la lecture de contexte seulement;
 - demandes clients pour la lecture de contexte seulement;

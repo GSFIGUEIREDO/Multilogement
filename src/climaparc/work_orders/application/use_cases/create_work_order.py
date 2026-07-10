@@ -25,7 +25,7 @@ class CreateWorkOrderUseCase:
             raise ApplicationError("Session expiree.", HTTPStatus.UNAUTHORIZED)
         work_order = stamp_payload(normalize_work_order_payload(command.work_order))
 
-        state = self.state_repository.get(lock=True)
+        state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.")
         work_orders = state.setdefault("workOrders", [])
@@ -39,6 +39,6 @@ class CreateWorkOrderUseCase:
         work_orders.insert(0, work_order)
         clear_ui_state(state)
         self.payload_repository.upsert(work_order)
-        self.state_repository.save(state)
+        state = self.state_repository.get(lock=False) or state
+        clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": work_order}
-

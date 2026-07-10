@@ -7,9 +7,6 @@ class EquipmentStateRepository(Protocol):
     def get(self, lock: bool = False) -> dict | None:
         ...
 
-    def save(self, state: dict) -> None:
-        ...
-
 
 class EquipmentPayloadRepository(Protocol):
     def upsert(self, equipment: dict) -> None:
@@ -19,4 +16,3 @@ class EquipmentPayloadRepository(Protocol):
 class EquipmentLookupRepository(Protocol):
     def exists(self, equipment_id: str) -> bool:
         ...
-

@@ -7,9 +7,6 @@ class InterventionStateRepository(Protocol):
     def get(self, lock: bool = False) -> dict | None:
         ...
 
-    def save(self, state: dict) -> None:
-        ...
-
 
 class InterventionPayloadRepository(Protocol):
     def upsert(self, intervention: dict) -> None:
@@ -19,4 +16,3 @@ class InterventionPayloadRepository(Protocol):
 class InterventionLookupRepository(Protocol):
     def exists(self, intervention_id: str) -> bool:
         ...
-

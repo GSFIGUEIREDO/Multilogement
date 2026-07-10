@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,8 @@ os.environ["CLIMAPARC_DB"] = str(DB_PATH)
 os.environ["APP_BASE_URL"] = "http://testserver"
 
 import server  # noqa: E402
+from backend import legacy_domain_handlers  # noqa: E402
+from backend.database import now_value  # noqa: E402
 from src.climaparc.main import app  # noqa: E402
 
 
@@ -116,6 +119,20 @@ def login(client, email: str, password: str):
     return response
 
 
+def clear_raw_report_collections() -> None:
+    with server.db() as connection:
+        row = server.execute(connection, "select state_json from climaparc_state where id = 1").fetchone()
+        value = row["state_json"]
+        state = json.loads(value) if isinstance(value, str) else value
+        for key in ("buildings", "apartments", "equipment", "tickets", "workOrders", "interventions", "reminders"):
+            state[key] = []
+        server.execute(
+            connection,
+            "update climaparc_state set state_json = ?, updated_at = ? where id = 1",
+            (json.dumps(state), now_value()),
+        )
+
+
 def report_request(client, **filters):
     payload = {
         "reportType": filters.get("reportType", "parc_mensuel"),
@@ -132,7 +149,8 @@ def run() -> None:
     from fastapi.testclient import TestClient
 
     reset_database()
-    assert server.get_report_context_with_use_case.__module__ == "src.climaparc.reports.presentation.dispatch"
+    clear_raw_report_collections()
+    assert legacy_domain_handlers.get_report_context_with_use_case.__module__ == "src.climaparc.reports.presentation.dispatch"
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -176,4 +194,3 @@ if __name__ == "__main__":
         run()
     finally:
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
-

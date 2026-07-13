@@ -20,6 +20,8 @@
         renderTopbar,
         currentUser,
         can,
+        canManageBuildings,
+        canEditApartments,
         scopedBuildings,
         apartmentsForBuilding,
         equipmentForApartment,
@@ -39,7 +41,7 @@
 
       function buildingsView() {
         const buildings = scopedBuildings().sort((a, b) => a.name.localeCompare(b.name, "fr"));
-        const actions = currentUser().role !== "client" && can("lieux")
+        const actions = canManageBuildings()
           ? `<button class="primary-button" data-action="open-modal" data-modal="building">Nouveau lieu</button>`
           : "";
         return appShell(`
@@ -71,7 +73,7 @@
             </div>
             <div class="actions">
               <button class="primary-button" data-action="select-building" data-id="${building.id}">Ouvrir</button>
-              ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier</button>` : ""}
+              ${canManageBuildings() ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier</button>` : ""}
             </div>
           </article>
         `;
@@ -86,7 +88,7 @@
           <button class="ghost-button" data-action="go-back" data-fallback-view="lieux">Retour</button>
           ${can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>` : ""}
           ${currentUser().role !== "client" ? `<button class="primary-button" data-action="open-modal" data-modal="apartment" data-building="${building.id}">Nouvel appartement</button>` : ""}
-          ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier le lieu</button>` : ""}
+          ${canManageBuildings() ? `<button class="ghost-button" data-action="open-modal" data-modal="building" data-id="${building.id}">Modifier le lieu</button>` : ""}
         `;
         return appShell(`
           ${renderTopbar(building.name, building.address, actions)}
@@ -131,10 +133,10 @@
                 </button>
               `).join("") || `<div class="meta">Aucune machine enregistrée.</div>`}
             </div>
-            ${currentUser().role !== "client" ? `
+            ${currentUser().role !== "client" && (canEditApartments() || can("equipment")) ? `
               <div class="actions">
-                <button class="ghost-button" data-action="open-modal" data-modal="apartment" data-id="${apartment.id}" data-building="${apartment.buildingId}">Modifier l'appartement</button>
-                <button class="primary-button" data-action="open-modal" data-modal="equipment" data-apartment="${apartment.id}">Ajouter une machine</button>
+                ${canEditApartments() ? `<button class="ghost-button" data-action="open-modal" data-modal="apartment" data-id="${apartment.id}" data-building="${apartment.buildingId}">Modifier l'appartement</button>` : ""}
+                ${can("equipment") ? `<button class="primary-button" data-action="open-modal" data-modal="equipment" data-apartment="${apartment.id}">Ajouter une machine</button>` : ""}
               </div>
             ` : ""}
           </article>
@@ -187,7 +189,7 @@
             </div>
             <div class="actions form-actions">
               <button class="primary-button" type="submit">${apartment.id ? "Enregistrer" : "Créer l'appartement"}</button>
-              ${apartment.id && can("lieux") && currentUser().role !== "client" ? `<button class="danger-button" type="button" data-action="delete-apartment" data-id="${escapeHtml(apartment.id)}">Supprimer</button>` : ""}
+              ${apartment.id && canManageBuildings() ? `<button class="danger-button" type="button" data-action="delete-apartment" data-id="${escapeHtml(apartment.id)}">Supprimer</button>` : ""}
             </div>
           </form>
         `);

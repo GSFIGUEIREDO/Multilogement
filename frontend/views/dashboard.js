@@ -88,14 +88,15 @@
 
   function internalDashboard() {
     const layout = dashboardLayoutForCurrentUser();
-    const editMode = Boolean(state.dashboardEditMode);
+    const canCustomize = ["administrateur", "equipe_interne"].includes(currentUser()?.role);
+    const editMode = canCustomize && Boolean(state.dashboardEditMode);
     const dueReminders = scopedReminders().filter((reminder) => reminder.status === "active" && !reminder.lastWorkOrderId).sort((a, b) => (a.nextDueDate || "").localeCompare(b.nextDueDate || ""));
     const notificationCount = dueReminders.filter((reminder) => reminderIsDue(reminder)).length + recommendationAttentionCount();
     const actions = `
       <button class="icon-button notification-button" data-action="view" data-view="alertes" title="Centre d'alertes" aria-label="Centre d'alertes">
         ${iconSvg("bell")}${notificationCount ? `<span class="alert-dot"></span>` : ""}
       </button>
-      <button class="ghost-button" data-action="toggle-dashboard-edit">${editMode ? "Terminer" : "Modifier"}</button>
+      ${canCustomize ? `<button class="ghost-button" data-action="toggle-dashboard-edit">${editMode ? "Terminer" : "Modifier"}</button>` : ""}
       ${canCreateWorkOrders() ? `<button class="primary-button" data-action="open-modal" data-modal="workorder">Nouveau BT</button>` : ""}
     `;
 

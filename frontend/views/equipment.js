@@ -15,13 +15,13 @@
     create(context) {
       const state = stateProxy(context.getState);
       const {
-        appShell, renderTopbar, currentUser, can, canCreateWorkOrders,
+        api, appShell, renderTopbar, currentUser, can, canEditEquipment, canCreateWorkOrders,
         canEditReminders, scopedEquipment, scopedBuildings, scopedApartments,
         scopedReminders, equipmentContext, formatDate, escapeHtml, unitKindLabel,
         statusBadge, interventionItem, ticketItem, workOrderItem, reminderItem,
         attachmentItem, modalShell, normalizeActivityFields, dataFieldOptionsForSelect,
         buildingForApartment, comboInput, activityOptions, today, uid,
-        updateUiState, saveEquipmentNow
+        updateUiState, saveEquipmentNow, documentsModule, acceptServerState, showToast
       } = context;
 
       function filteredEquipment() {
@@ -59,7 +59,7 @@
             return `<tr>
               <td><strong>${escapeHtml(item.type)}</strong><br><span class="meta">${unitKindLabel(item.unitKind)} | ${escapeHtml(item.brand)} ${escapeHtml(item.model)} - ${escapeHtml(item.serial)}</span></td>
               <td>${escapeHtml(building?.name || "-")}</td><td>${escapeHtml(apartment?.number || "-")}</td><td>${formatDate(item.lastService)}</td><td>${formatDate(item.nextService)}</td><td>${statusBadge(item.status)}</td>
-              <td>${allowDetail ? `<button class="link-button" data-action="select-equipment" data-id="${item.id}">Dossier</button>${currentUser().role !== "client" ? `<br><button class="link-button" data-action="open-modal" data-modal="equipment" data-id="${item.id}">Modifier</button>` : ""}` : ""}</td>
+              <td>${allowDetail ? `<button class="link-button" data-action="select-equipment" data-id="${item.id}">Dossier</button>${canEditEquipment() ? `<br><button class="link-button" data-action="open-modal" data-modal="equipment" data-id="${item.id}">Modifier</button>` : ""}` : ""}</td>
             </tr>`;
           }).join("")}
         </tbody></table></div>`;
@@ -80,7 +80,7 @@
         const reminders = scopedReminders().filter((item) => item.equipmentId === equipment.id);
         const actionButtons = `
           <button class="ghost-button" data-action="go-back" data-fallback-view="equipements">Retour</button>
-          ${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
+          ${canEditEquipment() ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
           ${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Nouveau rappel</button>` : ""}
           ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvelle demande</button>` : ""}
           ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}`;
@@ -95,7 +95,7 @@
               <div class="panel"><div class="panel-header"><h2>Historique des interventions</h2></div><div class="panel-body timeline">${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrée.</div>`}</div></div>
               <div class="panel"><div class="panel-header"><h2>En cours</h2></div><div class="panel-body cards-list">${[...activeTickets.map((item) => ticketItem(item)), ...activeOrders.map((item) => workOrderItem(item))].join("") || `<div class="empty">Aucune demande ou intervention en cours pour cette machine.</div>`}</div></div>
               <div class="panel"><div class="panel-header"><h2>Rappels</h2>${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}</div><div class="panel-body cards-list">${reminders.map((item) => reminderItem(item, true, false)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}</div></div>
-              <div class="panel"><div class="panel-header"><h2>Photos et documents</h2></div><div class="panel-body cards-list">${(equipment.attachments || []).map((file) => attachmentItem(file)).join("") || `<div class="empty">Aucune photo ou document dans ce dossier machine.</div>`}</div></div>
+              <div class="panel"><div class="panel-header"><h2>Photos et documents</h2>${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipmentAttachment" data-equipment="${equipment.id}">Ajouter</button>` : ""}</div><div class="panel-body cards-list">${(equipment.attachments || []).map((file) => attachmentItem(file)).join("") || `<div class="empty">Aucune photo ou document dans ce dossier machine.</div>`}</div></div>
             </div>
           </section>`);
       }
@@ -115,6 +115,55 @@
             <div class="field"><label>Statut</label><select name="status">${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${equipment.status === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
             <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(equipment.notes || "")}</textarea></div><button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
           </form>`);
+      }
+
+      function equipmentAttachmentModal(modal) {
+        const equipment = state.equipment.find((item) => item.id === (modal.equipmentId || modal.id));
+        if (!equipment) return modalShell("Ajouter des fichiers", `<div class="empty">Équipement introuvable.</div>`);
+        return modalShell("Ajouter des photos ou documents", `
+          <form class="form-grid" data-form="equipmentAttachment" data-equipment-id="${escapeHtml(equipment.id)}">
+            <div class="field">
+              <label>Fichiers</label>
+              <input name="attachments" type="file" multiple required accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
+              <span class="meta">Maximum 3 fichiers, 15 MB par fichier.</span>
+            </div>
+            <button class="primary-button" type="submit">Ajouter au dossier</button>
+          </form>
+        `);
+      }
+
+      async function uploadEquipmentAttachments(form) {
+        const equipment = state.equipment.find((item) => item.id === form.dataset.equipmentId);
+        const files = Array.from(form.querySelector('[name="attachments"]')?.files || []);
+        if (!equipment || !files.length) return showToast("Sélectionnez au moins un fichier.");
+        if (files.length > 3) return showToast("Maximum 3 fichiers par envoi.");
+        const oversized = files.find((file) => file.size > documentsModule.limits.attachmentMaxBytes);
+        if (oversized) return showToast(`${oversized.name} dépasse 15 MB.`);
+        try {
+          let response = null;
+          for (const file of files) {
+            const formData = new FormData();
+            formData.append("kind", "equipmentAttachment");
+            formData.append("id", uid("file"));
+            formData.append("name", file.name);
+            formData.append("equipmentId", equipment.id);
+            formData.append("apartmentId", equipment.apartmentId || "");
+            formData.append("sourceApartmentId", equipment.apartmentId || "");
+            formData.append("sourceBuildingId", buildingForApartment(equipment.apartmentId)?.id || "");
+            formData.append("file", file);
+            response = await api.uploadFile(formData);
+          }
+          if (response?.state) {
+            acceptServerState(response.state, {
+              activeView: "detail",
+              selectedEquipmentId: equipment.id,
+              modal: null,
+              toast: files.length > 1 ? "Fichiers ajoutés au dossier." : "Fichier ajouté au dossier."
+            });
+          }
+        } catch (error) {
+          showToast(error.message || "Fichier non envoyé.");
+        }
       }
 
       async function createEquipment(values) {
@@ -143,7 +192,11 @@
         }
       }
 
-      return { createEquipment, equipmentDetailView, equipmentModal, equipmentTable, equipmentView, filteredEquipment, filtersBlock };
+      return {
+        createEquipment, equipmentAttachmentModal, equipmentDetailView, equipmentModal,
+        equipmentTable, equipmentView, filteredEquipment, filtersBlock,
+        uploadEquipmentAttachments
+      };
     }
   };
 })();

@@ -142,13 +142,12 @@
         return `
           <article class="list-item">
             <div class="actions" style="justify-content:space-between">
-              <button class="attachment-open" ${canPreview ? `data-action="preview-attachment" data-id="${file.id}"` : ""}>
+              <button class="attachment-open" ${canPreview ? `data-action="preview-attachment" data-hide-download="true" data-id="${file.id}"` : ""}>
                 <strong>${escapeHtml(file.name)}</strong>
                 <span>${attachmentTypeLabel(file)}</span>
               </button>
               <div class="actions">
-                ${canPreview ? `<button class="ghost-button" data-action="preview-attachment" data-id="${file.id}">Ouvrir</button>` : ""}
-                ${canPreview ? `<button class="ghost-button" data-action="download-attachment" data-id="${file.id}">Télécharger</button>` : ""}
+                ${canPreview ? `<button class="ghost-button" data-action="preview-attachment" data-hide-download="true" data-id="${file.id}">Ouvrir</button>` : ""}
               </div>
             </div>
             <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
@@ -178,6 +177,7 @@
         const type = inferFileType(file);
         const name = file.name || file.fileName || "Document";
         const url = state.modal?.fileUrl || file.dataUrl || "";
+        const allowDownload = state.modal?.allowDownload !== false;
         const preview = !url && file.storagePath
           ? `<div class="empty">Préparation de la prévisualisation...</div>`
           : type.startsWith("image/")
@@ -185,7 +185,7 @@
             : type === "application/pdf"
               ? `<iframe class="attachment-preview-frame" src="${escapeHtml(url)}" title="${escapeHtml(name)}"></iframe>`
               : isOfficeFile(type, name)
-                ? `<div class="empty"><strong>Document Office</strong><p>La prévisualisation intégrée n'est pas disponible pour Word, Excel ou PowerPoint. Téléchargez le fichier pour l'ouvrir dans votre application.</p></div>`
+                ? `<div class="empty"><strong>Document Office</strong><p>La prévisualisation intégrée n'est pas disponible pour Word, Excel ou PowerPoint.</p></div>`
                 : type.startsWith("video/")
                   ? `<video class="attachment-preview-video" controls src="${escapeHtml(url)}"></video>`
                   : type.startsWith("audio/")
@@ -198,23 +198,23 @@
             <div class="meta">Origine: ${escapeHtml(order?.number || "-")} | ${formatDate(file.uploadedAt)}</div>
             <div class="attachment-preview">${preview}</div>
             <div class="actions">
-              ${url ? `<a class="primary-button" href="${escapeHtml(url)}" download="${escapeHtml(file.fileName || name)}">Télécharger</a>` : ""}
+              ${url && allowDownload ? `<a class="primary-button" href="${escapeHtml(url)}" download="${escapeHtml(file.fileName || name)}">Télécharger</a>` : ""}
             </div>
           </div>
         `, "modal-card-wide attachment-preview-modal");
       }
 
-      async function openAttachmentPreview(fileId) {
+      async function openAttachmentPreview(fileId, allowDownload = true) {
         const file = findAttachment(fileId);
         if (!file) return;
         if (file.dataUrl && !file.storagePath) {
-          updateUiState({ modal: { type: "attachmentPreview", fileId } });
+          updateUiState({ modal: { type: "attachmentPreview", fileId, allowDownload } });
           return;
         }
-        updateUiState({ modal: { type: "attachmentPreview", fileId, fileUrl: "" } });
+        updateUiState({ modal: { type: "attachmentPreview", fileId, fileUrl: "", allowDownload } });
         try {
           const result = await api.getFileUrl(fileId);
-          updateUiState({ modal: { type: "attachmentPreview", fileId, fileUrl: result.url } });
+          updateUiState({ modal: { type: "attachmentPreview", fileId, fileUrl: result.url, allowDownload } });
         } catch (error) {
           updateUiState({ modal: null, toast: error.message || "Fichier non disponible." });
         }

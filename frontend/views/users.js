@@ -140,6 +140,7 @@
           clientAccessLevel: user.clientAccessLevel || (isClientUserForm ? "gestionnaire" : ""),
           allowedBuildingIds: user.allowedBuildingIds || [],
           portalRights: user.portalRights || [],
+          technicianPermissions: user.technicianPermissions || [],
           ...user
         };
         const clients = state.clients.map((client) => `<option value="${client.id}" ${effectiveUser.clientId === client.id ? "selected" : ""}>${escapeHtml(client.name)}</option>`).join("");
@@ -175,6 +176,13 @@
             </div>
             ${isClientUserForm ? `<div class="field"><label>Rôle</label><select name="clientAccessLevel">${clientRoleOptions}</select></div>` : ""}
             ${isClientManager ? "" : `<div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>`}
+            ${isClientUserForm ? "" : `<div class="field ${effectiveUser.role === "technicien" ? "" : "hidden"}" data-technician-permissions>
+              <label>Autorisations individuelles du technicien</label>
+              <div class="choice-list">
+                <label><input type="checkbox" name="technicianPermissions" value="edit_apartments" ${(effectiveUser.technicianPermissions || []).includes("edit_apartments") ? "checked" : ""} ${effectiveUser.role === "technicien" ? "" : "disabled"}> Modifier les appartements</label>
+                <label><input type="checkbox" name="technicianPermissions" value="edit_equipment" ${(effectiveUser.technicianPermissions || []).includes("edit_equipment") ? "checked" : ""} ${effectiveUser.role === "technicien" ? "" : "disabled"}> Modifier les équipements</label>
+              </div>
+            </div>`}
             ${isClientManager || effectiveUser.role === "client" ? `<div class="client-access-editor">
               <div class="split">
                 <div class="field"><label>Accès aux lieux</label><div class="choice-list"><label><input type="checkbox" name="allBuildings" value="1" ${!(effectiveUser.allowedBuildingIds || []).length ? "checked" : ""}> Tous les lieux autorisés</label>${clientBuildings}</div></div>
@@ -205,6 +213,9 @@
         const portalRights = role === "client"
           ? (selectedPortalRights.length ? selectedPortalRights : defaultPortalRights(values.clientAccessLevel || "gestionnaire").filter((right) => right !== "portal"))
           : [];
+        const technicianPermissions = role === "technicien"
+          ? Array.from(form.querySelectorAll('[name="technicianPermissions"]:checked')).map((input) => input.value)
+          : [];
         const previousUsers = JSON.parse(JSON.stringify(state.users));
         const existing = state.users.find((item) => item.id === values.id);
         if (existing) {
@@ -220,6 +231,7 @@
             clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
             allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
             portalRights,
+            technicianPermissions,
             parentUserId: existing.parentUserId || (isClientManager ? creator.id : ""),
             updatedAt: changedAt
           });
@@ -242,6 +254,7 @@
           clientAccessLevel: role === "client" ? values.clientAccessLevel || "gestionnaire" : "",
           allowedBuildingIds: role === "client" ? allowedBuildingIds : [],
           portalRights,
+          technicianPermissions,
           parentUserId: isClientManager ? creator.id : "",
           updatedAt: changedAt
         };

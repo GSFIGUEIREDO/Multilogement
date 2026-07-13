@@ -1411,7 +1411,7 @@
     const equipmentIds = scopedEquipment().map((item) => item.id);
     const buildingIds = scopedBuildings().map((building) => building.id);
     if (currentUser()?.role === "technicien") {
-      return state.workOrders.filter((order) => order.technicianId === currentUser().id || (order.assignedTechnicianIds || []).includes(currentUser().id));
+      return state.workOrders;
     }
     return state.workOrders.filter((order) => equipmentIds.includes(order.equipmentId) || buildingIds.includes(order.buildingId));
   }
@@ -4231,6 +4231,7 @@
       updateNewApartmentVisibility(event.target.closest("form"));
       updateRecommendationVisibility(event.target.closest("form"));
       updateTechnicianPermissionsVisibility(event.target.closest("form"));
+      updateUserAccessEditor(event.target.closest("form"), event.target.name === "clientId");
       if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
@@ -4347,6 +4348,37 @@
         input.disabled = !isTechnician;
       });
     });
+  }
+
+  function updateUserAccessEditor(form, clientChanged = false) {
+    if (!form || form.dataset.form !== "user") return;
+    const role = form.querySelector('[name="role"]')?.value || "";
+    const isClient = role === "client";
+    const clientId = form.querySelector('[name="clientId"]')?.value || "";
+
+    form.querySelectorAll("[data-client-role-section], [data-client-link-section], [data-client-access-section]").forEach((section) => {
+      section.classList.toggle("hidden", !isClient);
+      section.querySelectorAll("input, select, textarea").forEach((input) => {
+        input.disabled = !isClient;
+      });
+    });
+
+    let visibleBuildings = 0;
+    form.querySelectorAll("[data-user-building]").forEach((label) => {
+      const visible = isClient && Boolean(clientId) && label.dataset.clientId === clientId;
+      label.classList.toggle("hidden", !visible);
+      const input = label.querySelector("input");
+      if (input) {
+        input.disabled = !visible;
+        if (clientChanged && !visible) input.checked = false;
+      }
+      if (visible) visibleBuildings += 1;
+    });
+    const empty = form.querySelector("[data-no-user-buildings]");
+    if (empty) {
+      empty.textContent = clientId ? "Aucun lieu disponible pour ce client." : "Sélectionnez d'abord un client.";
+      empty.classList.toggle("hidden", !isClient || visibleBuildings > 0);
+    }
   }
 
   function currentBuilderFields(form) {

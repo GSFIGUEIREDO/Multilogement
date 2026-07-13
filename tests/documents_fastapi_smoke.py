@@ -330,6 +330,35 @@ def run() -> None:
         assert uploaded_attachment.status_code == 200, uploaded_attachment.text
         assert uploaded_attachment.json()["file"]["id"] == "file-tech"
 
+        direct_equipment_attachment = tech_client.post(
+            "/api/file-upload",
+            data={
+                "kind": "equipmentAttachment",
+                "id": "file-equipment-tech",
+                "name": "Photo dossier machine",
+                "apartmentId": "apt-a",
+                "equipmentId": "eq-a",
+            },
+            files={"file": ("dossier.jpg", b"equipment-image", "image/jpeg")},
+        )
+        assert direct_equipment_attachment.status_code == 200, direct_equipment_attachment.text
+        assert equipment_attachment_row("file-equipment-tech") is not None
+        equipment = next(item for item in current_state()["equipment"] if item["id"] == "eq-a")
+        assert any(item.get("id") == "file-equipment-tech" for item in equipment.get("attachments", []))
+
+        forbidden_equipment_attachment = tech_client.post(
+            "/api/file-upload",
+            data={
+                "kind": "equipmentAttachment",
+                "id": "file-equipment-forbidden",
+                "name": "Photo interdite",
+                "apartmentId": "apt-b",
+                "equipmentId": "eq-b",
+            },
+            files={"file": ("forbidden.jpg", b"equipment-image", "image/jpeg")},
+        )
+        assert forbidden_equipment_attachment.status_code == 403, forbidden_equipment_attachment.text
+
     print("documents_fastapi_smoke: ok")
 
 

@@ -154,6 +154,7 @@ def run() -> None:
                     "email": "created@test.local",
                     "password": "Created12345",
                     "role": "technicien",
+                    "technicianPermissions": ["edit_apartments"],
                 }
             },
         )
@@ -165,6 +166,7 @@ def run() -> None:
         assert profile is not None
         profile_payload = json.loads(profile["payload"])
         assert profile_payload["name"] == "Created User"
+        assert profile_payload["technicianPermissions"] == ["edit_apartments"]
         assert "password" not in profile_payload
         assert {item["id"] for item in raw_state()["users"]} == original_user_ids
 
@@ -177,12 +179,14 @@ def run() -> None:
                     "email": "created@test.local",
                     "password": "",
                     "role": "technicien",
+                    "technicianPermissions": ["edit_apartments", "edit_equipment"],
                 }
             },
         )
         assert updated.status_code == 200, updated.text
         assert updated.json()["user"]["name"] == "Created User Updated"
         assert json.loads(profile_row("u-created")["payload"])["name"] == "Created User Updated"
+        assert json.loads(profile_row("u-created")["payload"])["technicianPermissions"] == ["edit_apartments", "edit_equipment"]
         assert {item["id"] for item in raw_state()["users"]} == original_user_ids
         assert_no_key(current_state(), "password")
 

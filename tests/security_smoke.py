@@ -27,7 +27,7 @@ import server  # noqa: E402
 from backend.auth_services import AuthService, PasswordResetService  # noqa: E402
 import backend.file_storage as file_storage  # noqa: E402
 from backend.file_storage import FileService, SupabaseStorageBackend, migrate_legacy_data_urls  # noqa: E402
-from backend.security import filter_state_for_user  # noqa: E402
+from backend.security import can_save_collection, filter_state_for_user  # noqa: E402
 from backend.services import EquipmentService, InterventionService, ServiceError, WorkOrderService  # noqa: E402
 
 
@@ -203,6 +203,26 @@ def run() -> None:
     filtered_tech = filter_state_for_user(current_state(), tech)
     assert {item["id"] for item in filtered_tech["workOrders"]} == {"wo-a"}
     assert {item["id"] for item in filtered_tech["interventions"]} == {"int-a"}
+
+    technician_state = current_state()
+    assert can_save_collection(
+        technician_state,
+        tech,
+        "equipment",
+        {"id": "eq-new-tech", "apartmentId": "apt-a", "type": "PTAC", "serial": "NEW"},
+    )
+    existing_equipment = next(item for item in technician_state["equipment"] if item["id"] == "eq-a")
+    assert can_save_collection(technician_state, tech, "equipment", {**existing_equipment, "status": "surveillance"})
+    assert not can_save_collection(technician_state, tech, "equipment", {**existing_equipment, "serial": "CHANGED"})
+    existing_apartment = next(item for item in technician_state["apartments"] if item["id"] == "apt-a")
+    assert not can_save_collection(technician_state, tech, "apartments", {**existing_apartment, "number": "102"})
+    assert can_save_collection(technician_state, tech, "apartments", {"id": "apt-new-tech", "buildingId": "b-a", "number": "103"})
+    next(item for item in technician_state["users"] if item["id"] == "u-tech")["technicianPermissions"] = [
+        "edit_apartments",
+        "edit_equipment",
+    ]
+    assert can_save_collection(technician_state, tech, "equipment", {**existing_equipment, "serial": "AUTHORIZED"})
+    assert can_save_collection(technician_state, tech, "apartments", {**existing_apartment, "number": "104"})
 
     bad_work_order = {"id": "wo-b", "number": "BT-B", "buildingId": "b-b", "apartmentId": "apt-b", "equipmentId": "eq-b", "status": "Terminee"}
     assert_raises_status(HTTPStatus.FORBIDDEN, lambda: WorkOrderService().save(tech, bad_work_order))

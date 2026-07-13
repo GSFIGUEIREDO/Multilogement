@@ -39,6 +39,64 @@ for (const method of [
   }
 }
 
+const userFixtureState = {
+  users: [{
+    id: "u-client-a",
+    name: "Client A",
+    email: "client-a@test.local",
+    role: "client",
+    clientId: "client-a",
+    clientAccessLevel: "gestionnaire",
+    allowedBuildingIds: ["b-a"],
+    portalRights: ["portal", "lieux"]
+  }],
+  clients: [
+    { id: "client-a", name: "Client A" },
+    { id: "client-b", name: "Client B" }
+  ],
+  buildings: [
+    { id: "b-a", clientId: "client-a", name: "Lieu A" },
+    { id: "b-b", clientId: "client-b", name: "Lieu B" }
+  ],
+  roleDefinitions: [
+    { id: "administrateur", name: "Administrateur" },
+    { id: "technicien", name: "Technicien" },
+    { id: "client", name: "Client" }
+  ]
+};
+const escapeHtml = (value) => String(value ?? "");
+const userFixtureView = window.ClimaParcUsersView.create({
+  getState: () => userFixtureState,
+  currentUser: () => ({ id: "u-admin", role: "administrateur" }),
+  scopedBuildings: () => userFixtureState.buildings,
+  clientPortalRights: (user) => user.portalRights || [],
+  portalRightsCatalog: () => [["lieux", "Voir lieux"]],
+  defaultPortalRights: () => ["portal", "lieux"],
+  modalShell: (_title, body) => body,
+  escapeHtml,
+  roleLabel: (role) => role,
+  uid: (prefix) => `${prefix}-test`,
+  updateUiState: () => {},
+  saveUserNow: async () => {},
+  showToast: () => {},
+  acceptServerState: () => {},
+  api: {}
+});
+const existingClientModal = userFixtureView.userModal({ id: "u-client-a" });
+if (!existingClientModal.includes('data-user-profile') || !existingClientModal.includes('data-client-access-section')) {
+  throw new Error("L'éditeur utilisateur unifié doit contenir le profil et les accès client.");
+}
+if (!existingClientModal.includes('data-client-id="client-a" class=""><input type="checkbox" name="allowedBuildingIds" value="b-a" checked')) {
+  throw new Error("Le lieu du client lié doit être visible et sélectionné.");
+}
+if (!existingClientModal.includes('data-client-id="client-b" class="hidden"><input type="checkbox" name="allowedBuildingIds" value="b-b"  disabled')) {
+  throw new Error("Les lieux d'un autre client doivent être masqués et désactivés.");
+}
+const newClientBModal = userFixtureView.userModal({ clientId: "client-b" });
+if (!newClientBModal.includes('data-client-id="client-b" class=""><input type="checkbox" name="allowedBuildingIds" value="b-b"')) {
+  throw new Error("Changer le client lié doit préparer les lieux correspondants.");
+}
+
 for (const method of [
   "formTemplateModal",
   "saveFormTemplate",

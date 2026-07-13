@@ -44,7 +44,8 @@ def base_state() -> dict:
                 "role": "client",
                 "clientId": "client-a",
                 "clientAccessLevel": "gestionnaire",
-                "portalRights": ["portal", "lieux", "equipment", "tickets", "workorders", "recommendations", "documents"],
+                # Legacy profiles did not always persist the technical portal flag.
+                "portalRights": ["lieux", "equipment", "tickets", "workorders", "recommendations", "documents"],
             },
             {
                 "id": "u-client-b",
@@ -201,8 +202,10 @@ def run() -> None:
     assert "delay" not in filtered_recommendation
 
     filtered_tech = filter_state_for_user(current_state(), tech)
-    assert {item["id"] for item in filtered_tech["workOrders"]} == {"wo-a"}
-    assert {item["id"] for item in filtered_tech["interventions"]} == {"int-a"}
+    assert {item["id"] for item in filtered_tech["buildings"]} == {"b-a", "b-b"}
+    assert {item["id"] for item in filtered_tech["equipment"]} == {"eq-a", "eq-b"}
+    assert {item["id"] for item in filtered_tech["workOrders"]} == {"wo-a", "wo-b"}
+    assert {item["id"] for item in filtered_tech["interventions"]} == {"int-a", "int-b"}
 
     technician_state = current_state()
     assert can_save_collection(

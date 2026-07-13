@@ -183,8 +183,8 @@ def run() -> None:
         assert response.status_code == 200, response.text
         payload = response.json()
         assert payload["audience"] == "technician"
-        assert {item["id"] for item in payload["context"]["workOrders"]} == {"wo-a"}
-        assert {item["id"] for item in payload["context"]["equipment"]} == {"eq-a"}
+        assert {item["id"] for item in payload["context"]["workOrders"]} == {"wo-a", "wo-b"}
+        assert {item["id"] for item in payload["context"]["equipment"]} == {"eq-a", "eq-b"}
 
     print("reports_fastapi_smoke: ok")
 

@@ -346,18 +346,20 @@ def run() -> None:
         equipment = next(item for item in current_state()["equipment"] if item["id"] == "eq-a")
         assert any(item.get("id") == "file-equipment-tech" for item in equipment.get("attachments", []))
 
-        forbidden_equipment_attachment = tech_client.post(
+        other_equipment_attachment = tech_client.post(
             "/api/file-upload",
             data={
                 "kind": "equipmentAttachment",
-                "id": "file-equipment-forbidden",
-                "name": "Photo interdite",
+                "id": "file-equipment-other",
+                "name": "Photo autre machine",
                 "apartmentId": "apt-b",
                 "equipmentId": "eq-b",
             },
-            files={"file": ("forbidden.jpg", b"equipment-image", "image/jpeg")},
+            files={"file": ("other.jpg", b"equipment-image", "image/jpeg")},
         )
-        assert forbidden_equipment_attachment.status_code == 403, forbidden_equipment_attachment.text
+        assert other_equipment_attachment.status_code == 200, other_equipment_attachment.text
+        other_equipment = next(item for item in current_state()["equipment"] if item["id"] == "eq-b")
+        assert any(item.get("id") == "file-equipment-other" for item in other_equipment.get("attachments", []))
 
     print("documents_fastapi_smoke: ok")
 

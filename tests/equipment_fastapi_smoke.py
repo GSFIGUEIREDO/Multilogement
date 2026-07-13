@@ -208,11 +208,12 @@ def run() -> None:
         assert row_get(equipment_row("eq-tech"), "serial") == "TECH-1"
         assert raw_equipment() == before_raw_equipment
 
-        blocked = tech_client.post(
+        other_building = tech_client.post(
             "/api/equipment",
-            json={"equipment": {"id": "eq-tech-blocked", "apartmentId": "apt-b", "type": "PTAC"}},
+            json={"equipment": {"id": "eq-tech-other", "apartmentId": "apt-b", "type": "PTAC"}},
         )
-        assert blocked.status_code == 403, blocked.text
+        assert other_building.status_code == 200, other_building.text
+        assert equipment_payload("eq-tech-other")["apartmentId"] == "apt-b"
 
     print("equipment_fastapi_smoke: ok")
 

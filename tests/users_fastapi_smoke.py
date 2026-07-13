@@ -205,11 +205,36 @@ def run() -> None:
         )
         assert duplicate.status_code == 409, duplicate.text
 
+        scoped_client = admin_client.post(
+            "/api/user",
+            json={
+                "user": {
+                    "id": "u-client-scoped",
+                    "name": "Scoped Client",
+                    "email": "scoped@test.local",
+                    "password": "Scoped12345",
+                    "role": "client",
+                    "clientId": "client-a",
+                    "clientAccessLevel": "gestionnaire",
+                    "allowedBuildingIds": ["b-a"],
+                    "portalRights": ["lieux", "equipment"],
+                }
+            },
+        )
+        assert scoped_client.status_code == 200, scoped_client.text
+        scoped_profile = json.loads(profile_row("u-client-scoped")["payload"])
+        assert scoped_profile["clientId"] == "client-a"
+        assert scoped_profile["allowedBuildingIds"] == ["b-a"]
+
         self_delete = admin_client.post("/api/user-delete", json={"userId": "u-admin"})
         assert self_delete.status_code == 400, self_delete.text
 
     with TestClient(app) as created_client:
         login(created_client, "created@test.local", "Created12345")
+
+    with TestClient(app) as scoped_client_session:
+        scoped_login = login(scoped_client_session, "scoped@test.local", "Scoped12345")
+        assert {item["id"] for item in scoped_login.json()["state"]["buildings"]} == {"b-a"}
 
     with TestClient(app) as manager_client:
         login(manager_client, "manager@test.local", "Manager12345")

@@ -639,9 +639,11 @@
       clientAccessLevel: user.role === "client" ? "direction" : "",
       allowedBuildingIds: [],
       portalRights: [],
+      technicianPermissions: [],
       parentUserId: "",
       ...user,
-      portalRights: normalizePortalRights(user.portalRights || [])
+      portalRights: normalizePortalRights(user.portalRights || []),
+      technicianPermissions: Array.from(new Set((user.technicianPermissions || []).filter(Boolean)))
     }));
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
@@ -1294,7 +1296,27 @@
   }
 
   function canCreateWorkOrders() {
-    return currentUser()?.role !== "client" && can("workorders");
+    return ["administrateur", "equipe_interne"].includes(currentUser()?.role) && can("workorders");
+  }
+
+  function hasTechnicianPermission(permission, user = currentUser()) {
+    return user?.role === "technicien" && (user.technicianPermissions || []).includes(permission);
+  }
+
+  function canManageBuildings() {
+    return ["administrateur", "equipe_interne"].includes(currentUser()?.role) && can("lieux");
+  }
+
+  function canEditApartments() {
+    const user = currentUser();
+    if (user?.role === "technicien") return can("lieux") && hasTechnicianPermission("edit_apartments", user);
+    return user?.role !== "client" && can("lieux");
+  }
+
+  function canEditEquipment() {
+    const user = currentUser();
+    if (user?.role === "technicien") return can("equipment") && hasTechnicianPermission("edit_equipment", user);
+    return user?.role !== "client" && can("equipment");
   }
 
   function portalRightsCatalog() {
@@ -1971,6 +1993,8 @@
     renderTopbar,
     currentUser,
     can,
+    canManageBuildings,
+    canEditApartments,
     scopedBuildings,
     apartmentsForBuilding,
     equipmentForApartment,
@@ -2046,13 +2070,15 @@
   }
 
   const equipmentViewModule = window.ClimaParcEquipmentView.create({
-    getState: () => state, appShell, renderTopbar, currentUser, can,
+    getState: () => state, api, appShell, renderTopbar, currentUser, can,
+    canEditEquipment,
     canCreateWorkOrders, canEditReminders, scopedEquipment, scopedBuildings,
     scopedApartments, scopedReminders, equipmentContext, formatDate, escapeHtml,
     unitKindLabel, statusBadge, interventionItem, ticketItem, workOrderItem,
     reminderItem, attachmentItem, modalShell, normalizeActivityFields,
     dataFieldOptionsForSelect, buildingForApartment, comboInput, activityOptions,
-    today, uid, updateUiState, saveEquipmentNow
+    today, uid, updateUiState, saveEquipmentNow, documentsModule,
+    acceptServerState, showToast
   });
 
   function filteredEquipment() { return equipmentViewModule.filteredEquipment(); }
@@ -2106,8 +2132,8 @@
     return documentsViewModule.attachmentPreviewModal(fileId);
   }
 
-  async function openAttachmentPreview(fileId) {
-    return documentsViewModule.openAttachmentPreview(fileId);
+  async function openAttachmentPreview(fileId, allowDownload = true) {
+    return documentsViewModule.openAttachmentPreview(fileId, allowDownload);
   }
 
   async function downloadAttachment(fileId) {
@@ -2484,6 +2510,7 @@
     if (modal.type === "building") return buildingModal(modal);
     if (modal.type === "apartment") return apartmentModal(modal);
     if (modal.type === "equipment") return equipmentModal(modal);
+    if (modal.type === "equipmentAttachment") return equipmentViewModule.equipmentAttachmentModal(modal);
     if (modal.type === "reminder") return reminderModal(modal);
     if (modal.type === "user") return userModal(modal);
     if (modal.type === "serviceType") return serviceTypeModal(modal);
@@ -2968,6 +2995,7 @@
     if (formType === "ticket") await createTicket(form, values);
     if (formType === "workorder") await createWorkOrder(form, values);
     if (formType === "equipment") await createEquipment(values);
+    if (formType === "equipmentAttachment") await equipmentViewModule.uploadEquipmentAttachments(form);
     if (formType === "reminder") await saveReminder(form, values);
     if (formType === "user") await createUser(form, values);
     if (formType === "dataField") await saveDataField(form, values);
@@ -3738,6 +3766,7 @@
       for (const file of files) {
         const formData = new FormData();
         formData.append("kind", "interventionAttachment");
+        formData.append("id", uid("file"));
         formData.append("name", file.name);
         formData.append("apartmentId", apartmentId || "");
         formData.append("equipmentId", equipmentId || "");
@@ -3969,6 +3998,18 @@
           updateUiState({ toast: "Accès réservé à l'équipe interne." });
           return;
         }
+        if (target.dataset.modal === "building" && !canManageBuildings()) {
+          updateUiState({ toast: "Droits insuffisants pour modifier ce lieu." });
+          return;
+        }
+        if (target.dataset.modal === "apartment" && target.dataset.id && !canEditApartments()) {
+          updateUiState({ toast: "Droits insuffisants pour modifier cet appartement." });
+          return;
+        }
+        if (target.dataset.modal === "equipment" && target.dataset.id && !canEditEquipment()) {
+          updateUiState({ toast: "Droits insuffisants pour modifier cet équipement." });
+          return;
+        }
         updateUiState({ modal: {
           type: target.dataset.modal,
           id: target.dataset.id || null,
@@ -4005,7 +4046,7 @@
         updateUiState({ selectedExecutionApartmentId: target.dataset.id });
       }
       if (action === "preview-attachment") {
-        openAttachmentPreview(target.dataset.id);
+        openAttachmentPreview(target.dataset.id, target.dataset.hideDownload !== "true");
         return;
       }
       if (action === "download-attachment") {
@@ -4013,6 +4054,7 @@
         return;
       }
       if (action === "toggle-dashboard-edit") {
+        if (!["administrateur", "equipe_interne"].includes(currentUser()?.role)) return;
         updateUiState({ dashboardEditMode: !state.dashboardEditMode });
         return;
       }
@@ -4188,6 +4230,7 @@
       updateDynamicVisibility(event.target.closest("form"));
       updateNewApartmentVisibility(event.target.closest("form"));
       updateRecommendationVisibility(event.target.closest("form"));
+      updateTechnicianPermissionsVisibility(event.target.closest("form"));
       if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
@@ -4293,6 +4336,17 @@
 
   async function duplicateFormTemplate(id) {
     return formBuilderModule.duplicateFormTemplate(id);
+  }
+
+  function updateTechnicianPermissionsVisibility(form) {
+    if (!form || form.dataset.form !== "user") return;
+    const isTechnician = form.querySelector('[name="role"]')?.value === "technicien";
+    form.querySelectorAll("[data-technician-permissions]").forEach((section) => {
+      section.classList.toggle("hidden", !isTechnician);
+      section.querySelectorAll("input").forEach((input) => {
+        input.disabled = !isTechnician;
+      });
+    });
   }
 
   function currentBuilderFields(form) {

@@ -15,6 +15,7 @@ PUBLIC_USER_KEYS = {
     "clientAccessLevel",
     "allowedBuildingIds",
     "portalRights",
+    "technicianPermissions",
     "parentUserId",
     "updatedAt",
     "serverUpdatedAt",
@@ -228,6 +229,17 @@ def technician_scopes(state: dict, user: dict) -> tuple[set[str], set[str], set[
     return work_order_ids, building_ids, apartment_ids, equipment_ids
 
 
+def technician_permissions(user: dict) -> set[str]:
+    permissions = user.get("technicianPermissions")
+    if not isinstance(permissions, list):
+        return set()
+    return {str(permission) for permission in permissions if permission}
+
+
+def has_technician_permission(user: dict, permission: str) -> bool:
+    return user.get("role") == "technicien" and permission in technician_permissions(user)
+
+
 def empty_response_state(state: dict) -> dict:
     response = copy.deepcopy(state)
     for key in COLLECTION_KEYS:
@@ -376,7 +388,23 @@ def can_save_collection(state: dict, current_user_row: Any, collection_key: str,
                 not item.get("equipmentId") or item.get("equipmentId") in equipment_ids
             )
         if collection_key == "equipment":
-            return item.get("apartmentId") in apartment_ids
+            existing = next(
+                (equipment for equipment in state.get("equipment", []) if isinstance(equipment, dict) and equipment.get("id") == item.get("id")),
+                None,
+            )
+            protected_fields = {"apartmentId", "unitKind", "type", "brand", "model", "serial", "location", "installDate"}
+            protected_change = bool(existing) and any(item.get(key) != existing.get(key) for key in protected_fields)
+            return item.get("apartmentId") in apartment_ids and (
+                not existing or not protected_change or has_technician_permission(user, "edit_equipment")
+            )
+        if collection_key == "apartments":
+            existing = next(
+                (apartment for apartment in state.get("apartments", []) if isinstance(apartment, dict) and apartment.get("id") == item.get("id")),
+                None,
+            )
+            return item.get("buildingId") in building_ids and (
+                not existing or has_technician_permission(user, "edit_apartments")
+            )
         if collection_key == "workOrders":
             existing = next((order for order in state.get("workOrders", []) if isinstance(order, dict) and order.get("id") == item.get("id")), None)
             return bool(existing and order_assigned_to_user(existing, user.get("id")))

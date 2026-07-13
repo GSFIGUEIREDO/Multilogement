@@ -61,5 +61,30 @@ class UploadFileUseCase:
             self.payload_repository.upsert_client_document(metadata)
             state = self.state_repository.get(lock=False) or state
             clear_ui_state(state)
+        elif metadata.get("kind") == "equipmentAttachment":
+            equipment = next(
+                (
+                    item for item in state.get("equipment", [])
+                    if isinstance(item, dict) and item.get("id") == metadata.get("equipmentId")
+                ),
+                None,
+            )
+            if not equipment:
+                raise ApplicationError("Equipement introuvable.", HTTPStatus.NOT_FOUND)
+            attachments = equipment.setdefault("attachments", [])
+            if not isinstance(attachments, list):
+                attachments = []
+                equipment["attachments"] = attachments
+            file_index = next(
+                (index for index, item in enumerate(attachments) if isinstance(item, dict) and item.get("id") == metadata["id"]),
+                -1,
+            )
+            if file_index >= 0:
+                attachments[file_index] = {**attachments[file_index], **metadata}
+            else:
+                attachments.append(metadata)
+            self.payload_repository.upsert_equipment(equipment)
+            state = self.state_repository.get(lock=False) or state
+            clear_ui_state(state)
 
         return {"ok": True, "file": metadata, "state": filter_state_for_user(state, command.current_user)}

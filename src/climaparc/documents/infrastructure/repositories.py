@@ -4,7 +4,7 @@ from backend.database import connect, execute, row_get
 from backend.file_storage import StorageBackend, storage_backend
 from backend.repositories import EquipmentRepository, PayloadTableRepository, decode_payload
 from backend.repositories import StateRepository as LegacyStateRepository
-from backend.sync_services import rel_table
+from backend.sync_services import rel_table, sync_equipment_attachments
 
 
 CLIENT_DOCUMENTS_TABLE = "climaparc_client_documents"
@@ -69,6 +69,7 @@ class DatabaseDocumentPayloadRepository:
     def upsert_equipment(self, equipment: dict) -> None:
         with connect() as connection:
             self.equipment.upsert(connection, equipment)
+            sync_equipment_attachments(connection, [equipment])
 
     def upsert_intervention(self, intervention: dict) -> None:
         with connect() as connection:

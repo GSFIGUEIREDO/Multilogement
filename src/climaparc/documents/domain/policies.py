@@ -22,6 +22,7 @@ from backend.security import (
     filter_state_for_user,
     requester_from_state,
     require_can_save_collection,
+    technician_scopes,
 )
 from src.climaparc.shared.domain.errors import ApplicationError
 
@@ -101,9 +102,20 @@ def authorize_upload(state: dict, current_user_row: Any, metadata: dict) -> None
     requester = requester_from_state(state, current_user_row)
     role = requester.get("role")
     kind = metadata.get("kind")
+    if kind == "equipmentAttachment" and not any(
+        isinstance(item, dict) and item.get("id") == metadata.get("equipmentId")
+        for item in state.get("equipment", [])
+    ):
+        raise ApplicationError("Equipement introuvable.", HTTPStatus.NOT_FOUND)
     if role in {"administrateur", "equipe_interne"}:
         return
     if kind == "clientDocument":
+        raise ApplicationError("Droits insuffisants.", HTTPStatus.FORBIDDEN)
+    if kind == "equipmentAttachment":
+        if role == "technicien":
+            _, _, _, equipment_ids = technician_scopes(state, requester)
+            if metadata.get("equipmentId") in equipment_ids:
+                return
         raise ApplicationError("Droits insuffisants.", HTTPStatus.FORBIDDEN)
     try:
         require_can_save_collection(

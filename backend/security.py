@@ -148,7 +148,9 @@ def requester_from_state(state: dict, current_user_row: Any) -> dict:
 def client_rights(user: dict) -> set[str]:
     explicit = user.get("portalRights")
     if isinstance(explicit, list) and explicit:
-        return normalize_rights(explicit)
+        # Client accounts always use the portal. Older profiles were saved
+        # without the technical ``portal`` flag, so keep them compatible.
+        return {"portal", *normalize_rights(explicit)}
     return normalize_rights(CLIENT_RIGHT_DEFAULTS.get(user.get("clientAccessLevel") or "direction", CLIENT_RIGHT_DEFAULTS["gestionnaire"]))
 
 
@@ -204,7 +206,7 @@ def order_assigned_to_user(order: dict, user_id: str | None) -> bool:
     return str(user_id) in assigned
 
 
-def technician_scopes(state: dict, user: dict) -> tuple[set[str], set[str], set[str], set[str]]:
+def technician_assignment_scopes(state: dict, user: dict) -> tuple[set[str], set[str], set[str], set[str]]:
     work_order_ids: set[str] = set()
     building_ids: set[str] = set()
     equipment_ids: set[str] = set()
@@ -226,6 +228,29 @@ def technician_scopes(state: dict, user: dict) -> tuple[set[str], set[str], set[
     for apartment in state.get("apartments", []):
         if isinstance(apartment, dict) and apartment.get("id") in apartment_ids and apartment.get("buildingId"):
             building_ids.add(apartment.get("buildingId"))
+    return work_order_ids, building_ids, apartment_ids, equipment_ids
+
+
+def technician_scopes(state: dict, user: dict) -> tuple[set[str], set[str], set[str], set[str]]:
+    # Technicians need read access to the complete operational park. Mutation
+    # rules remain enforced independently by can_save_collection and the
+    # technician's explicit edit permissions.
+    work_order_ids = {
+        item.get("id") for item in state.get("workOrders", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    building_ids = {
+        item.get("id") for item in state.get("buildings", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    apartment_ids = {
+        item.get("id") for item in state.get("apartments", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    equipment_ids = {
+        item.get("id") for item in state.get("equipment", [])
+        if isinstance(item, dict) and item.get("id")
+    }
     return work_order_ids, building_ids, apartment_ids, equipment_ids
 
 
@@ -382,10 +407,11 @@ def can_save_collection(state: dict, current_user_row: Any, collection_key: str,
             )
         return False
     if role == "technicien":
-        work_order_ids, building_ids, apartment_ids, equipment_ids = technician_scopes(state, user)
+        assigned_work_order_ids, _, _, assigned_equipment_ids = technician_assignment_scopes(state, user)
+        _, building_ids, apartment_ids, equipment_ids = technician_scopes(state, user)
         if collection_key == "interventions":
-            return item.get("workOrderId") in work_order_ids and (
-                not item.get("equipmentId") or item.get("equipmentId") in equipment_ids
+            return item.get("workOrderId") in assigned_work_order_ids and (
+                not item.get("equipmentId") or item.get("equipmentId") in assigned_equipment_ids
             )
         if collection_key == "equipment":
             existing = next(

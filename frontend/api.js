@@ -68,6 +68,9 @@
     saveIntervention(intervention) {
       return post("/api/intervention", { intervention });
     },
+    saveFieldIntervention(apartment, equipment, intervention, workOrder, replacement) {
+      return post("/api/field-intervention", { apartment: apartment || null, equipment, intervention, workOrder, replacement: replacement || null });
+    },
     saveReminder(reminder) {
       return post("/api/reminder", { reminder });
     },

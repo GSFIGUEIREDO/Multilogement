@@ -133,11 +133,13 @@
       function userModal(modal) {
         const user = state.users.find((item) => item.id === modal.id) || {};
         const isClientManager = currentUser()?.role === "client";
-        const isClientUserForm = isClientManager || user.role === "client" || Boolean(modal.clientId);
+        const initialRole = isClientManager || user.role === "client" || Boolean(modal.clientId)
+          ? "client"
+          : user.role || "administrateur";
         const effectiveUser = {
-          role: isClientUserForm ? "client" : user.role,
+          role: initialRole,
           clientId: isClientManager ? currentUser().clientId : user.clientId || modal.clientId || "",
-          clientAccessLevel: user.clientAccessLevel || (isClientUserForm ? "gestionnaire" : ""),
+          clientAccessLevel: user.clientAccessLevel || (initialRole === "client" ? "gestionnaire" : ""),
           allowedBuildingIds: user.allowedBuildingIds || [],
           portalRights: user.portalRights || [],
           technicianPermissions: user.technicianPermissions || [],
@@ -151,10 +153,10 @@
           ["gestionnaire", "Gestionnaire de lieu"],
           ["maintenance", "Maintenance client"]
         ].map(([value, label]) => `<option value="${value}" ${effectiveUser.clientAccessLevel === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
-        const clientBuildings = (isClientManager ? scopedBuildings() : state.buildings.filter((building) => building.clientId === effectiveUser.clientId || !effectiveUser.clientId))
+        const clientBuildings = (isClientManager ? scopedBuildings() : state.buildings)
           .map((building) => `
-            <label><input type="checkbox" name="allowedBuildingIds" value="${escapeHtml(building.id)}" ${(effectiveUser.allowedBuildingIds || []).includes(building.id) ? "checked" : ""}> ${escapeHtml(building.name)}</label>
-          `).join("") || `<span class="meta">Aucun lieu disponible.</span>`;
+            <label data-user-building data-client-id="${escapeHtml(building.clientId || "")}" class="${building.clientId === effectiveUser.clientId ? "" : "hidden"}"><input type="checkbox" name="allowedBuildingIds" value="${escapeHtml(building.id)}" ${(effectiveUser.allowedBuildingIds || []).includes(building.id) ? "checked" : ""} ${building.clientId === effectiveUser.clientId ? "" : "disabled"}> ${escapeHtml(building.name)}</label>
+          `).join("");
         const rights = clientPortalRights(effectiveUser);
         const portalChecks = portalRightsCatalog().map(([right, label]) => `
           <label><input type="checkbox" name="portalRights" value="${escapeHtml(right)}" ${rights.includes(right) ? "checked" : ""}> ${escapeHtml(label)}</label>
@@ -163,32 +165,32 @@
           <form class="form-grid" data-form="user">
             <input type="hidden" name="id" value="${escapeHtml(user.id || "")}">
             ${isClientManager ? `<input type="hidden" name="clientId" value="${escapeHtml(currentUser().clientId || "")}">` : ""}
-            ${isClientUserForm ? `<input type="hidden" name="role" value="client">` : ""}
+            ${isClientManager ? `<input type="hidden" name="role" value="client">` : ""}
             <div class="split">
               <div class="field"><label>Nom</label><input name="name" value="${escapeHtml(user.name || "")}" required></div>
               <div class="field"><label>Courriel</label><input name="email" type="email" value="${escapeHtml(user.email || "")}" required></div>
             </div>
             <div class="split">
               <div class="field"><label>Mot de passe</label><input name="password" ${user.id ? `value="" placeholder="Laisser vide pour conserver"` : `value="temp123" required`}></div>
-              ${isClientUserForm
+              ${isClientManager
                 ? `<div class="field"><label>Profil</label><input value="Client" readonly></div>`
-                : `<div class="field"><label>Profil</label><select name="role">${roles}</select></div>`}
+                : `<div class="field"><label>Profil</label><select name="role" data-user-profile>${roles}</select></div>`}
             </div>
-            ${isClientUserForm ? `<div class="field"><label>Rôle</label><select name="clientAccessLevel">${clientRoleOptions}</select></div>` : ""}
-            ${isClientManager ? "" : `<div class="field"><label>Client lié</label><select name="clientId"><option value="">Aucun</option>${clients}</select></div>`}
-            ${isClientUserForm ? "" : `<div class="field ${effectiveUser.role === "technicien" ? "" : "hidden"}" data-technician-permissions>
+            <div class="field ${effectiveUser.role === "client" ? "" : "hidden"}" data-client-role-section><label>Rôle</label><select name="clientAccessLevel" ${effectiveUser.role === "client" ? "" : "disabled"}>${clientRoleOptions}</select></div>
+            ${isClientManager ? "" : `<div class="field ${effectiveUser.role === "client" ? "" : "hidden"}" data-client-link-section><label>Client lié</label><select name="clientId" data-user-client ${effectiveUser.role === "client" ? "" : "disabled"}><option value="">Aucun</option>${clients}</select></div>`}
+            ${isClientManager ? "" : `<div class="field ${effectiveUser.role === "technicien" ? "" : "hidden"}" data-technician-permissions>
               <label>Autorisations individuelles du technicien</label>
               <div class="choice-list">
                 <label><input type="checkbox" name="technicianPermissions" value="edit_apartments" ${(effectiveUser.technicianPermissions || []).includes("edit_apartments") ? "checked" : ""} ${effectiveUser.role === "technicien" ? "" : "disabled"}> Modifier les appartements</label>
                 <label><input type="checkbox" name="technicianPermissions" value="edit_equipment" ${(effectiveUser.technicianPermissions || []).includes("edit_equipment") ? "checked" : ""} ${effectiveUser.role === "technicien" ? "" : "disabled"}> Modifier les équipements</label>
               </div>
             </div>`}
-            ${isClientManager || effectiveUser.role === "client" ? `<div class="client-access-editor">
+            <div class="client-access-editor ${effectiveUser.role === "client" ? "" : "hidden"}" data-client-access-section>
               <div class="split">
-                <div class="field"><label>Accès aux lieux</label><div class="choice-list"><label><input type="checkbox" name="allBuildings" value="1" ${!(effectiveUser.allowedBuildingIds || []).length ? "checked" : ""}> Tous les lieux autorisés</label>${clientBuildings}</div></div>
+                <div class="field"><label>Accès aux lieux</label><div class="choice-list"><label><input type="checkbox" name="allBuildings" value="1" ${!(effectiveUser.allowedBuildingIds || []).length ? "checked" : ""} ${effectiveUser.role === "client" ? "" : "disabled"}> Tous les lieux autorisés</label>${clientBuildings}<span class="meta ${effectiveUser.clientId ? "hidden" : ""}" data-no-user-buildings>Sélectionnez d'abord un client.</span></div></div>
               </div>
               <div class="field"><label>Informations partagées</label><div class="choice-list">${portalChecks}</div></div>
-            </div>` : ""}
+            </div>
             <div class="actions form-actions">
               <button class="primary-button" type="submit">${user.id ? "Enregistrer" : "Créer l'utilisateur"}</button>
               ${canDeleteUser(effectiveUser) ? `<button class="danger-button" type="button" data-action="delete-user" data-id="${escapeHtml(effectiveUser.id)}">Supprimer</button>` : ""}
@@ -211,7 +213,7 @@
           : (allowedByCreator ? selectedBuildingIds.filter((id) => allowedByCreator.includes(id)) : selectedBuildingIds);
         const selectedPortalRights = Array.from(form.querySelectorAll('[name="portalRights"]:checked')).map((input) => input.value);
         const portalRights = role === "client"
-          ? (selectedPortalRights.length ? selectedPortalRights : defaultPortalRights(values.clientAccessLevel || "gestionnaire").filter((right) => right !== "portal"))
+          ? Array.from(new Set(["portal", ...(selectedPortalRights.length ? selectedPortalRights : defaultPortalRights(values.clientAccessLevel || "gestionnaire"))]))
           : [];
         const technicianPermissions = role === "technicien"
           ? Array.from(form.querySelectorAll('[name="technicianPermissions"]:checked')).map((input) => input.value)

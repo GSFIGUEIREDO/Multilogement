@@ -71,6 +71,39 @@
         return appShell(`${renderTopbar("Équipements", "Inventaire par immeuble, appartement et appareil.", actions)}<section class="panel"><div class="panel-body">${filtersBlock()}${equipmentTable(equipment, true)}</div></section>`);
       }
 
+      function equipmentLocationLabel(equipment) {
+        if (equipment.lifecycleStatus === "stored") {
+          const storage = state.storageLocations.find((item) => item.id === equipment.storageLocationId);
+          return `Dépôt: ${storage?.name || "-"}`;
+        }
+        if (equipment.lifecycleStatus === "disposed") return `Mise au rebut${equipment.disposedAt ? ` le ${formatDate(equipment.disposedAt)}` : ""}`;
+        const { apartment, building } = equipmentContext(equipment.id);
+        return `${building?.name || "-"} - Appartement ${apartment?.number || "-"}`;
+      }
+
+      function movementLocation(apartmentId, storageId, fallback = "-") {
+        if (storageId) return `Dépôt: ${state.storageLocations.find((item) => item.id === storageId)?.name || "-"}`;
+        const apartment = state.apartments.find((item) => item.id === apartmentId);
+        const building = state.buildings.find((item) => item.id === apartment?.buildingId);
+        return apartment ? `${building?.name || "-"} - Apt ${apartment.number}` : fallback;
+      }
+
+      function equipmentMovementItem(movement) {
+        const labels = { transfer_apartment: "Transfert", storage: "Envoi au dépôt", dispose: "Mise au rebut", install_replacement: "Installation comme unité de remplacement" };
+        const from = movementLocation(movement.fromApartmentId, movement.fromStorageLocationId);
+        const to = movement.movementType === "dispose" ? "Mise au rebut" : movementLocation(movement.toApartmentId, movement.toStorageLocationId);
+        return `<article class="timeline-item"><strong>${escapeHtml(labels[movement.movementType] || "Mouvement")} - ${escapeHtml(String(movement.performedAt || "").slice(0, 10))}</strong><span>${escapeHtml(from)} → ${escapeHtml(to)}</span><span>${escapeHtml(movement.reason || "")}</span></article>`;
+      }
+
+      function replacementLinks(equipmentId) {
+        return state.equipmentReplacements.filter((item) => item.oldEquipmentId === equipmentId || item.newEquipmentId === equipmentId).map((item) => {
+          const isOld = item.oldEquipmentId === equipmentId;
+          const linkedId = isOld ? item.newEquipmentId : item.oldEquipmentId;
+          const linked = state.equipment.find((equipment) => equipment.id === linkedId);
+          return `<article class="list-item"><strong>${isOld ? "Remplacée par" : "Remplace"}: ${escapeHtml(linked?.type || linked?.serial || linkedId)}</strong><span class="meta">${escapeHtml(String(item.completedAt || "").slice(0, 10))}</span>${linked ? `<button class="link-button" data-action="select-equipment" data-id="${escapeHtml(linked.id)}">Ouvrir le dossier</button>` : ""}</article>`;
+        }).join("");
+      }
+
       function equipmentDetailView() {
         const { equipment, apartment, building, client } = equipmentContext(state.selectedEquipmentId);
         if (!equipment) return equipmentView();
@@ -78,6 +111,8 @@
         const activeOrders = state.workOrders.filter((item) => item.equipmentId === equipment.id && !["termine", "annule"].includes(item.status));
         const activeTickets = state.tickets.filter((item) => item.equipmentId === equipment.id && item.status !== "ferme");
         const reminders = scopedReminders().filter((item) => item.equipmentId === equipment.id);
+        const movements = state.equipmentMovements.filter((item) => item.equipmentId === equipment.id).sort((a, b) => String(b.performedAt || "").localeCompare(String(a.performedAt || "")));
+        const replacements = replacementLinks(equipment.id);
         const actionButtons = `
           <button class="ghost-button" data-action="go-back" data-fallback-view="equipements">Retour</button>
           ${canEditEquipment() ? `<button class="ghost-button" data-action="open-modal" data-modal="equipment" data-id="${equipment.id}">Modifier</button>` : ""}
@@ -85,14 +120,15 @@
           ${can("tickets") ? `<button class="primary-button" data-action="open-modal" data-modal="ticket" data-equipment="${equipment.id}">Nouvelle demande</button>` : ""}
           ${canCreateWorkOrders() ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-equipment="${equipment.id}">Nouveau BT</button>` : ""}`;
         return appShell(`
-          ${renderTopbar("Dossier équipement", `${building?.name || ""} - Appartement ${apartment?.number || ""}`, actionButtons)}
+          ${renderTopbar("Dossier équipement", equipmentLocationLabel(equipment), actionButtons)}
           <section class="detail-layout">
-            <div class="panel"><div class="panel-header"><h2>${escapeHtml(equipment.type)}</h2>${statusBadge(equipment.status)}</div><div class="panel-body definition">
-              <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div><div><span>Immeuble</span><strong>${escapeHtml(building?.name || "-")}</strong></div><div><span>Appartement</span><strong>${escapeHtml(apartment?.number || "-")}</strong></div><div><span>Unité</span><strong>${unitKindLabel(equipment.unitKind)}</strong></div>
-              <div><span>Marque / modèle</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div><div><span>Numéro de série</span><strong>${escapeHtml(equipment.serial)}</strong></div><div><span>Localisation</span><strong>${escapeHtml(equipment.location)}</strong></div><div><span>Installation</span><strong>${formatDate(equipment.installDate)}</strong></div><div><span>Note</span><strong>${escapeHtml(equipment.notes)}</strong></div>
+            <div class="panel"><div class="panel-header"><h2>${escapeHtml(equipment.type)}</h2><span>${statusBadge(equipment.status)} ${statusBadge(equipment.lifecycleStatus || "installed")}</span></div><div class="panel-body definition">
+              <div><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div><div><span>Localisation actuelle</span><strong>${escapeHtml(equipmentLocationLabel(equipment))}</strong></div><div><span>Position de l'unité</span><strong>${unitKindLabel(equipment.unitKind)}</strong></div>
+              <div><span>Marque / modèle</span><strong>${escapeHtml(equipment.brand)} ${escapeHtml(equipment.model)}</strong></div><div><span>Numéro de série</span><strong>${escapeHtml(equipment.serial)}</strong></div><div><span>Localisation dans l'unité</span><strong>${escapeHtml(equipment.location)}</strong></div><div><span>Année ou âge estimé</span><strong>${escapeHtml(equipment.manufactureAgeInfo || "-")}</strong></div><div><span>Installation</span><strong>${formatDate(equipment.installDate)}</strong></div><div><span>Note</span><strong>${escapeHtml(equipment.notes)}</strong></div>
             </div></div>
             <div class="stack">
               <div class="panel"><div class="panel-header"><h2>Historique des interventions</h2></div><div class="panel-body timeline">${interventions.map((item) => interventionItem(item)).join("") || `<div class="empty">Aucune intervention enregistrée.</div>`}</div></div>
+              <div class="panel"><div class="panel-header"><h2>Mouvements et remplacement</h2></div><div class="panel-body"><div class="timeline">${movements.map(equipmentMovementItem).join("") || `<div class="empty">Aucun mouvement enregistré.</div>`}</div>${replacements ? `<div class="cards-list replacement-links">${replacements}</div>` : ""}</div></div>
               <div class="panel"><div class="panel-header"><h2>En cours</h2></div><div class="panel-body cards-list">${[...activeTickets.map((item) => ticketItem(item)), ...activeOrders.map((item) => workOrderItem(item))].join("") || `<div class="empty">Aucune demande ou intervention en cours pour cette machine.</div>`}</div></div>
               <div class="panel"><div class="panel-header"><h2>Rappels</h2>${canEditReminders() ? `<button class="ghost-button" data-action="open-modal" data-modal="reminder" data-equipment="${equipment.id}">Ajouter</button>` : ""}</div><div class="panel-body cards-list">${reminders.map((item) => reminderItem(item, true, false)).join("") || `<div class="empty">Aucun rappel pour cette machine.</div>`}</div></div>
               <div class="panel"><div class="panel-header"><h2>Photos et documents</h2>${currentUser().role !== "client" ? `<button class="ghost-button" data-action="open-modal" data-modal="equipmentAttachment" data-equipment="${equipment.id}">Ajouter</button>` : ""}</div><div class="panel-body cards-list">${(equipment.attachments || []).map((file) => attachmentItem(file)).join("") || `<div class="empty">Aucune photo ou document dans ce dossier machine.</div>`}</div></div>
@@ -107,10 +143,11 @@
         const statusOptions = dataFieldOptionsForSelect(fields.status);
         return modalShell(equipment.id ? "Modifier la machine" : "Nouvel équipement", `
           <form class="form-grid" data-form="equipment"><input type="hidden" name="id" value="${escapeHtml(equipment.id || "")}">
-            <div class="field"><label>Appartement</label><select name="apartmentId">${apartmentOptions}</select></div>
+            <div class="split"><div class="field"><label>Appartement</label><select name="apartmentId">${apartmentOptions}</select></div><div class="field"><label>Position de l'unité</label><select name="unitKind"><option value="interieure" ${equipment.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${equipment.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div></div>
             <div class="split"><div class="field combo-field"><label>Type</label>${comboInput("type", equipment.type || "", activityOptions("type", fields.type), true)}</div><div class="field combo-field"><label>Localisation</label>${comboInput("location", equipment.location || "", activityOptions("location", fields.location), true)}</div></div>
             <div class="split"><div class="field combo-field"><label>Marque</label>${comboInput("brand", equipment.brand || "", activityOptions("brand", fields.brand), true)}</div><div class="field combo-field"><label>Modèle</label>${comboInput("model", equipment.model || "", activityOptions("model", fields.model), true)}</div></div>
-            <div class="split"><div class="field"><label>Numéro de série</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div><div class="field"><label>Date d'installation</label><input name="installDate" type="date" value="${escapeHtml(equipment.installDate || today())}"></div></div>
+            <div class="split"><div class="field"><label>Numéro de série</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" required></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="manufactureAgeInfo" value="${escapeHtml(equipment.manufactureAgeInfo || "")}" placeholder="Ex.: 2018, environ 8 ans"></div></div>
+            <div class="field"><label>Date d'installation</label><input name="installDate" type="date" value="${escapeHtml(equipment.installDate || today())}"></div>
             <div class="split"><div class="field"><label>Dernier service</label><input name="lastService" type="date" value="${escapeHtml(equipment.lastService || "")}"></div><div class="field"><label>Prochain service</label><input name="nextService" type="date" value="${escapeHtml(equipment.nextService || "")}"></div></div>
             <div class="field"><label>Statut</label><select name="status">${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${equipment.status === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
             <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(equipment.notes || "")}</textarea></div><button class="primary-button" type="submit">${equipment.id ? "Enregistrer" : "Ajouter l'équipement"}</button>
@@ -174,10 +211,11 @@
         const existing = state.equipment.find((item) => item.id === values.id);
         const payload = existing || { id: uid("eq") };
         Object.assign(payload, {
-          apartmentId: values.apartmentId, type: values.type, brand: values.brand,
+          apartmentId: values.apartmentId, unitKind: values.unitKind || "interieure", type: values.type, brand: values.brand,
           model: values.model, serial: values.serial, location: values.location,
           installDate: values.installDate, lastService: values.lastService || "",
           nextService: values.nextService || "", status: values.status || "actif",
+          conditionStatus: values.status || "actif", manufactureAgeInfo: values.manufactureAgeInfo || "",
           notes: values.notes, updatedAt: changedAt
         });
         if (!existing) state.equipment.unshift(payload);

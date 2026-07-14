@@ -53,8 +53,10 @@
       function workOrderActionButtons(order, expanded) {
         if (!expanded) return "";
         if (currentUser()?.role === "client") return `<div class="actions"><button class="ghost-button" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">Consulter</button></div>`;
+        const assignedIds = new Set([order.technicianId, ...(order.assignedTechnicianIds || [])].filter(Boolean));
+        const technicianCanExecute = currentUser()?.role !== "technicien" || assignedIds.has(currentUser()?.id);
         const canManageOrder = ["administrateur", "equipe_interne"].includes(currentUser()?.role) && can("workorders");
-        return `<div class="actions"><button class="primary-button" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">Exécuter</button>${order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${escapeHtml(order.id)}">Checklist</button>` : ""}${canManageOrder ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${escapeHtml(order.id)}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${escapeHtml(order.id)}" data-status="termine">Terminer</button>` : ""}</div>`;
+        return `<div class="actions"><button class="${technicianCanExecute ? "primary-button" : "ghost-button"}" data-action="execute-workorder" data-id="${escapeHtml(order.id)}">${technicianCanExecute ? "Exécuter" : "Consulter"}</button>${technicianCanExecute && order.equipmentId ? `<button class="ghost-button" data-action="open-checklist" data-id="${escapeHtml(order.id)}">Checklist</button>` : ""}${canManageOrder ? `<button class="ghost-button" data-action="open-modal" data-modal="workorder" data-id="${escapeHtml(order.id)}">Modifier</button><button class="ghost-button" data-action="order-status" data-id="${escapeHtml(order.id)}" data-status="termine">Terminer</button>` : ""}</div>`;
       }
 
       function workOrderItem(order, expanded = false, dashboardLink = false) {
@@ -108,7 +110,9 @@
           return (item.apartmentId || equipment?.apartmentId) === selectedApartment?.id;
         });
         const machines = selectedApartment ? equipmentForApartment(selectedApartment.id) : [];
-        const canPerformInterventions = currentUser()?.role !== "client" && (can("workorders") || can("interventions"));
+        const assignedIds = new Set([order.technicianId, ...(order.assignedTechnicianIds || [])].filter(Boolean));
+        const technicianCanExecute = currentUser()?.role !== "technicien" || assignedIds.has(currentUser()?.id);
+        const canPerformInterventions = currentUser()?.role !== "client" && technicianCanExecute && (can("workorders") || can("interventions"));
         const canManageOrder = ["administrateur", "equipe_interne"].includes(currentUser()?.role) && can("workorders");
         const machineIds = new Set(machines.map((machine) => machine.id));
         const previousInterventions = state.interventions
@@ -142,14 +146,24 @@
         }).join("");
         const assigned = new Set([...(order.assignedTechnicianIds || []), order.technicianId].filter(Boolean));
         const techs = state.users.filter((user) => user.role === "technicien").map((user) => `<label><input type="checkbox" name="assignedTechnicianIds" value="${escapeHtml(user.id)}" ${assigned.has(user.id) ? "checked" : ""}> ${escapeHtml(user.name)}</label>`).join("") || `<span class="meta">Aucun technicien créé.</span>`;
+        const selectedType = state.interventionTypes.find((item) => item.id === order.typeId) || state.interventionTypes[0];
+        const selectedFormTemplateId = order.formTemplateId || selectedType?.defaultFormTemplateId || state.formTemplates[0]?.id || "";
         return modalShell(order.id ? "Modifier le bon de travail" : "Nouveau bon de travail", `<form class="form-grid" data-form="workorder">
           <input type="hidden" name="id" value="${escapeHtml(order.id || "")}"><input type="hidden" name="ticketId" value="${escapeHtml(modal.ticketId || order.ticketId || "")}"><input type="hidden" name="sourceReminderId" value="${escapeHtml(modal.reminderId || order.sourceReminderId || "")}">
-          <div class="split"><div class="field"><label>Portee du BT</label><select name="scope"><option value="building" ${scope === "building" ? "selected" : ""}>Bloc complet / immeuble</option><option value="equipment" ${scope === "equipment" ? "selected" : ""}>Machine precise</option></select></div><div class="field"><label>Formulaire terrain</label><select name="formTemplateId">${state.formTemplates.map((item) => `<option value="${item.id}" ${order.formTemplateId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select></div></div>
+          <div class="split"><div class="field"><label>Portee du BT</label><select name="scope"><option value="building" ${scope === "building" ? "selected" : ""}>Bloc complet / immeuble</option><option value="equipment" ${scope === "equipment" ? "selected" : ""}>Machine precise</option></select></div><div class="field"><label>Formulaire terrain</label><select name="formTemplateId" data-workorder-form-template>${state.formTemplates.map((item) => `<option value="${item.id}" ${selectedFormTemplateId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select></div></div>
           <div class="split"><div class="field"><label>Immeuble</label><select name="buildingId"><option value="">-</option>${buildingOptions}</select></div><div class="field"><label>Equipement</label><select name="equipmentId"><option value="">-</option>${equipmentOptions}</select></div></div>
-          <div class="split"><div class="field"><label>Type d'intervention</label><select name="typeId">${state.interventionTypes.map((item) => `<option value="${item.id}" ${order.typeId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select></div><div class="field"><label>Techniciens assignés</label><div class="choice-list">${techs}</div></div></div>
-          <div class="split"><div class="field"><label>Date du RDV</label><input name="scheduledDate" type="date" value="${escapeHtml(order.scheduledDate || today())}" required></div><div class="field"><label>Statut</label><select name="status"><option value="planifie" ${order.status === "planifie" ? "selected" : ""}>Planifié</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>Terminé</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>Annulé</option></select></div></div>
+          <div class="split"><div class="field"><label>Type d'intervention</label><select name="typeId" data-workorder-type>${state.interventionTypes.map((item) => `<option value="${item.id}" ${selectedType?.id === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select></div><div class="field"><label>Techniciens assignés</label><div class="choice-list">${techs}</div></div></div>
+          <div class="split"><div class="field"><label>Date du RDV</label><input name="scheduledDate" type="date" value="${escapeHtml(order.status === "brouillon" ? (order.scheduledDate || "") : (order.scheduledDate || today()))}" ${order.status === "brouillon" ? "" : "required"}></div><div class="field"><label>Statut</label><select name="status"><option value="brouillon" ${order.status === "brouillon" ? "selected" : ""}>Brouillon</option><option value="planifie" ${(!order.status || order.status === "planifie") ? "selected" : ""}>Planifié</option><option value="en_cours" ${order.status === "en_cours" ? "selected" : ""}>En cours</option><option value="termine" ${order.status === "termine" ? "selected" : ""}>Terminé</option><option value="annule" ${order.status === "annule" ? "selected" : ""}>Annulé</option></select></div></div>
           <div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(order.notes || "")}</textarea></div><button class="primary-button" type="submit">${order.id ? "Enregistrer" : "Créer le BT"}</button>
         </form>`);
+      }
+
+      function updateWorkOrderDefaultForm(select) {
+        const form = select?.closest("form[data-form='workorder']");
+        if (!form) return;
+        const activityType = state.interventionTypes.find((item) => item.id === select.value);
+        const formTemplate = form.querySelector("[data-workorder-form-template]");
+        if (formTemplate && activityType?.defaultFormTemplateId) formTemplate.value = activityType.defaultFormTemplateId;
       }
 
       function markReminderWorkOrderOpened(reminderId, orderId) {
@@ -211,7 +225,7 @@
       return {
         createWorkOrder, executionApartmentButton, fieldResponseCard, filteredWorkOrders,
         markReminderWorkOrderOpened, workOrderActionButtons, workOrderExecutionView,
-        workOrderFiltersBlock, workOrderItem, workOrderModal, workOrdersView
+        updateWorkOrderDefaultForm, workOrderFiltersBlock, workOrderItem, workOrderModal, workOrdersView
       };
     }
   };

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from src.climaparc.auth.presentation.router import router as auth_router
 from src.climaparc.documents.presentation.router import router as documents_router
 from src.climaparc.equipment.presentation.router import router as equipment_router
+from src.climaparc.field_operations.presentation.router import router as field_operations_router
 from src.climaparc.interventions.presentation.router import router as interventions_router
 from src.climaparc.places.presentation.router import router as places_router
 from src.climaparc.recommendations.presentation.router import router as recommendations_router
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(documents_router)
     app.include_router(equipment_router)
+    app.include_router(field_operations_router)
     app.include_router(interventions_router)
     app.include_router(places_router)
     app.include_router(recommendations_router)

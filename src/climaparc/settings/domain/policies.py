@@ -13,6 +13,7 @@ SUPPORTED_SETTING_COLLECTIONS = {
     "dataFields",
     "formTemplates",
     "roleDefinitions",
+    "storageLocations",
 }
 
 
@@ -41,6 +42,8 @@ def normalize_setting_item(collection_key: str, payload: dict) -> dict:
         return normalize_form_template(payload)
     if collection_key == "roleDefinitions":
         return normalize_role_definition(payload)
+    if collection_key == "storageLocations":
+        return normalize_storage_location(payload)
     raise ApplicationError("Collection de parametres invalide.")
 
 
@@ -65,6 +68,8 @@ def normalize_intervention_type(payload: dict) -> dict:
         raise ApplicationError("Duree par defaut invalide.") from None
     checklist = item.get("checklist") or []
     item["checklist"] = [str(entry).strip() for entry in checklist if str(entry).strip()] if isinstance(checklist, list) else []
+    item["defaultFormTemplateId"] = str(item.get("defaultFormTemplateId") or "")
+    item["behavior"] = str(item.get("behavior") or "standard")
     return item
 
 
@@ -98,7 +103,14 @@ def normalize_data_options(options: list) -> list[dict]:
             continue
         if not label:
             continue
-        normalized.append({"id": option_id, "label": label, "value": value, "active": option.get("active", True) is not False if isinstance(option, dict) else True})
+        normalized.append({
+            "id": option_id,
+            "label": label,
+            "value": value,
+            "active": option.get("active", True) is not False if isinstance(option, dict) else True,
+            "behavior": str(option.get("behavior") or "") if isinstance(option, dict) else "",
+            "color": str(option.get("color") or "") if isinstance(option, dict) else "",
+        })
     return normalized
 
 
@@ -125,6 +137,17 @@ def normalize_role_definition(payload: dict) -> dict:
     return item
 
 
+def normalize_storage_location(payload: dict) -> dict:
+    item = dict(payload)
+    item["name"] = str(item.get("name") or "").strip()
+    item["clientId"] = str(item.get("clientId") or "").strip()
+    if not item["name"] or not item["clientId"]:
+        raise ApplicationError("Nom et client du depot obligatoires.")
+    item["address"] = str(item.get("address") or "").strip()
+    item["active"] = item.get("active") is not False
+    return item
+
+
 def slugify(value: str) -> str:
     import re
     import unicodedata
@@ -143,4 +166,3 @@ def clear_ui_state(state: dict) -> None:
     state["sessionUserId"] = None
     state["modal"] = None
     state["toast"] = ""
-

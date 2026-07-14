@@ -16,7 +16,7 @@ PAYLOAD_REPOSITORIES = {
             ("linked_intervention_type_id", "linkedInterventionTypeId"),
         ],
     ),
-    "interventionTypes": PayloadTableRepository("climaparc_intervention_types", [("name", "name")]),
+    "interventionTypes": PayloadTableRepository("climaparc_intervention_types", [("name", "name"), ("default_form_template_id", "defaultFormTemplateId"), ("behavior", "behavior")]),
     "formTemplates": PayloadTableRepository("climaparc_form_templates", [("name", "name")]),
     "roleDefinitions": PayloadTableRepository("climaparc_role_definitions", [("name", "name")]),
     "dataFields": PayloadTableRepository(
@@ -27,6 +27,10 @@ PAYLOAD_REPOSITORIES = {
             ("field_type", "type"),
         ],
     ),
+    "storageLocations": PayloadTableRepository(
+        "climaparc_storage_locations",
+        [("client_id", "clientId"), ("name", "name"), ("address", "address"), ("active", lambda item: item.get("active") is not False)],
+    ),
 }
 
 
@@ -36,6 +40,7 @@ TABLE_BY_COLLECTION = {
     "formTemplates": "climaparc_form_templates",
     "roleDefinitions": "climaparc_role_definitions",
     "dataFields": "climaparc_data_fields",
+    "storageLocations": "climaparc_storage_locations",
 }
 
 

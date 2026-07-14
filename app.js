@@ -277,46 +277,46 @@
       },
       {
         id: "equipment_status",
-        name: "Statut",
-        group: "Machine",
+        name: "État constaté de la machine",
+        group: "États de machine",
         type: "single",
         appliesTo: ["activity", "equipment"],
         options: [
-          { id: "actif", label: "Actif", value: "actif" },
-          { id: "ok", label: "OK", value: "ok" },
-          { id: "surveillance", label: "Surveillance", value: "surveillance" },
-          { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise" },
-          { id: "a_planifier", label: "À planifier", value: "a_planifier" },
-          { id: "hors_service", label: "Hors service", value: "hors_service" }
+          { id: "actif", label: "Actif", value: "actif", behavior: "operational", color: "#15803d" },
+          { id: "ok", label: "OK", value: "ok", behavior: "operational", color: "#15803d" },
+          { id: "surveillance", label: "Surveillance", value: "surveillance", behavior: "monitoring", color: "#d97706" },
+          { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise", behavior: "repair_required", color: "#ea580c" },
+          { id: "a_planifier", label: "À planifier", value: "a_planifier", behavior: "monitoring", color: "#315f96" },
+          { id: "hors_service", label: "Hors service", value: "hors_service", behavior: "out_of_service", color: "#dc2626" }
         ]
       },
       {
         id: "activity_status",
-        name: "Statut",
-        group: "Activité",
+        name: "Résultat de l'activité",
+        group: "Résultats d'activité",
         type: "single",
         appliesTo: ["activity"],
         options: [
-          { id: "completee", label: "Complétée", value: "completee" },
-          { id: "partielle", label: "Partielle", value: "partielle" },
-          { id: "a_revoir", label: "À revoir", value: "a_revoir" },
-          { id: "client_absent", label: "Client absent", value: "client_absent" },
-          { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise" }
+          { id: "completee", label: "Terminée", value: "completee", behavior: "completed", color: "#15803d" },
+          { id: "partielle", label: "Partiellement terminée", value: "partielle", behavior: "partial", color: "#d97706" },
+          { id: "a_revoir", label: "À reprendre", value: "a_revoir", behavior: "return_required", color: "#d97706" },
+          { id: "client_absent", label: "Non effectuée - client absent", value: "client_absent", behavior: "not_completed", color: "#64748b" },
+          { id: "acces_impossible", label: "Non effectuée - accès impossible", value: "acces_impossible", behavior: "not_completed", color: "#64748b" }
         ]
       },
       {
         id: "recommendation_type",
         name: "Type de recommandation",
-        group: "Recommandation",
+        group: "Types de recommandation",
         type: "single",
         appliesTo: ["activity"],
         options: [
-          { id: "diagnostic", label: "Diagnostic à effectuer", value: "diagnostic" },
-          { id: "atelier", label: "Apporter à l'atelier", value: "atelier" },
-          { id: "remplacement", label: "Remplacement recommandé", value: "remplacement" },
-          { id: "piece", label: "Remplacement de pièce", value: "piece" },
-          { id: "reparation", label: "Réparation recommandée", value: "reparation" },
-          { id: "autre", label: "Autre", value: "autre" }
+          { id: "diagnostic", label: "Diagnostic à effectuer", value: "diagnostic", behavior: "diagnostic", color: "#315f96" },
+          { id: "atelier", label: "Apporter à l'atelier", value: "atelier", behavior: "diagnostic", color: "#315f96" },
+          { id: "remplacement", label: "Remplacement de l'unité", value: "remplacement", behavior: "replacement", color: "#dc2626" },
+          { id: "piece", label: "Remplacement de pièce", value: "piece", behavior: "part", color: "#d97706" },
+          { id: "reparation", label: "Réparation recommandée", value: "reparation", behavior: "repair", color: "#ea580c" },
+          { id: "autre", label: "Autre", value: "autre", behavior: "informational", color: "#64748b" }
         ]
       }
     ],
@@ -368,6 +368,16 @@
           { id: "anomalie", label: "Description de l'anomalie", type: "long", showWhen: { fieldId: "etat_general", value: "Reparation requise" } },
           { id: "recommandation", label: "Recommandation au client", type: "long" }
         ]
+      },
+      {
+        id: "form_remplacement_unite",
+        name: "Remplacement d'une unité",
+        activityFields: {},
+        fields: [
+          { id: "ancienne_unite_confirmee", label: "Unité à remplacer confirmée", type: "checkbox", required: true, options: ["Oui"] },
+          { id: "essai_fonctionnement", label: "Essai de fonctionnement", type: "single", required: true, options: ["Conforme", "À surveiller", "Non conforme"] },
+          { id: "observations_installation", label: "Observations d'installation", type: "long", required: false }
+        ]
       }
     ],
     interventionTypes: [
@@ -407,6 +417,19 @@
           "Contrôler pression, débit et température",
           "Photographier les anomalies",
           "Déterminer priorité de suivi"
+        ]
+      },
+      {
+        id: "remplacement_unite",
+        name: "Remplacement d'une unité",
+        defaultDuration: 120,
+        defaultFormTemplateId: "form_remplacement_unite",
+        behavior: "replacement",
+        checklist: [
+          "Confirmer l'ancienne unité",
+          "Installer la nouvelle unité",
+          "Effectuer l'essai de fonctionnement",
+          "Confirmer la destination de l'ancienne unité"
         ]
       }
     ],
@@ -557,6 +580,10 @@
     next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
     next.dataFields = ensureCoreDataFields(normalizeDataFields(data.dataFields || seed.dataFields));
+    next.interventionTypes = (data.interventionTypes || seed.interventionTypes).map((item) => ({ defaultFormTemplateId: "", behavior: "standard", ...item }));
+    if (!next.interventionTypes.some((item) => item.behavior === "replacement" || item.id === "remplacement_unite")) {
+      next.interventionTypes.push(JSON.parse(JSON.stringify(seed.interventionTypes.find((item) => item.id === "remplacement_unite"))));
+    }
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
       id: template.id,
       name: template.name,
@@ -575,6 +602,9 @@
         showWhen: field.showWhen || null
       }))
     }));
+    if (!next.formTemplates.some((item) => item.id === "form_remplacement_unite")) {
+      next.formTemplates.push(JSON.parse(JSON.stringify(seed.formTemplates.find((item) => item.id === "form_remplacement_unite"))));
+    }
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
     next.roleDefinitions = next.roleDefinitions.map((role) => {
       if (role.id === "technicien" && !role.rights.includes("reports")) return { ...role, rights: [...role.rights, "reports"] };
@@ -648,8 +678,22 @@
     next.equipment = (data.equipment || seed.equipment).map((item) => ({
       attachments: [],
       unitKind: "interieure",
+      manufactureAgeInfo: "",
+      manufactureYear: null,
+      estimatedAgeYears: null,
+      conditionStatus: item.status || "actif",
+      lifecycleStatus: "installed",
+      storageLocationId: "",
+      disposedAt: "",
       ...item
-    }));
+    })).map((item) => {
+      const apartment = next.apartments.find((entry) => entry.id === item.apartmentId);
+      const building = next.buildings.find((entry) => entry.id === apartment?.buildingId);
+      return { ...item, clientId: item.clientId || building?.clientId || "" };
+    });
+    next.storageLocations = Array.isArray(data.storageLocations) ? data.storageLocations : [];
+    next.equipmentMovements = Array.isArray(data.equipmentMovements) ? data.equipmentMovements : [];
+    next.equipmentReplacements = Array.isArray(data.equipmentReplacements) ? data.equipmentReplacements : [];
     next.reminders = (Array.isArray(data.reminders) ? data.reminders : []).map((reminder) => ({
       id: reminder.id || uid("rem"),
       equipmentId: reminder.equipmentId || "",
@@ -737,10 +781,15 @@
   }
 
   function normalizeDataFields(fields = []) {
+    const managedGroups = {
+      equipment_status: "États de machine",
+      activity_status: "Résultats d'activité",
+      recommendation_type: "Types de recommandation"
+    };
     return fields.map((field) => ({
       id: field.id || uid("datafield"),
       name: field.name || field.label || "Champ",
-      group: field.group || "Non groupé",
+      group: managedGroups[field.id] || field.group || "Non groupé",
       type: field.type || "single",
       appliesTo: field.appliesTo?.length ? field.appliesTo : ["activity"],
       options: normalizeStatusDataOptions(field.id, normalizeDataOptions(field.options || []))
@@ -748,15 +797,26 @@
   }
 
   function normalizeStatusDataOptions(fieldId, options) {
-    if (fieldId !== "equipment_status") return options;
-    const required = [
-      { id: "actif", label: "Actif", value: "actif", active: true },
-      { id: "ok", label: "OK", value: "ok", active: true },
-      { id: "surveillance", label: "Surveillance", value: "surveillance", active: true },
-      { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise", active: true },
-      { id: "a_planifier", label: "À planifier", value: "a_planifier", active: true },
-      { id: "hors_service", label: "Hors service", value: "hors_service", active: true }
-    ];
+    const requiredByField = {
+      equipment_status: [
+        { id: "actif", label: "Opérationnelle", value: "actif", active: true, behavior: "operational", color: "#15803d" },
+        { id: "surveillance", label: "À surveiller", value: "surveillance", active: true, behavior: "monitoring", color: "#d97706" },
+        { id: "reparation_requise", label: "Réparation requise", value: "reparation_requise", active: true, behavior: "repair_required", color: "#ea580c" },
+        { id: "hors_service", label: "Hors service", value: "hors_service", active: true, behavior: "out_of_service", color: "#dc2626" }
+      ],
+      activity_status: [
+        { id: "completee", label: "Terminée", value: "completee", active: true, behavior: "completed", color: "#15803d" },
+        { id: "partielle", label: "Partiellement terminée", value: "partielle", active: true, behavior: "partial", color: "#d97706" },
+        { id: "a_revoir", label: "À reprendre", value: "a_revoir", active: true, behavior: "return_required", color: "#d97706" },
+        { id: "client_absent", label: "Non effectuée - client absent", value: "client_absent", active: true, behavior: "not_completed", color: "#64748b" },
+        { id: "acces_impossible", label: "Non effectuée - accès impossible", value: "acces_impossible", active: true, behavior: "not_completed", color: "#64748b" }
+      ],
+      recommendation_type: [
+        { id: "remplacement", label: "Remplacement de l'unité", value: "remplacement", active: true, behavior: "replacement", color: "#dc2626" }
+      ]
+    };
+    const required = requiredByField[fieldId] || [];
+    if (!required.length) return options;
     const existing = new Set(options.map((option) => option.value));
     return [...options, ...required.filter((option) => !existing.has(option.value))];
   }
@@ -818,6 +878,10 @@
         return;
       }
       const existingValues = new Set((existing.options || []).map((option) => option.value));
+      existing.options = (existing.options || []).map((option) => {
+        const coreOption = core.options.find((item) => item.value === option.value);
+        return coreOption ? { ...coreOption, ...option, behavior: option.behavior || coreOption.behavior || "", color: option.color || coreOption.color || "" } : option;
+      });
       existing.options = [
         ...(existing.options || []),
         ...core.options.filter((option) => !existingValues.has(option.value))
@@ -835,7 +899,9 @@
         id: option.id || slugify(option.label || option.value),
         label: option.label || option.value || "",
         value: option.value || option.label || "",
-        active: option.active !== false
+        active: option.active !== false,
+        behavior: option.behavior || "",
+        color: option.color || ""
       };
     }).filter((option) => option.label);
   }
@@ -1506,7 +1572,9 @@
     const equipment = state.equipment.find((item) => item.id === equipmentId);
     const apartment = state.apartments.find((item) => item.id === equipment?.apartmentId);
     const building = state.buildings.find((item) => item.id === apartment?.buildingId);
-    const client = state.clients.find((item) => item.id === building?.clientId);
+    const storage = state.storageLocations.find((item) => item.id === equipment?.storageLocationId);
+    const clientId = building?.clientId || equipment?.clientId || storage?.clientId;
+    const client = state.clients.find((item) => item.id === clientId);
     return { equipment, apartment, building, client };
   }
 
@@ -1545,10 +1613,27 @@
   }
 
   function formTemplateForOrder(order) {
-    return state.formTemplates.find((item) => item.id === order?.formTemplateId) || state.formTemplates[0];
+    const activityType = state.interventionTypes.find((item) => item.id === order?.typeId);
+    return state.formTemplates.find((item) => item.id === order?.formTemplateId)
+      || state.formTemplates.find((item) => item.id === activityType?.defaultFormTemplateId)
+      || state.formTemplates[0];
   }
 
   function statusBadge(status) {
+    const configuredOption = state.dataFields
+      .filter((field) => ["activity_status", "equipment_status", "recommendation_type"].includes(field.id))
+      .flatMap((field) => field.options || [])
+      .find((option) => option.value === status);
+    if (configuredOption) {
+      const toneByBehavior = {
+        completed: "ok", operational: "ok", informational: "info", diagnostic: "info",
+        partial: "warn", monitoring: "warn", return_required: "warn", repair: "warn", part: "warn",
+        not_completed: "neutral", out_of_service: "danger", repair_required: "danger", replacement: "danger"
+      };
+      const color = /^#[0-9a-f]{6}$/i.test(configuredOption.color || "") ? configuredOption.color : "";
+      const style = color ? ` style="border-color:${color};color:${color}"` : "";
+      return `<span class="badge ${toneByBehavior[configuredOption.behavior] || "neutral"}"${style}>${escapeHtml(configuredOption.label || status)}</span>`;
+    }
     const map = {
       actif: ["Actif", "ok"],
       ok: ["OK", "ok"],
@@ -1570,6 +1655,7 @@
       techniciens: ["Équipe techniciens", "neutral"],
       en_cours: ["En cours", "warn"],
       ferme: ["Fermé", "neutral"],
+      brouillon: ["Brouillon", "neutral"],
       planifie: ["Planifié", "info"],
       termine: ["Terminé", "ok"],
       annule: ["Annulé", "neutral"],
@@ -1580,7 +1666,10 @@
       active: ["Actif", "ok"],
       inactive: ["Inactif", "neutral"],
       due: ["À traiter", "danger"],
-      upcoming: ["À venir", "info"]
+      upcoming: ["À venir", "info"],
+      installed: ["Installée", "ok"],
+      stored: ["En dépôt", "info"],
+      disposed: ["Mise au rebut", "neutral"]
     };
     const [label, tone] = map[status] || [status, "neutral"];
     return `<span class="badge ${tone}">${label}</span>`;
@@ -2516,6 +2605,7 @@
     if (modal.type === "serviceType") return serviceTypeModal(modal);
     if (modal.type === "dataField") return dataFieldModal(modal);
     if (modal.type === "interventionType") return interventionTypeModal(modal);
+    if (modal.type === "storageLocation") return storageLocationModal(modal);
     if (modal.type === "formTemplate") return formTemplateModal(modal);
     if (modal.type === "role") return roleModal(modal);
     if (modal.type === "signup") return signupModal();
@@ -2688,6 +2778,10 @@
     return settingsViewModule.interventionTypeModal(modal);
   }
 
+  function storageLocationModal(modal) {
+    return settingsViewModule.storageLocationModal(modal);
+  }
+
   const formBuilderModule = window.ClimaParcFormBuilder.create({
     getState: () => state, escapeHtml, modalShell, normalizeActivityFields,
     uid, showToast, saveSettingCollectionItem
@@ -2759,14 +2853,14 @@
     `);
   }
 
-  function fieldInterventionModal(modal) {
+  function legacyFieldInterventionModal(modal) {
     const order = state.workOrders.find((item) => item.id === modal.orderId);
     const availableApartments = workOrderApartments(order);
     const selectedEquipment = state.equipment.find((item) => item.id === modal.equipmentId);
     const equipment = selectedEquipment || { apartmentId: modal.apartmentId, unitKind: modal.unitKind || "interieure" };
     const selectedApartmentId = equipment.apartmentId || modal.apartmentId || availableApartments[0]?.id || "__new";
     const apartment = state.apartments.find((item) => item.id === selectedApartmentId);
-    const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}${item.occupant ? ` - ${escapeHtml(item.occupant)}` : ""}</option>`).join("");
+    const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}</option>`).join("");
     const machinesForApartment = selectedApartmentId === "__new" ? [] : equipmentForApartment(selectedApartmentId);
     const selectedActivityEquipmentId = selectedEquipment?.id || "__new";
     const equipmentOptions = machinesForApartment.map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityEquipmentId === item.id ? "selected" : ""}>${escapeHtml(item.type)} - ${escapeHtml(item.brand || "-")} ${escapeHtml(item.model || "")} ${item.serial ? `(${escapeHtml(item.serial)})` : ""}</option>`).join("");
@@ -2785,7 +2879,6 @@
           <div class="field"><label>Appartement</label><select name="apartmentId"><option value="__new" ${selectedApartmentId === "__new" ? "selected" : ""}>Nouvel appartement</option>${apartmentOptions}</select></div>
           <div class="field new-apartment-field"><label>Numéro du nouvel appartement</label><input name="newApartmentNumber" placeholder="Ex.: 1204"></div>
         </div>
-        <div class="field new-apartment-field"><label>Occupant du nouvel appartement</label><input name="newApartmentOccupant" placeholder="Nom ou note d'accès"></div>
         <div class="form-section-title">Machine</div>
         <div class="split">
           <div class="field"><label>Machine</label><select name="activityEquipmentId" data-activity-equipment-select><option value="__new">Créer une nouvelle machine</option>${equipmentOptions}</select></div>
@@ -2841,6 +2934,95 @@
         </div>
       </form>
     `);
+  }
+
+  function dataFieldOptionBehavior(fieldId, value) {
+    const field = state.dataFields.find((item) => item.id === fieldId);
+    const option = field?.options?.find((item) => item.value === value);
+    if (option?.behavior) return option.behavior;
+    const fallbacks = { completee: "completed", partielle: "partial", a_revoir: "return_required", client_absent: "not_completed", acces_impossible: "not_completed", remplacement: "replacement" };
+    return fallbacks[value] || "";
+  }
+
+  function isReplacementWorkOrder(order) {
+    const type = state.interventionTypes.find((item) => item.id === order?.typeId);
+    return type?.behavior === "replacement" || type?.id === "remplacement_unite";
+  }
+
+  function fieldInterventionModal(modal) {
+    const order = state.workOrders.find((item) => item.id === modal.orderId);
+    const availableApartments = workOrderApartments(order);
+    const selectedEquipment = state.equipment.find((item) => item.id === (modal.equipmentId || order?.equipmentId));
+    const equipment = selectedEquipment || { apartmentId: modal.apartmentId, unitKind: modal.unitKind || "interieure" };
+    const selectedApartmentId = equipment.apartmentId || modal.apartmentId || order?.apartmentId || availableApartments[0]?.id || "__new";
+    const apartment = state.apartments.find((item) => item.id === selectedApartmentId);
+    const building = state.buildings.find((item) => item.id === apartment?.buildingId || item.id === order?.buildingId);
+    const apartmentOptions = availableApartments.map((item) => `<option value="${item.id}" ${selectedApartmentId === item.id ? "selected" : ""}>Appartement ${escapeHtml(item.number)}</option>`).join("");
+    const machinesForApartment = selectedApartmentId === "__new" ? [] : equipmentForApartment(selectedApartmentId);
+    const selectedActivityEquipmentId = selectedEquipment?.id || "__new";
+    const equipmentOptions = machinesForApartment.map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityEquipmentId === item.id ? "selected" : ""}>${escapeHtml(item.type)} - ${escapeHtml(item.brand || "-")} ${escapeHtml(item.model || "")} ${item.serial ? `(${escapeHtml(item.serial)})` : ""}</option>`).join("");
+    const template = formTemplateForOrder(order);
+    const activityFields = normalizeActivityFields(template?.activityFields);
+    const statusOptions = dataFieldOptionsForSelect(activityFields.status);
+    const activityStatuses = activityStatusOptions();
+    const recommendationTypes = recommendationTypeOptions();
+    const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
+    const recommendation = existing?.recommendation || {};
+    const replacementActivity = isReplacementWorkOrder(order);
+    const existingReplacement = state.equipmentReplacements.find((item) => item.workOrderId === order?.id && item.oldEquipmentId === equipment.id);
+    const installedReplacement = state.equipment.find((item) => item.id === existingReplacement?.newEquipmentId);
+    const replacementCandidates = scopedEquipment().filter((item) => item.id !== equipment.id && item.lifecycleStatus !== "disposed");
+    const replacementOptions = replacementCandidates.map((item) => {
+      const context = equipmentContext(item.id);
+      const place = item.lifecycleStatus === "stored" ? state.storageLocations.find((storage) => storage.id === item.storageLocationId)?.name : `${context.building?.name || "-"} - Apt ${context.apartment?.number || "-"}`;
+      return `<option value="${escapeHtml(item.id)}" ${installedReplacement?.id === item.id ? "selected" : ""}>${escapeHtml(item.type || "Machine")} - ${escapeHtml(item.brand || "-")} ${escapeHtml(item.model || "")} | ${escapeHtml(place || "-")}</option>`;
+    }).join("");
+    const destinationApartments = state.apartments.map((item) => {
+      const targetBuilding = state.buildings.find((entry) => entry.id === item.buildingId);
+      const client = state.clients.find((entry) => entry.id === targetBuilding?.clientId);
+      return `<option value="${escapeHtml(item.id)}">${escapeHtml(client?.name || "-")} | ${escapeHtml(targetBuilding?.name || "-")} | Apt ${escapeHtml(item.number)}</option>`;
+    }).join("");
+    const storageOptions = state.storageLocations.filter((item) => item.active !== false).map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(state.clients.find((client) => client.id === item.clientId)?.name || "-")} | ${escapeHtml(item.name)}</option>`).join("");
+    const replacementUnit = installedReplacement || {};
+    const identityLocked = Boolean(selectedEquipment && currentUser()?.role === "technicien" && !canEditEquipment());
+    const readOnly = identityLocked ? "readonly" : "";
+    const hasRecommendation = Boolean(recommendation.type);
+    return modalShell(`Activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
+      <form class="form-grid technician-field-form" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}" data-replacement-activity="${replacementActivity ? "true" : "false"}">
+        <details class="technician-form-section" open>
+          <summary><span>1</span><strong>Informations de l'appartement</strong><small>${escapeHtml(building?.name || "")} ${apartment ? `| Apt ${escapeHtml(apartment.number)}` : ""}</small></summary>
+          <div class="technician-form-section-body">
+            <div class="location-summary"><strong>${escapeHtml(building?.name || "Lieu du bon de travail")}</strong><span>${escapeHtml(building?.address || "")}</span></div>
+            <div class="split"><div class="field"><label>Appartement</label><select name="apartmentId"><option value="__new" ${selectedApartmentId === "__new" ? "selected" : ""}>Nouvel appartement</option>${apartmentOptions}</select></div><div class="field new-apartment-field"><label>Numéro du nouvel appartement</label><input name="newApartmentNumber" placeholder="Ex.: 1204"></div></div>
+          </div>
+        </details>
+        <details class="technician-form-section" open>
+          <summary><span>2</span><strong>Informations de l'unité</strong><small>${escapeHtml(equipment.type || "Nouvelle machine")}</small></summary>
+          <div class="technician-form-section-body">
+            <div class="split"><div class="field"><label>Machine</label><select name="activityEquipmentId" data-activity-equipment-select><option value="__new">Créer une nouvelle machine</option>${equipmentOptions}</select></div><div class="field"><label>Position de l'unité</label><select name="unitKind" ${identityLocked ? "aria-disabled=\"true\" class=\"select-readonly\"" : ""}><option value="interieure" ${equipment.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${equipment.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div></div>
+            <div class="split">${activityTextInput("type", activityFields.type, equipment.type)}${activityTextInput("location", activityFields.location, equipment.location)}</div>
+            <div class="split">${activityTextInput("brand", activityFields.brand, equipment.brand)}${activityTextInput("model", activityFields.model, equipment.model)}</div>
+            <div class="split"><div class="field"><label>${activityFields.serial.label}${activityFields.serial.required ? " *" : ""}</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" ${readOnly} ${activityFields.serial.required ? "required" : ""}></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="manufactureAgeInfo" value="${escapeHtml(equipment.manufactureAgeInfo || "")}" ${readOnly} placeholder="Ex.: 2018, environ 8 ans"></div></div>
+            ${identityLocked ? `<p class="meta">Les données d'identification sont en lecture seule selon vos autorisations.</p>` : ""}
+          </div>
+        </details>
+        <details class="technician-form-section" open>
+          <summary><span>3</span><strong>Inspection et conclusion</strong><small>${escapeHtml(template?.name || "Formulaire terrain")}</small></summary>
+          <div class="technician-form-section-body">
+            <div class="form-builder dynamic-form-grid">${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}</div>
+            <div class="form-subsection-title">Conclusion</div>
+            <div class="split"><div class="field"><label>Résultat de l'activité</label><select name="activityStatus" data-activity-result>${activityStatuses.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.activityStatus || "completee") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div><div class="field"><label>État constaté de la machine${activityFields.status.required ? " *" : ""}</label><select name="machineStatus" ${activityFields.status.required ? "required" : ""}><option value="">Sélectionner</option>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.machineStatus || equipment.conditionStatus || equipment.status) === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div></div>
+            <div class="field"><label>Recommandation</label><select name="recommendationType" data-recommendation-select><option value="">Aucune recommandation</option>${recommendationTypes.map((option) => `<option value="${escapeHtml(option.value)}" ${recommendation.type === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
+            <div class="recommendation-details ${hasRecommendation ? "" : "hidden"}" data-recommendation-details><div class="field"><label>Description</label><textarea name="recommendationDescription">${escapeHtml(recommendation.description || "")}</textarea></div><div class="split"><div class="field"><label>Priorité</label><select name="recommendationPriority"><option value="basse" ${recommendation.priority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${!recommendation.priority || recommendation.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${recommendation.priority === "urgente" ? "selected" : ""}>Urgente</option></select></div><div class="field"><label>Temps prévu</label><input name="recommendationTime" value="${escapeHtml(recommendation.time || "")}"></div></div><div class="field"><label>Pièce nécessaire</label><input name="recommendationPart" value="${escapeHtml(recommendation.part || "")}"></div></div>
+            <div class="field"><label>${activityFields.notes.label}</label><textarea name="equipmentNotes">${escapeHtml(existing?.equipmentNotes || "")}</textarea></div>
+            <div class="field"><label>Résumé de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+            <div class="field"><label>Photos et documents</label><input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"><p class="meta">Maximum 3 fichiers, 10 MB par fichier.</p></div>
+          </div>
+        </details>
+        ${replacementActivity ? `<details class="technician-form-section replacement-section" open data-replacement-section><summary><span>4</span><strong>Remplacement de l'unité</strong><small>Nouvelle unité et destination de l'ancienne</small></summary><div class="technician-form-section-body">${existingReplacement ? `<div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div>` : `<div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div><div class="split"><div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div><div class="field"><label>Type</label><input name="replacementType" value="${escapeHtml(replacementUnit.type || "")}"></div></div><div class="split"><div class="field"><label>Localisation</label><input name="replacementLocation" value="${escapeHtml(replacementUnit.location || equipment.location || "")}"></div><div class="field"><label>Marque</label><input name="replacementBrand" value="${escapeHtml(replacementUnit.brand || "")}"></div></div><div class="split"><div class="field"><label>Modèle</label><input name="replacementModel" value="${escapeHtml(replacementUnit.model || "")}"></div><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div><div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div><div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div><div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div><div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div><div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement après cet enregistrement.</span></div>`}</div></details>` : ""}
+        <div class="actions field-intervention-actions sticky-form-actions"><button class="primary-button" type="submit">Enregistrer</button>${replacementActivity ? "" : `<button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter unité intérieure</button><button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter unité extérieure</button>`}</div>
+      </form>
+    `, "modal-card-field");
   }
 
   function recommendationReviewModal(interventionId) {
@@ -3001,6 +3183,7 @@
     if (formType === "dataField") await saveDataField(form, values);
     if (formType === "serviceType") await saveServiceType(values);
     if (formType === "interventionType") await saveInterventionType(values);
+    if (formType === "storageLocation") await settingsViewModule.saveStorageLocation(form, values);
     if (formType === "formTemplate") await saveFormTemplate(form, values);
     if (formType === "role") await saveRole(form, values);
     if (formType === "checklist") await saveChecklist(form, values);
@@ -3355,6 +3538,7 @@
     if (!validateRequiredResponses(form, template)) return;
     const apartmentId = resolveActivityApartment(order, values);
     if (!apartmentId) return;
+    const newApartmentPayload = values.apartmentId === "__new" ? state.apartments.find((item) => item.id === apartmentId) : null;
     const requestedEquipmentId = values.activityEquipmentId && values.activityEquipmentId !== "__new" ? values.activityEquipmentId : form.dataset.equipmentId;
     let equipment = state.equipment.find((item) => item.id === requestedEquipmentId);
     if (!equipment) {
@@ -3367,6 +3551,7 @@
         model: values.model || "",
         serial: values.serial || "",
         location: values.location,
+        manufactureAgeInfo: values.manufactureAgeInfo || "",
         installDate: today(),
         lastService: "",
         nextService: "",
@@ -3382,7 +3567,8 @@
         brand: values.brand || "",
         model: values.model || "",
         serial: values.serial || "",
-        location: values.location
+        location: values.location,
+        manufactureAgeInfo: values.manufactureAgeInfo || equipment.manufactureAgeInfo || ""
       });
     }
     const responses = collectFormResponses(form, template);
@@ -3465,11 +3651,13 @@
       next.setMonth(next.getMonth() + 6);
       equipment.nextService = next.toISOString().slice(0, 10);
     }
-    if (order.status === "planifie") order.status = "en_cours";
+    if (["planifie", "brouillon"].includes(order.status)) order.status = "en_cours";
     const progress = workOrderProgress(order);
     if (progress.totalApartments && progress.doneApartments === progress.totalApartments) order.status = "termine";
+    const replacement = collectReplacementBundle(form, values, equipment, intervention, order);
+    if (replacement === false) return;
     if (["interieure", "exterieure"].includes(values.afterSave)) {
-      await saveActivityBundle(equipment, intervention, order, {
+      await persistFieldActivity(newApartmentPayload, equipment, intervention, order, replacement, {
         activeView: "execution",
         selectedWorkOrderId: order.id,
         selectedExecutionApartmentId: apartmentId,
@@ -3477,12 +3665,79 @@
       }, values.afterSave === "exterieure" ? "Activité enregistrée. Nouvelle unité extérieure prête." : "Activité enregistrée. Nouvelle unité intérieure prête.");
       return;
     }
-    await saveActivityBundle(equipment, intervention, order, {
+    await persistFieldActivity(newApartmentPayload, equipment, intervention, order, replacement, {
       modal: null,
       activeView: "execution",
       selectedWorkOrderId: order.id,
       selectedExecutionApartmentId: apartmentId
     }, "Formulaire terrain enregistre.");
+  }
+
+  function collectReplacementBundle(form, values, oldEquipment, intervention, order) {
+    if (!isReplacementWorkOrder(order) || dataFieldOptionBehavior("activity_status", values.activityStatus || "completee") !== "completed") return null;
+    if (state.equipmentReplacements.some((item) => item.workOrderId === order.id && item.oldEquipmentId === oldEquipment.id)) return null;
+    const selectedId = values.replacementEquipmentId;
+    let newEquipment = state.equipment.find((item) => item.id === selectedId);
+    if (!newEquipment) {
+      if (!values.replacementType?.trim()) {
+        showToast("Entrez le type de la nouvelle unité.");
+        return false;
+      }
+      newEquipment = {
+        id: uid("eq"),
+        apartmentId: oldEquipment.apartmentId,
+        unitKind: values.replacementUnitKind || "interieure",
+        type: values.replacementType.trim(),
+        location: values.replacementLocation || oldEquipment.location || "",
+        brand: values.replacementBrand || "",
+        model: values.replacementModel || "",
+        serial: values.replacementSerial || "",
+        manufactureAgeInfo: values.replacementManufactureAgeInfo || "",
+        installDate: today(),
+        lastService: today(),
+        nextService: "",
+        status: "actif",
+        conditionStatus: "actif",
+        lifecycleStatus: "installed",
+        attachments: [],
+        notes: ""
+      };
+    } else {
+      newEquipment = { ...newEquipment, unitKind: values.replacementUnitKind || newEquipment.unitKind, type: values.replacementType || newEquipment.type, location: values.replacementLocation || newEquipment.location, brand: values.replacementBrand || newEquipment.brand, model: values.replacementModel || newEquipment.model, serial: values.replacementSerial || newEquipment.serial, manufactureAgeInfo: values.replacementManufactureAgeInfo || newEquipment.manufactureAgeInfo || "" };
+    }
+    const action = values.oldEquipmentDisposition || "";
+    if (!action) {
+      showToast("Sélectionnez la destination de l'ancienne unité.");
+      return false;
+    }
+    if (action === "transfer_apartment" && !values.destinationApartmentId) {
+      showToast("Sélectionnez l'appartement de destination.");
+      return false;
+    }
+    if (action === "storage" && !values.destinationStorageLocationId) {
+      showToast("Sélectionnez le dépôt de destination.");
+      return false;
+    }
+    if (action === "dispose" && !confirm("Confirmer la mise au rebut de cette unité? Son historique sera conservé.")) return false;
+    return { action, newEquipment, destinationApartmentId: values.destinationApartmentId || "", destinationStorageLocationId: values.destinationStorageLocationId || "", reason: values.replacementReason || "Remplacement de l'unité", movementId: uid("move"), replacementId: uid("replace") };
+  }
+
+  async function persistFieldActivity(apartment, equipment, intervention, order, replacement, uiPatch, successToast) {
+    if (!SERVER_ENABLED) {
+      setState({ ...uiPatch, toast: successToast });
+      return;
+    }
+    try {
+      const payload = await api.saveFieldIntervention(apartment, equipment, intervention, order, replacement);
+      if (!payload.state) return;
+      rememberServerState(payload.state);
+      const uiState = currentUiState();
+      state = { ...normalizeState(payload.state), ...uiState, ...uiPatch, sessionUserId: uiState.sessionUserId, toast: successToast };
+      render();
+      scheduleToastClear();
+    } catch (error) {
+      showToast(error.message || "Activité non sauvegardée.");
+    }
   }
 
   async function saveRecommendationReview(values) {
@@ -3719,7 +3974,7 @@
       id: uid("apt"),
       buildingId,
       number: values.newApartmentNumber.trim(),
-      occupant: values.newApartmentOccupant || ""
+      occupant: ""
     };
     state.apartments.push(apartment);
     return apartment.id;
@@ -4092,6 +4347,18 @@
         removeFormQuestion(target.closest("[data-question]"));
         return;
       }
+      if (action === "add-data-option") {
+        settingsViewModule.addDataFieldOption(target.closest("form"));
+        return;
+      }
+      if (action === "move-data-option") {
+        settingsViewModule.moveDataFieldOption(target.closest("[data-data-option-row]"), Number(target.dataset.direction || 0));
+        return;
+      }
+      if (action === "deactivate-data-option") {
+        settingsViewModule.deactivateDataFieldOption(target.closest("[data-data-option-row]"));
+        return;
+      }
       if (action === "duplicate-form-template") {
         await duplicateFormTemplate(target.dataset.id);
         return;
@@ -4233,6 +4500,10 @@
       updateTechnicianPermissionsVisibility(event.target.closest("form"));
       updateUserAccessEditor(event.target.closest("form"), event.target.name === "clientId");
       if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
+      if (event.target.matches("[data-replacement-equipment-select]")) populateReplacementEquipment(event.target);
+      if (event.target.matches("[data-disposition-select]")) updateDispositionVisibility(event.target.closest("form"));
+      if (event.target.matches("[data-activity-result]")) updateReplacementSectionVisibility(event.target.closest("form"));
+      if (event.target.matches("[data-workorder-type]")) workOrdersViewModule.updateWorkOrderDefaultForm(event.target);
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
     });
@@ -4290,7 +4561,7 @@
     const equipment = state.equipment.find((item) => item.id === select.value);
     if (!form) return;
     form.dataset.equipmentId = equipment?.id || "";
-    ["type", "location", "brand", "model", "serial"].forEach((name) => {
+    ["type", "location", "brand", "model", "serial", "manufactureAgeInfo"].forEach((name) => {
       const input = form.querySelector(`[name="${name}"]`);
       if (input) input.value = equipment ? equipment[name === "location" ? "location" : name] || "" : "";
     });
@@ -4300,7 +4571,73 @@
     if (machineStatus) machineStatus.value = "";
     const notes = form.querySelector('[name="equipmentNotes"]');
     if (notes) notes.value = "";
+    updateEquipmentIdentityAccess(form, equipment);
     hideComboOptions();
+  }
+
+  function updateEquipmentIdentityAccess(form, equipment) {
+    if (!form) return;
+    const locked = Boolean(equipment && currentUser()?.role === "technicien" && !canEditEquipment());
+    ["unitKind", "type", "location", "brand", "model", "serial", "manufactureAgeInfo"].forEach((name) => {
+      const input = form.querySelector(`[name="${name}"]`);
+      if (!input) return;
+      if (input.tagName === "SELECT") {
+        input.classList.toggle("select-readonly", locked);
+        input.setAttribute("aria-disabled", locked ? "true" : "false");
+      } else {
+        input.readOnly = locked;
+      }
+    });
+  }
+
+  function populateReplacementEquipment(select) {
+    const form = select.closest("form");
+    const equipment = state.equipment.find((item) => item.id === select.value);
+    if (!form) return;
+    const mapping = {
+      replacementUnitKind: "unitKind",
+      replacementType: "type",
+      replacementLocation: "location",
+      replacementBrand: "brand",
+      replacementModel: "model",
+      replacementSerial: "serial",
+      replacementManufactureAgeInfo: "manufactureAgeInfo"
+    };
+    Object.entries(mapping).forEach(([name, property]) => {
+      const input = form.querySelector(`[name="${name}"]`);
+      if (input) input.value = equipment?.[property] || (name === "replacementUnitKind" ? "interieure" : "");
+    });
+  }
+
+  function updateDispositionVisibility(form) {
+    if (!form || form.dataset.form !== "fieldIntervention") return;
+    const action = form.querySelector("[data-disposition-select]")?.value || "";
+    const sections = [
+      ["[data-disposition-apartment]", action === "transfer_apartment"],
+      ["[data-disposition-storage]", action === "storage"]
+    ];
+    sections.forEach(([selector, visible]) => {
+      const section = form.querySelector(selector);
+      if (!section) return;
+      section.classList.toggle("hidden", !visible);
+      section.querySelectorAll("input, select, textarea").forEach((input) => {
+        input.disabled = !visible;
+        input.required = visible;
+      });
+    });
+  }
+
+  function updateReplacementSectionVisibility(form) {
+    if (!form || form.dataset.form !== "fieldIntervention") return;
+    const section = form.querySelector("[data-replacement-section]");
+    if (!section) return;
+    const result = form.querySelector("[data-activity-result]")?.value || "";
+    const visible = dataFieldOptionBehavior("activity_status", result) === "completed";
+    section.classList.toggle("hidden", !visible);
+    section.querySelectorAll("input, select, textarea").forEach((input) => {
+      input.disabled = !visible;
+    });
+    if (visible) updateDispositionVisibility(form);
   }
 
   function addFormQuestion(form) {
@@ -4604,6 +4941,9 @@
     updateDynamicVisibility(app.querySelector("form[data-form='fieldIntervention']"));
     updateNewApartmentVisibility(app.querySelector("form[data-form='fieldIntervention']"));
     updateRecommendationVisibility(app.querySelector("form[data-form='fieldIntervention']"));
+    const fieldForm = app.querySelector("form[data-form='fieldIntervention']");
+    updateEquipmentIdentityAccess(fieldForm, state.equipment.find((item) => item.id === fieldForm?.dataset.equipmentId));
+    updateReplacementSectionVisibility(fieldForm);
   }
 
   bindEvents();

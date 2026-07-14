@@ -41,6 +41,7 @@ src/climaparc/
   tickets/
   work_orders/
   interventions/
+  field_operations/
   documents/
   recommendations/
   reminders/
@@ -101,6 +102,7 @@ ne signifie pas encore que le domaine est indépendant de `climaparc_state`.
 | Demandes clients | Oui | Oui | lecture state hydraté + écritures table ticket/payload |
 | Bons de travail | Oui | Oui | lecture state hydraté + écritures table BT/payload |
 | Interventions | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
+| Opérations terrain / remplacement | Oui | Oui | transaction atomique appartement, équipements, intervention, BT et mouvements |
 | Documents | Oui | Oui | lecture state hydrate + metadata table + Supabase Storage |
 | Recommandations | Oui | Oui | lecture state hydrate + ecritures table intervention/payload |
 | Rappels | Oui | Oui | lecture state hydraté + écritures table rappel/payload |
@@ -147,6 +149,11 @@ Exceptions déjà consolidées:
 - `work_orders` / `Bons de travail` conserve la lecture de contexte via l'état
   hydraté, mais ses créations et mises à jour écrivent uniquement dans
   `climaparc_work_orders` et synchronisent les techniciens assignés.
+- `field_operations` / `Opérations terrain` lit le contexte hydraté pour les
+  autorisations, puis enregistre dans une transaction unique l'appartement,
+  l'équipement, l'intervention, le BT, les mouvements et les relations de
+  remplacement. Les dépôts, transferts et mises au rebut conservent l'identité
+  permanente et l'historique de la machine.
 - `interventions` / `Interventions` et `recommendations` / `Recommandations`
   conservent la lecture de contexte via l'etat hydrate, mais leurs creations,
   mises a jour et reponses client ecrivent uniquement dans
@@ -168,6 +175,7 @@ Domaines encore dépendants du state central:
 - demandes clients pour la lecture de contexte seulement;
 - bons de travail pour la lecture de contexte seulement;
 - interventions et recommandations pour la lecture de contexte seulement;
+- opérations terrain et remplacement pour la lecture de contexte seulement;
 - documents pour la lecture de contexte seulement;
 - rappels pour la lecture de contexte seulement;
 - paramètres/formulaires pour la lecture de contexte seulement;
@@ -228,6 +236,7 @@ Le frontend utilise les routes suivantes, toutes desservies par FastAPI:
 - `POST /api/ticket`
 - `POST /api/work-order`
 - `POST /api/intervention`
+- `POST /api/field-intervention`
 - `POST /api/reminder`
 - `POST /api/reminder-delete`
 - `POST /api/setting-item`

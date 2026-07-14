@@ -11,6 +11,8 @@ from src.climaparc.equipment.presentation.dependencies import (
     get_update_equipment_use_case,
 )
 from src.climaparc.equipment.presentation.dispatch import save_equipment_with_use_cases
+from src.climaparc.field_operations.application.commands import SaveFieldInterventionCommand
+from src.climaparc.field_operations.presentation.dependencies import get_save_field_intervention_use_case
 from src.climaparc.interventions.presentation.dependencies import (
     get_create_intervention_use_case,
     get_intervention_lookup_repository,
@@ -236,6 +238,30 @@ def handle_save_intervention(handler: Any, *, sync_relational_tables_safely: Cal
     except Exception as error:
         print(f"intervention save failed: {error}")
         handler.json_response({"error": "Erreur serveur lors de la sauvegarde intervention."}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+
+def handle_save_field_intervention(handler: Any) -> None:
+    user = _current_user(handler)
+    if not user:
+        return
+    payload = handler.read_json()
+    try:
+        result = get_save_field_intervention_use_case()(
+            SaveFieldInterventionCommand(
+                user,
+                payload.get("apartment"),
+                payload.get("equipment"),
+                payload.get("intervention"),
+                payload.get("workOrder"),
+                payload.get("replacement"),
+            )
+        )
+        handler.json_response(result)
+    except ApplicationError as error:
+        handler.json_response({"error": error.message}, error.status)
+    except Exception as error:
+        print(f"field intervention save failed: {error}")
+        handler.json_response({"error": "Erreur serveur lors de la sauvegarde terrain."}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 def handle_save_reminder(handler: Any, *, sync_relational_tables_safely: Callable) -> None:

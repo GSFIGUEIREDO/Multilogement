@@ -50,6 +50,8 @@ def normalized_option(option: Any, index: int) -> dict[str, Any]:
             "active": option.get("active") is not False,
             "isDefault": bool(option.get("isDefault") or option.get("default")),
             "goTo": option.get("goTo") or option.get("branchTo") or "",
+            "behavior": str(option.get("behavior") or ""),
+            "color": str(option.get("color") or ""),
         }
     label = str(option or "").strip()
     return {
@@ -57,6 +59,8 @@ def normalized_option(option: Any, index: int) -> dict[str, Any]:
         "label": label,
         "value": label,
         "active": True,
+        "behavior": "",
+        "color": "",
         "isDefault": False,
         "goTo": "",
     }
@@ -99,6 +103,7 @@ RELATIONAL_SYNC_SPECS = {
         "table": "climaparc_equipment",
         "columns": [
             ("apartment_id", "apartmentId"),
+            ("client_id", "clientId"),
             ("equipment_type", "type"),
             ("brand", "brand"),
             ("model", "model"),
@@ -109,6 +114,13 @@ RELATIONAL_SYNC_SPECS = {
             ("install_date", "installDate"),
             ("last_service", "lastService"),
             ("next_service", "nextService"),
+            ("manufacture_age_info", "manufactureAgeInfo"),
+            ("manufacture_year", lambda item: int_db_value(item.get("manufactureYear"))),
+            ("estimated_age_years", lambda item: int_db_value(item.get("estimatedAgeYears"))),
+            ("condition_status", lambda item: item.get("conditionStatus") or item.get("status")),
+            ("lifecycle_status", lambda item: item.get("lifecycleStatus") or "installed"),
+            ("storage_location_id", "storageLocationId"),
+            ("disposed_at_text", "disposedAt"),
         ],
     },
     "tickets": {
@@ -187,7 +199,7 @@ RELATIONAL_SYNC_SPECS = {
         ],
     },
     "serviceTypes": {"table": "climaparc_service_types", "columns": [("name", "name"), ("default_priority", "defaultPriority"), ("linked_intervention_type_id", "linkedInterventionTypeId")]},
-    "interventionTypes": {"table": "climaparc_intervention_types", "columns": [("name", "name")]},
+    "interventionTypes": {"table": "climaparc_intervention_types", "columns": [("name", "name"), ("default_form_template_id", "defaultFormTemplateId"), ("behavior", "behavior")]},
     "formTemplates": {"table": "climaparc_form_templates", "columns": [("name", "name")]},
     "roleDefinitions": {"table": "climaparc_role_definitions", "columns": [("name", "name")]},
     "dataFields": {"table": "climaparc_data_fields", "columns": [("name", "name"), ("field_group", "group"), ("field_type", "type")]},
@@ -195,6 +207,9 @@ RELATIONAL_SYNC_SPECS = {
         "table": "climaparc_password_reset_requests",
         "columns": [("email", "email"), ("user_id", "userId"), ("status", "status"), ("created_at_text", "createdAt"), ("expires_at_text", "expiresAt")],
     },
+    "storageLocations": {"table": "climaparc_storage_locations", "columns": [("client_id", "clientId"), ("name", "name"), ("address", "address"), ("active", lambda item: item.get("active") is not False)]},
+    "equipmentMovements": {"table": "climaparc_equipment_movements", "columns": [("equipment_id", "equipmentId"), ("movement_type", "movementType"), ("from_apartment_id", "fromApartmentId"), ("to_apartment_id", "toApartmentId"), ("from_storage_location_id", "fromStorageLocationId"), ("to_storage_location_id", "toStorageLocationId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("performed_by", "performedBy"), ("performed_at_text", "performedAt")]},
+    "equipmentReplacements": {"table": "climaparc_equipment_replacements", "columns": [("old_equipment_id", "oldEquipmentId"), ("new_equipment_id", "newEquipmentId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("completed_at_text", "completedAt")]},
 }
 
 
@@ -308,17 +323,19 @@ def sync_data_field_options(connection, data_fields: list[Any]) -> None:
                 connection,
                 f"""
                 insert into {rel_table('climaparc_data_field_options')} (
-                  data_field_id, option_id, label, value, sort_order, active, updated_at
+                  data_field_id, option_id, label, value, sort_order, active, behavior, color, updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(data_field_id, option_id) do update set
                   label = excluded.label,
                   value = excluded.value,
                   sort_order = excluded.sort_order,
                   active = excluded.active,
+                  behavior = excluded.behavior,
+                  color = excluded.color,
                   updated_at = excluded.updated_at
                 """,
-                (field_id, option["id"], option["label"], option["value"], index, option["active"], now_value()),
+                (field_id, option["id"], option["label"], option["value"], index, option["active"], option["behavior"], option["color"], now_value()),
             )
 
 

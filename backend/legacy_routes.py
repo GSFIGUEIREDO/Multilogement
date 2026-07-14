@@ -27,6 +27,7 @@ POST_ROUTES = {
     "/api/ticket": "handle_save_ticket",
     "/api/work-order": "handle_save_work_order",
     "/api/intervention": "handle_save_intervention",
+    "/api/field-intervention": "handle_save_field_intervention",
     "/api/reminder": "handle_save_reminder",
     "/api/reminder-delete": "handle_delete_reminder",
     "/api/report-context": "handle_report_context",

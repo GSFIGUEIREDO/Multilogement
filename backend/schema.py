@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .database import USE_POSTGRES, connect, execute, row_get
+from .database import USE_POSTGRES, connect, execute, json_db_value, now_value, row_get
 from .security import sanitize_state_for_storage
 
 
@@ -93,6 +93,7 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
     "climaparc_apartments": [("building_id", "text"), ("number", "text"), ("occupant", "text")],
     "climaparc_equipment": [
         ("apartment_id", "text"),
+        ("client_id", "text"),
         ("equipment_type", "text"),
         ("brand", "text"),
         ("model", "text"),
@@ -103,6 +104,13 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("install_date", "text"),
         ("last_service", "text"),
         ("next_service", "text"),
+        ("manufacture_age_info", "text"),
+        ("manufacture_year", "integer"),
+        ("estimated_age_years", "integer"),
+        ("condition_status", "text"),
+        ("lifecycle_status", "text"),
+        ("storage_location_id", "text"),
+        ("disposed_at_text", "text"),
     ],
     "climaparc_tickets": [
         ("number", "text"),
@@ -165,7 +173,7 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("visible_to_client", "bool"),
     ],
     "climaparc_service_types": [("name", "text"), ("default_priority", "text"), ("linked_intervention_type_id", "text")],
-    "climaparc_intervention_types": [("name", "text")],
+    "climaparc_intervention_types": [("name", "text"), ("default_form_template_id", "text"), ("behavior", "text")],
     "climaparc_form_templates": [("name", "text")],
     "climaparc_role_definitions": [("name", "text")],
     "climaparc_data_fields": [("name", "text"), ("field_group", "text"), ("field_type", "text")],
@@ -175,6 +183,31 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("status", "text"),
         ("created_at_text", "text"),
         ("expires_at_text", "text"),
+    ],
+    "climaparc_storage_locations": [
+        ("client_id", "text"),
+        ("name", "text"),
+        ("address", "text"),
+        ("active", "bool"),
+    ],
+    "climaparc_equipment_movements": [
+        ("equipment_id", "text"),
+        ("movement_type", "text"),
+        ("from_apartment_id", "text"),
+        ("to_apartment_id", "text"),
+        ("from_storage_location_id", "text"),
+        ("to_storage_location_id", "text"),
+        ("work_order_id", "text"),
+        ("intervention_id", "text"),
+        ("performed_by", "text"),
+        ("performed_at_text", "text"),
+    ],
+    "climaparc_equipment_replacements": [
+        ("old_equipment_id", "text"),
+        ("new_equipment_id", "text"),
+        ("work_order_id", "text"),
+        ("intervention_id", "text"),
+        ("completed_at_text", "text"),
     ],
 }
 
@@ -204,6 +237,8 @@ CHILD_TABLES: dict[str, list[str]] = {
         "value text not null default ''",
         "sort_order integer not null default 0",
         f"active {sql_type('bool')}",
+        "behavior text",
+        "color text",
         f"updated_at {sql_type('updated')}",
         "primary key (data_field_id, option_id)",
     ],
@@ -303,6 +338,7 @@ CHILD_TABLES: dict[str, list[str]] = {
 
 
 CHILD_TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "climaparc_data_field_options": [("behavior", "text"), ("color", "text"), ("updated_at", sql_type("updated_nullable"))],
     "climaparc_equipment_attachments": [("storage_bucket", "text"), ("storage_path", "text"), ("updated_at", sql_type("updated_nullable"))],
     "climaparc_intervention_attachments": [("storage_bucket", "text"), ("storage_path", "text"), ("updated_at", sql_type("updated_nullable"))],
 }
@@ -345,6 +381,11 @@ INDEXES = [
     ("climaparc_equipment_attachments_equipment_id_idx", "climaparc_equipment_attachments", "equipment_id"),
     ("climaparc_intervention_attachments_intervention_id_idx", "climaparc_intervention_attachments", "intervention_id"),
     ("climaparc_recommendation_messages_intervention_id_idx", "climaparc_recommendation_messages", "intervention_id"),
+    ("climaparc_storage_locations_client_id_idx", "climaparc_storage_locations", "client_id"),
+    ("climaparc_equipment_movements_equipment_id_idx", "climaparc_equipment_movements", "equipment_id"),
+    ("climaparc_equipment_movements_work_order_id_idx", "climaparc_equipment_movements", "work_order_id"),
+    ("climaparc_equipment_replacements_old_equipment_id_idx", "climaparc_equipment_replacements", "old_equipment_id"),
+    ("climaparc_equipment_replacements_new_equipment_id_idx", "climaparc_equipment_replacements", "new_equipment_id"),
 ]
 
 
@@ -357,6 +398,42 @@ def init_relational_tables(connection) -> None:
         ensure_table_columns(connection, table, columns)
     for index_name, table, columns in INDEXES:
         connection.execute(f"create index if not exists {index_name} on {rel_table(table)}({columns})")
+
+
+def ensure_operational_defaults(connection) -> None:
+    replacement_template = {
+        "id": "form_remplacement_unite",
+        "name": "Remplacement d'une unite",
+        "activityFields": {},
+        "fields": [
+            {"id": "ancienne_unite_confirmee", "label": "Unite a remplacer confirmee", "type": "checkbox", "required": True, "layout": "full"},
+            {"id": "essai_fonctionnement", "label": "Essai de fonctionnement", "type": "single", "required": True, "options": ["Conforme", "A surveiller", "Non conforme"], "layout": "half"},
+            {"id": "observations_installation", "label": "Observations d'installation", "type": "long", "required": False, "layout": "full"},
+        ],
+    }
+    replacement_type = {
+        "id": "remplacement_unite",
+        "name": "Remplacement d'une unite",
+        "defaultDuration": 120,
+        "defaultFormTemplateId": replacement_template["id"],
+        "behavior": "replacement",
+        "checklist": ["Confirmer l'ancienne unite", "Installer la nouvelle unite", "Effectuer l'essai de fonctionnement", "Confirmer la destination de l'ancienne unite"],
+    }
+    defaults = (
+        ("climaparc_form_templates", replacement_template, [("name", replacement_template["name"])]),
+        ("climaparc_intervention_types", replacement_type, [("name", replacement_type["name"]), ("default_form_template_id", replacement_type["defaultFormTemplateId"]), ("behavior", replacement_type["behavior"])]),
+    )
+    for table, payload, column_values in defaults:
+        existing = execute(connection, f"select id from {rel_table(table)} where id = ?", (payload["id"],)).fetchone()
+        if existing:
+            continue
+        columns = ["id", *[name for name, _ in column_values], "payload", "updated_at"]
+        values = [payload["id"], *[value for _, value in column_values], json_db_value(payload), now_value()]
+        execute(
+            connection,
+            f"insert into {rel_table(table)} ({', '.join(columns)}) values ({', '.join('?' for _ in columns)})",
+            tuple(values),
+        )
 
 
 def migrate_legacy_user_profiles(connection) -> None:
@@ -434,6 +511,7 @@ def init_db() -> None:
             connection.execute("create index if not exists climaparc_sessions_expires_at_idx on public.climaparc_sessions(expires_at)")
             connection.execute("create index if not exists climaparc_password_reset_tokens_user_id_idx on public.climaparc_password_reset_tokens(user_id)")
             init_relational_tables(connection)
+            ensure_operational_defaults(connection)
             migrate_legacy_user_profiles(connection)
             return
 
@@ -477,4 +555,5 @@ def init_db() -> None:
             """
         )
         init_relational_tables(connection)
+        ensure_operational_defaults(connection)
         migrate_legacy_user_profiles(connection)

@@ -38,6 +38,9 @@ COLLECTION_KEYS = {
     "roleDefinitions",
     "dataFields",
     "passwordResetRequests",
+    "storageLocations",
+    "equipmentMovements",
+    "equipmentReplacements",
 }
 
 CONFIG_KEYS = {
@@ -292,6 +295,13 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
         client_id = user.get("clientId")
         building_ids = client_building_scope(clean, user)
         apartment_ids, equipment_ids = equipment_scope_for_buildings(clean, building_ids)
+        equipment_ids.update(
+            item.get("id") for item in clean.get("equipment", [])
+            if isinstance(item, dict)
+            and item.get("clientId") == client_id
+            and not item.get("apartmentId")
+            and item.get("id")
+        )
         visible_ticket_ids = {
             item.get("id")
             for item in clean.get("tickets", [])
@@ -324,6 +334,12 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
             response["apartments"] = [item for item in clean.get("apartments", []) if isinstance(item, dict) and item.get("id") in apartment_ids]
         if has_client_right(user, "equipment"):
             response["equipment"] = [item for item in clean.get("equipment", []) if isinstance(item, dict) and item.get("id") in equipment_ids]
+            response["storageLocations"] = [item for item in clean.get("storageLocations", []) if isinstance(item, dict) and item.get("clientId") == client_id]
+            response["equipmentMovements"] = [item for item in clean.get("equipmentMovements", []) if isinstance(item, dict) and item.get("equipmentId") in equipment_ids]
+            response["equipmentReplacements"] = [
+                item for item in clean.get("equipmentReplacements", [])
+                if isinstance(item, dict) and (item.get("oldEquipmentId") in equipment_ids or item.get("newEquipmentId") in equipment_ids)
+            ]
         if has_client_right(user, "tickets"):
             response["tickets"] = [item for item in clean.get("tickets", []) if isinstance(item, dict) and item.get("id") in visible_ticket_ids]
         if has_client_right(user, "workorders"):
@@ -368,6 +384,18 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
         response["buildings"] = [item for item in clean.get("buildings", []) if isinstance(item, dict) and item.get("id") in building_ids]
         response["apartments"] = [item for item in clean.get("apartments", []) if isinstance(item, dict) and item.get("id") in apartment_ids]
         response["equipment"] = [item for item in clean.get("equipment", []) if isinstance(item, dict) and item.get("id") in equipment_ids]
+        visible_client_ids = {
+            item.get("clientId") for item in response["clients"] if isinstance(item, dict) and item.get("clientId")
+        }
+        visible_client_ids.update(
+            item.get("id") for item in response["clients"] if isinstance(item, dict) and item.get("id")
+        )
+        response["storageLocations"] = [item for item in clean.get("storageLocations", []) if isinstance(item, dict) and item.get("clientId") in visible_client_ids]
+        response["equipmentMovements"] = [item for item in clean.get("equipmentMovements", []) if isinstance(item, dict) and item.get("equipmentId") in equipment_ids]
+        response["equipmentReplacements"] = [
+            item for item in clean.get("equipmentReplacements", [])
+            if isinstance(item, dict) and (item.get("oldEquipmentId") in equipment_ids or item.get("newEquipmentId") in equipment_ids)
+        ]
         response["workOrders"] = [item for item in clean.get("workOrders", []) if isinstance(item, dict) and item.get("id") in work_order_ids]
         response["interventions"] = [
             item for item in clean.get("interventions", [])
@@ -418,8 +446,8 @@ def can_save_collection(state: dict, current_user_row: Any, collection_key: str,
                 (equipment for equipment in state.get("equipment", []) if isinstance(equipment, dict) and equipment.get("id") == item.get("id")),
                 None,
             )
-            protected_fields = {"apartmentId", "unitKind", "type", "brand", "model", "serial", "location", "installDate"}
-            protected_change = bool(existing) and any(item.get(key) != existing.get(key) for key in protected_fields)
+            protected_fields = {"apartmentId", "unitKind", "type", "brand", "model", "serial", "location", "installDate", "manufactureAgeInfo"}
+            protected_change = bool(existing) and any((item.get(key) or "") != (existing.get(key) or "") for key in protected_fields)
             return item.get("apartmentId") in apartment_ids and (
                 not existing or not protected_change or has_technician_permission(user, "edit_equipment")
             )

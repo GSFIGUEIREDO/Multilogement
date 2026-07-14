@@ -22,6 +22,9 @@ MERGE_BY_ID_KEYS = {
     "roleDefinitions",
     "dataFields",
     "passwordResetRequests",
+    "storageLocations",
+    "equipmentMovements",
+    "equipmentReplacements",
 }
 
 

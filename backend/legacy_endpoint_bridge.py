@@ -19,6 +19,7 @@ from backend.legacy_domain_handlers import (
     handle_save_apartment as handle_legacy_save_apartment,
     handle_save_building as handle_legacy_save_building,
     handle_save_equipment as handle_legacy_save_equipment,
+    handle_save_field_intervention as handle_legacy_save_field_intervention,
     handle_save_intervention as handle_legacy_save_intervention,
     handle_save_reminder as handle_legacy_save_reminder,
     handle_save_setting_item as handle_legacy_save_setting_item,
@@ -131,6 +132,9 @@ class LegacyEndpointMixin:
 
     def handle_save_intervention(self) -> None:
         handle_legacy_save_intervention(self, sync_relational_tables_safely=self.legacy_context.sync_relational_tables_safely)
+
+    def handle_save_field_intervention(self) -> None:
+        handle_legacy_save_field_intervention(self)
 
     def handle_save_reminder(self) -> None:
         handle_legacy_save_reminder(self, sync_relational_tables_safely=self.legacy_context.sync_relational_tables_safely)

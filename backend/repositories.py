@@ -84,12 +84,16 @@ class EquipmentRepository:
             connection,
             """
             insert into climaparc_equipment (
-              id, apartment_id, equipment_type, brand, model, serial, location,
-              unit_kind, status, install_date, last_service, next_service, payload, updated_at
+              id, apartment_id, client_id, equipment_type, brand, model, serial, location,
+              unit_kind, status, install_date, last_service, next_service,
+              manufacture_age_info, manufacture_year, estimated_age_years,
+              condition_status, lifecycle_status, storage_location_id, disposed_at_text,
+              payload, updated_at
             )
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set
               apartment_id = excluded.apartment_id,
+              client_id = excluded.client_id,
               equipment_type = excluded.equipment_type,
               brand = excluded.brand,
               model = excluded.model,
@@ -100,12 +104,20 @@ class EquipmentRepository:
               install_date = excluded.install_date,
               last_service = excluded.last_service,
               next_service = excluded.next_service,
+              manufacture_age_info = excluded.manufacture_age_info,
+              manufacture_year = excluded.manufacture_year,
+              estimated_age_years = excluded.estimated_age_years,
+              condition_status = excluded.condition_status,
+              lifecycle_status = excluded.lifecycle_status,
+              storage_location_id = excluded.storage_location_id,
+              disposed_at_text = excluded.disposed_at_text,
               payload = excluded.payload,
               updated_at = excluded.updated_at
             """,
             (
                 equipment["id"],
                 equipment.get("apartmentId"),
+                equipment.get("clientId"),
                 equipment.get("type"),
                 equipment.get("brand"),
                 equipment.get("model"),
@@ -116,6 +128,13 @@ class EquipmentRepository:
                 equipment.get("installDate"),
                 equipment.get("lastService"),
                 equipment.get("nextService"),
+                equipment.get("manufactureAgeInfo"),
+                equipment.get("manufactureYear"),
+                equipment.get("estimatedAgeYears"),
+                equipment.get("conditionStatus") or equipment.get("status"),
+                equipment.get("lifecycleStatus") or "installed",
+                equipment.get("storageLocationId"),
+                equipment.get("disposedAt"),
                 json_db_value(equipment),
                 now_value(),
             ),
@@ -162,6 +181,9 @@ PAYLOAD_TABLE_COLLECTIONS = {
     "roleDefinitions": "climaparc_role_definitions",
     "dataFields": "climaparc_data_fields",
     "passwordResetRequests": "climaparc_password_reset_requests",
+    "storageLocations": "climaparc_storage_locations",
+    "equipmentMovements": "climaparc_equipment_movements",
+    "equipmentReplacements": "climaparc_equipment_replacements",
 }
 
 

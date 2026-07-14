@@ -5,6 +5,7 @@ from http import HTTPStatus
 from backend.repositories import stamp_payload
 from backend.security import filter_state_for_user
 from src.climaparc.recommendations.application.commands import ClientUpdateRecommendationCommand
+from src.climaparc.recommendations.application.commands import CreateReplacementDraftCommand
 from src.climaparc.recommendations.domain.policies import (
     apply_client_recommendation_update,
     clear_ui_state,
@@ -17,9 +18,10 @@ from src.climaparc.shared.domain.errors import ApplicationError
 
 
 class ClientUpdateRecommendationUseCase:
-    def __init__(self, state_repository: RecommendationStateRepository, payload_repository: RecommendationPayloadRepository):
+    def __init__(self, state_repository: RecommendationStateRepository, payload_repository: RecommendationPayloadRepository, replacement_draft_use_case=None):
         self.state_repository = state_repository
         self.payload_repository = payload_repository
+        self.replacement_draft_use_case = replacement_draft_use_case
 
     def __call__(self, command: ClientUpdateRecommendationCommand) -> dict:
         if not command.current_user:
@@ -30,7 +32,19 @@ class ClientUpdateRecommendationUseCase:
         state = self.state_repository.get(lock=False)
         if not state:
             raise ApplicationError("Etat introuvable.", HTTPStatus.NOT_FOUND)
+        existing_index = find_intervention_index(state.setdefault("interventions", []), intervention_id)
+        existing_intervention = state["interventions"][existing_index]
+        existing_recommendation = existing_intervention.get("recommendation") or {}
+        if recommendation.get("status") == "approuvee" and existing_recommendation.get("status") == "approuvee" and existing_recommendation.get("workOrderId"):
+            return {
+                "ok": True,
+                "state": filter_state_for_user(state, command.current_user),
+                "item": existing_intervention,
+                "workOrder": next((item for item in state.get("workOrders", []) if item.get("id") == existing_recommendation.get("workOrderId")), None),
+            }
         intervention = stamp_payload(apply_client_recommendation_update(state, command.current_user, intervention_id, recommendation))
+        if intervention.get("recommendation", {}).get("status") == "approuvee" and self.replacement_draft_use_case:
+            return self.replacement_draft_use_case(CreateReplacementDraftCommand(command.current_user, state, intervention))
         interventions = state.setdefault("interventions", [])
         index = find_intervention_index(interventions, intervention_id)
         interventions[index] = intervention

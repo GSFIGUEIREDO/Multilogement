@@ -48,6 +48,15 @@ def normalize_recommendation_payload(recommendation: dict) -> dict:
     return dict(recommendation)
 
 
+def recommendation_behavior(state: dict, recommendation_type: object) -> str:
+    value = str(recommendation_type or "")
+    field = next((item for item in state.get("dataFields", []) if isinstance(item, dict) and item.get("id") == "recommendation_type"), None)
+    option = next((item for item in (field or {}).get("options", []) if isinstance(item, dict) and item.get("value") == value), None)
+    if option and option.get("behavior"):
+        return str(option.get("behavior"))
+    return "replacement" if value in {"remplacement", "remplacement_unite"} else "informational"
+
+
 def find_intervention_index(items: list, intervention_id: str) -> int:
     return next(
         (index for index, item in enumerate(items) if isinstance(item, dict) and item.get("id") == intervention_id),

@@ -1,5 +1,15 @@
 (function () {
   const JSON_HEADERS = { "Content-Type": "application/json" };
+  let mutationQueue = Promise.resolve();
+  let pendingMutations = 0;
+  let mutationGeneration = 0;
+
+  function apiError(payload, response) {
+    const error = new Error(payload.error || payload.detail || `Requete impossible (HTTP ${response.status}).`);
+    error.status = response.status;
+    error.payload = payload;
+    return error;
+  }
 
   async function request(path, options = {}) {
     const response = await fetch(path, {
@@ -12,7 +22,7 @@
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || `Requete impossible (HTTP ${response.status}).`);
+      throw apiError(payload, response);
     }
     return payload;
   }
@@ -25,21 +35,43 @@
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || `Requete impossible (HTTP ${response.status}).`);
+      throw apiError(payload, response);
     }
     return payload;
   }
 
+  function enqueueMutation(operation) {
+    pendingMutations += 1;
+    const run = async () => {
+      try {
+        const payload = await operation();
+        mutationGeneration += 1;
+        return payload;
+      } finally {
+        pendingMutations = Math.max(0, pendingMutations - 1);
+      }
+    };
+    const result = mutationQueue.then(run, run);
+    mutationQueue = result.catch(() => undefined);
+    return result;
+  }
+
   function post(path, body) {
-    return request(path, {
+    return enqueueMutation(() => request(path, {
       method: "POST",
       body: JSON.stringify(body || {})
-    });
+    }));
   }
 
   window.ClimaParcApi = {
     session() {
       return request("/api/session");
+    },
+    hasPendingMutations() {
+      return pendingMutations > 0;
+    },
+    mutationGeneration() {
+      return mutationGeneration;
     },
     saveState(payload) {
       return post("/api/state", payload);
@@ -111,7 +143,7 @@
       return post("/api/report-context", { filters });
     },
     uploadFile(formData) {
-      return requestForm("/api/file-upload", formData);
+      return enqueueMutation(() => requestForm("/api/file-upload", formData));
     },
     getFileUrl(fileId) {
       return post("/api/file-url", { fileId });

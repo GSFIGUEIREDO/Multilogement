@@ -110,6 +110,8 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("condition_status", "text"),
         ("lifecycle_status", "text"),
         ("storage_location_id", "text"),
+        ("home_building_id", "text"),
+        ("system_id", "text"),
         ("disposed_at_text", "text"),
     ],
     "climaparc_tickets": [
@@ -132,6 +134,8 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("apartment_id", "text"),
         ("equipment_id", "text"),
         ("type_id", "text"),
+        ("default_activity_type_id", "text"),
+        ("object_text", "text"),
         ("status", "text"),
         ("scheduled_date", "text"),
         ("technician_id", "text"),
@@ -142,6 +146,8 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("equipment_id", "text"),
         ("technician_id", "text"),
         ("form_template_id", "text"),
+        ("type_id", "text"),
+        ("target_id", "text"),
         ("status", "text"),
         ("activity_status", "text"),
         ("machine_status", "text"),
@@ -186,6 +192,8 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
     ],
     "climaparc_storage_locations": [
         ("client_id", "text"),
+        ("building_id", "text"),
+        ("scope_type", "text"),
         ("name", "text"),
         ("address", "text"),
         ("active", "bool"),
@@ -201,6 +209,10 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("intervention_id", "text"),
         ("performed_by", "text"),
         ("performed_at_text", "text"),
+        ("from_home_building_id", "text"),
+        ("to_home_building_id", "text"),
+        ("from_system_id", "text"),
+        ("to_system_id", "text"),
     ],
     "climaparc_equipment_replacements": [
         ("old_equipment_id", "text"),
@@ -208,6 +220,32 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("work_order_id", "text"),
         ("intervention_id", "text"),
         ("completed_at_text", "text"),
+    ],
+    "climaparc_hvac_systems": [
+        ("client_id", "text"),
+        ("building_id", "text"),
+        ("apartment_id", "text"),
+        ("name", "text"),
+        ("active", "bool"),
+    ],
+    "climaparc_work_order_targets": [
+        ("work_order_id", "text"),
+        ("building_id", "text"),
+        ("apartment_id", "text"),
+        ("equipment_id", "text"),
+        ("activity_type_id", "text"),
+        ("status", "text"),
+        ("approval_status", "text"),
+        ("source_recommendation_id", "text"),
+        ("completed_at_text", "text"),
+    ],
+    "climaparc_work_order_completion_audits": [
+        ("work_order_id", "text"),
+        ("apartment_id", "text"),
+        ("action", "text"),
+        ("reason", "text"),
+        ("performed_by", "text"),
+        ("performed_at_text", "text"),
     ],
 }
 
@@ -352,6 +390,8 @@ INDEXES = [
     ("climaparc_equipment_apartment_id_idx", "climaparc_equipment", "apartment_id"),
     ("climaparc_equipment_status_idx", "climaparc_equipment", "status"),
     ("climaparc_equipment_serial_idx", "climaparc_equipment", "serial"),
+    ("climaparc_equipment_home_building_idx", "climaparc_equipment", "home_building_id"),
+    ("climaparc_equipment_system_idx", "climaparc_equipment", "system_id"),
     ("climaparc_tickets_number_idx", "climaparc_tickets", "number"),
     ("climaparc_tickets_client_id_idx", "climaparc_tickets", "client_id"),
     ("climaparc_tickets_building_id_idx", "climaparc_tickets", "building_id"),
@@ -382,10 +422,15 @@ INDEXES = [
     ("climaparc_intervention_attachments_intervention_id_idx", "climaparc_intervention_attachments", "intervention_id"),
     ("climaparc_recommendation_messages_intervention_id_idx", "climaparc_recommendation_messages", "intervention_id"),
     ("climaparc_storage_locations_client_id_idx", "climaparc_storage_locations", "client_id"),
+    ("climaparc_storage_locations_building_id_idx", "climaparc_storage_locations", "building_id"),
     ("climaparc_equipment_movements_equipment_id_idx", "climaparc_equipment_movements", "equipment_id"),
     ("climaparc_equipment_movements_work_order_id_idx", "climaparc_equipment_movements", "work_order_id"),
     ("climaparc_equipment_replacements_old_equipment_id_idx", "climaparc_equipment_replacements", "old_equipment_id"),
     ("climaparc_equipment_replacements_new_equipment_id_idx", "climaparc_equipment_replacements", "new_equipment_id"),
+    ("climaparc_hvac_systems_apartment_id_idx", "climaparc_hvac_systems", "apartment_id"),
+    ("climaparc_work_order_targets_order_id_idx", "climaparc_work_order_targets", "work_order_id"),
+    ("climaparc_work_order_targets_apartment_id_idx", "climaparc_work_order_targets", "apartment_id"),
+    ("climaparc_work_order_completion_audits_order_id_idx", "climaparc_work_order_completion_audits", "work_order_id"),
 ]
 
 
@@ -459,6 +504,23 @@ def migrate_legacy_user_profiles(connection) -> None:
     sync_collection_table(connection, sanitize_state_for_storage(state), "users")
 
 
+def migrate_operational_records(connection) -> None:
+    from .operational_migrations import migrate_operational_state
+    from .repositories import StateRepository
+    from .sync_services import sync_collection_table, sync_normalized_children
+
+    repository = StateRepository()
+    state = repository.get(connection, lock=False)
+    if not state:
+        return
+    changed = migrate_operational_state(state)
+    if not changed:
+        return
+    for collection_key in changed:
+        sync_collection_table(connection, state, collection_key)
+        sync_normalized_children(connection, state, collection_key)
+
+
 def init_db() -> None:
     with connect() as connection:
         if USE_POSTGRES:
@@ -513,6 +575,7 @@ def init_db() -> None:
             init_relational_tables(connection)
             ensure_operational_defaults(connection)
             migrate_legacy_user_profiles(connection)
+            migrate_operational_records(connection)
             return
 
         connection.executescript(
@@ -557,3 +620,4 @@ def init_db() -> None:
         init_relational_tables(connection)
         ensure_operational_defaults(connection)
         migrate_legacy_user_profiles(connection)
+        migrate_operational_records(connection)

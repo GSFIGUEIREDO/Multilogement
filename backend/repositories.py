@@ -87,10 +87,11 @@ class EquipmentRepository:
               id, apartment_id, client_id, equipment_type, brand, model, serial, location,
               unit_kind, status, install_date, last_service, next_service,
               manufacture_age_info, manufacture_year, estimated_age_years,
-              condition_status, lifecycle_status, storage_location_id, disposed_at_text,
+              condition_status, lifecycle_status, storage_location_id, home_building_id,
+              system_id, disposed_at_text,
               payload, updated_at
             )
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set
               apartment_id = excluded.apartment_id,
               client_id = excluded.client_id,
@@ -110,6 +111,8 @@ class EquipmentRepository:
               condition_status = excluded.condition_status,
               lifecycle_status = excluded.lifecycle_status,
               storage_location_id = excluded.storage_location_id,
+              home_building_id = excluded.home_building_id,
+              system_id = excluded.system_id,
               disposed_at_text = excluded.disposed_at_text,
               payload = excluded.payload,
               updated_at = excluded.updated_at
@@ -134,6 +137,8 @@ class EquipmentRepository:
                 equipment.get("conditionStatus") or equipment.get("status"),
                 equipment.get("lifecycleStatus") or "installed",
                 equipment.get("storageLocationId"),
+                equipment.get("homeBuildingId"),
+                equipment.get("systemId"),
                 equipment.get("disposedAt"),
                 json_db_value(equipment),
                 now_value(),
@@ -184,6 +189,9 @@ PAYLOAD_TABLE_COLLECTIONS = {
     "storageLocations": "climaparc_storage_locations",
     "equipmentMovements": "climaparc_equipment_movements",
     "equipmentReplacements": "climaparc_equipment_replacements",
+    "hvacSystems": "climaparc_hvac_systems",
+    "workOrderTargets": "climaparc_work_order_targets",
+    "workOrderCompletionAudits": "climaparc_work_order_completion_audits",
 }
 
 

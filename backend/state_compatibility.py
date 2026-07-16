@@ -25,6 +25,9 @@ MERGE_BY_ID_KEYS = {
     "storageLocations",
     "equipmentMovements",
     "equipmentReplacements",
+    "hvacSystems",
+    "workOrderTargets",
+    "workOrderCompletionAudits",
 }
 
 

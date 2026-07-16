@@ -41,6 +41,9 @@ COLLECTION_KEYS = {
     "storageLocations",
     "equipmentMovements",
     "equipmentReplacements",
+    "hvacSystems",
+    "workOrderTargets",
+    "workOrderCompletionAudits",
 }
 
 CONFIG_KEYS = {
@@ -195,9 +198,50 @@ def equipment_scope_for_buildings(state: dict, building_ids: set[str]) -> tuple[
     equipment_ids = {
         equipment.get("id")
         for equipment in state.get("equipment", [])
-        if isinstance(equipment, dict) and equipment.get("apartmentId") in apartment_ids
+        if isinstance(equipment, dict)
+        and (
+            equipment.get("apartmentId") in apartment_ids
+            or equipment.get("homeBuildingId") in building_ids
+        )
     }
     return apartment_ids, equipment_ids
+
+
+def visible_storage_scope(state: dict, user: dict, building_ids: set[str]) -> tuple[set[str], set[str]]:
+    """Return visible depots and inventory IDs without leaking a central depot's global inventory."""
+    role = user.get("role")
+    client_id = user.get("clientId")
+    storage_ids: set[str] = set()
+    if role == "technicien":
+        storage_ids = {
+            item.get("id") for item in state.get("storageLocations", [])
+            if isinstance(item, dict) and item.get("id") and item.get("active") is not False
+        }
+    else:
+        for item in state.get("storageLocations", []):
+            if not isinstance(item, dict) or not item.get("id") or item.get("active") is False:
+                continue
+            scope_type = item.get("scopeType") or ("client" if item.get("clientId") else "company")
+            if scope_type == "company":
+                continue
+            if item.get("clientId") != client_id:
+                continue
+            if scope_type == "client" or item.get("buildingId") in building_ids:
+                storage_ids.add(item.get("id"))
+    inventory_ids = {
+        item.get("id") for item in state.get("equipment", [])
+        if isinstance(item, dict)
+        and item.get("storageLocationId") in storage_ids
+        and (
+            role == "technicien"
+            or item.get("homeBuildingId") in building_ids
+            or (not item.get("homeBuildingId") and item.get("apartmentId") in {
+                apartment.get("id") for apartment in state.get("apartments", [])
+                if isinstance(apartment, dict) and apartment.get("buildingId") in building_ids
+            })
+        )
+    }
+    return storage_ids, inventory_ids
 
 
 def order_assigned_to_user(order: dict, user_id: str | None) -> bool:
@@ -295,13 +339,8 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
         client_id = user.get("clientId")
         building_ids = client_building_scope(clean, user)
         apartment_ids, equipment_ids = equipment_scope_for_buildings(clean, building_ids)
-        equipment_ids.update(
-            item.get("id") for item in clean.get("equipment", [])
-            if isinstance(item, dict)
-            and item.get("clientId") == client_id
-            and not item.get("apartmentId")
-            and item.get("id")
-        )
+        storage_ids, storage_equipment_ids = visible_storage_scope(clean, user, building_ids)
+        equipment_ids.update(storage_equipment_ids)
         visible_ticket_ids = {
             item.get("id")
             for item in clean.get("tickets", [])
@@ -334,7 +373,8 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
             response["apartments"] = [item for item in clean.get("apartments", []) if isinstance(item, dict) and item.get("id") in apartment_ids]
         if has_client_right(user, "equipment"):
             response["equipment"] = [item for item in clean.get("equipment", []) if isinstance(item, dict) and item.get("id") in equipment_ids]
-            response["storageLocations"] = [item for item in clean.get("storageLocations", []) if isinstance(item, dict) and item.get("clientId") == client_id]
+            response["storageLocations"] = [item for item in clean.get("storageLocations", []) if isinstance(item, dict) and item.get("id") in storage_ids]
+            response["hvacSystems"] = [item for item in clean.get("hvacSystems", []) if isinstance(item, dict) and item.get("buildingId") in building_ids]
             response["equipmentMovements"] = [item for item in clean.get("equipmentMovements", []) if isinstance(item, dict) and item.get("equipmentId") in equipment_ids]
             response["equipmentReplacements"] = [
                 item for item in clean.get("equipmentReplacements", [])
@@ -344,6 +384,8 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
             response["tickets"] = [item for item in clean.get("tickets", []) if isinstance(item, dict) and item.get("id") in visible_ticket_ids]
         if has_client_right(user, "workorders"):
             response["workOrders"] = [item for item in clean.get("workOrders", []) if isinstance(item, dict) and item.get("id") in visible_work_order_ids]
+            response["workOrderTargets"] = [item for item in clean.get("workOrderTargets", []) if isinstance(item, dict) and item.get("workOrderId") in visible_work_order_ids]
+            response["workOrderCompletionAudits"] = [item for item in clean.get("workOrderCompletionAudits", []) if isinstance(item, dict) and item.get("workOrderId") in visible_work_order_ids]
             response["interventions"] = [
                 filtered_intervention_for_user(
                     item,
@@ -390,13 +432,19 @@ def filter_state_for_user(state: dict | None, current_user_row: Any) -> dict:
         visible_client_ids.update(
             item.get("id") for item in response["clients"] if isinstance(item, dict) and item.get("id")
         )
-        response["storageLocations"] = [item for item in clean.get("storageLocations", []) if isinstance(item, dict) and item.get("clientId") in visible_client_ids]
+        storage_ids, storage_equipment_ids = visible_storage_scope(clean, user, building_ids)
+        equipment_ids.update(storage_equipment_ids)
+        response["equipment"] = [item for item in clean.get("equipment", []) if isinstance(item, dict) and item.get("id") in equipment_ids]
+        response["storageLocations"] = [item for item in clean.get("storageLocations", []) if isinstance(item, dict) and item.get("id") in storage_ids]
+        response["hvacSystems"] = [item for item in clean.get("hvacSystems", []) if isinstance(item, dict) and item.get("buildingId") in building_ids]
         response["equipmentMovements"] = [item for item in clean.get("equipmentMovements", []) if isinstance(item, dict) and item.get("equipmentId") in equipment_ids]
         response["equipmentReplacements"] = [
             item for item in clean.get("equipmentReplacements", [])
             if isinstance(item, dict) and (item.get("oldEquipmentId") in equipment_ids or item.get("newEquipmentId") in equipment_ids)
         ]
         response["workOrders"] = [item for item in clean.get("workOrders", []) if isinstance(item, dict) and item.get("id") in work_order_ids]
+        response["workOrderTargets"] = [item for item in clean.get("workOrderTargets", []) if isinstance(item, dict) and item.get("workOrderId") in work_order_ids]
+        response["workOrderCompletionAudits"] = [item for item in clean.get("workOrderCompletionAudits", []) if isinstance(item, dict) and item.get("workOrderId") in work_order_ids]
         response["interventions"] = [
             item for item in clean.get("interventions", [])
             if isinstance(item, dict) and (item.get("workOrderId") in work_order_ids or item.get("equipmentId") in equipment_ids)

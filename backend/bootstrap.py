@@ -4,6 +4,7 @@ import os
 
 from backend.database import execute, now_value, password_hash, row_get
 from backend.file_storage import migrate_legacy_data_urls
+from backend.operational_migrations import migrate_operational_state
 from backend.security import sanitize_state_for_storage
 
 
@@ -94,10 +95,11 @@ def ensure_bootstrap_state(
             sync_users(connection, state)
             state = sanitize_state_for_storage(state)
         if state is not None:
+            operational_changes = migrate_operational_state(state)
             migrated, warnings = migrate_legacy_data_urls(state)
             for warning in warnings:
                 print(warning)
-            if migrated:
+            if migrated or operational_changes:
                 save_state(connection, state)
     if state:
         sync_relational_tables_safely(state)

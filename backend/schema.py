@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .database import USE_POSTGRES, connect, execute, json_db_value, now_value, row_get
+from .database import USE_POSTGRES, connect, execute, json_db_value, now_value, row_get, server_timestamp
 from .security import sanitize_state_for_storage
 
 
@@ -258,6 +258,31 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("performed_at_text", "text"),
     ],
 }
+
+
+def ensure_payload_versions(connection) -> None:
+    """Give legacy payload rows an optimistic-concurrency version once."""
+    stamp = server_timestamp()
+    for table_name in PAYLOAD_TABLES:
+        table = rel_table(table_name)
+        rows = execute(connection, f"select id, payload from {table} where payload is not null").fetchall()
+        for row in rows:
+            raw_payload = row_get(row, "payload")
+            if isinstance(raw_payload, str):
+                try:
+                    payload = json.loads(raw_payload)
+                except json.JSONDecodeError:
+                    continue
+            else:
+                payload = raw_payload
+            if not isinstance(payload, dict) or payload.get("serverUpdatedAt"):
+                continue
+            payload = {**payload, "serverUpdatedAt": stamp}
+            execute(
+                connection,
+                f"update {table} set payload = ?, updated_at = ? where id = ?",
+                (json_db_value(payload), now_value(), str(row_get(row, "id"))),
+            )
 
 
 CHILD_TABLES: dict[str, list[str]] = {
@@ -591,6 +616,7 @@ def init_db() -> None:
             ensure_operational_defaults(connection)
             migrate_legacy_user_profiles(connection)
             migrate_operational_records(connection)
+            ensure_payload_versions(connection)
             return
 
         connection.executescript(
@@ -636,3 +662,4 @@ def init_db() -> None:
         ensure_operational_defaults(connection)
         migrate_legacy_user_profiles(connection)
         migrate_operational_records(connection)
+        ensure_payload_versions(connection)

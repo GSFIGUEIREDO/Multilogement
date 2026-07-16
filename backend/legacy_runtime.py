@@ -75,6 +75,7 @@ LEGACY_ENDPOINT_CONTEXT = LegacyEndpointContext(
     get_state=get_state,
     save_state=save_state,
     sync_users=sync_users,
+    sync_relational_tables=sync_relational_tables,
     sync_relational_tables_safely=sync_relational_tables_safely,
     ensure_bootstrap_state=ensure_bootstrap_state,
     public_base_url=public_base_url,

@@ -5,6 +5,28 @@ from typing import Any
 
 from .database import execute, json_db_value, now_value, password_hash, row_get, server_timestamp, USE_POSTGRES
 from .security import public_user, sanitize_state_for_storage
+from src.climaparc.shared.domain.errors import ConcurrentModificationError
+
+
+EXPECTED_VERSION_KEY = "_expectedServerUpdatedAt"
+
+
+def versioned_payload_for_write(connection, table: str, payload: dict) -> dict:
+    expected_version = str(payload.pop(EXPECTED_VERSION_KEY, "") or "")
+    clean_payload = dict(payload)
+    if not expected_version:
+        return clean_payload
+    if not USE_POSTGRES and not getattr(connection, "in_transaction", False):
+        execute(connection, "begin immediate")
+    statement = f"select payload from {table} where id = ?"
+    if USE_POSTGRES:
+        statement += " for update"
+    row = execute(connection, statement, (clean_payload.get("id"),)).fetchone()
+    current = decode_payload(row_get(row, "payload")) if row else None
+    current_version = str((current or {}).get("serverUpdatedAt") or "")
+    if current is None or current_version != expected_version:
+        raise ConcurrentModificationError()
+    return clean_payload
 
 
 class StateRepository:
@@ -80,6 +102,7 @@ class AuthUserRepository:
 
 class EquipmentRepository:
     def upsert(self, connection, equipment: dict) -> None:
+        equipment = versioned_payload_for_write(connection, "climaparc_equipment", equipment)
         execute(
             connection,
             """
@@ -152,6 +175,7 @@ class PayloadTableRepository:
         self.column_map = column_map
 
     def upsert(self, connection, payload: dict) -> None:
+        payload = versioned_payload_for_write(connection, self.table, payload)
         columns = ["id", *[column for column, _ in self.column_map], "payload", "updated_at"]
         placeholders = ", ".join("?" for _ in columns)
         updates = ", ".join(f"{column} = excluded.{column}" for column in columns if column != "id")
@@ -208,13 +232,20 @@ def decode_payload(value: Any) -> dict | None:
 def hydrate_state_from_payload_tables(connection, state: dict | None) -> dict | None:
     if not isinstance(state, dict):
         return state
+    loaded_collections: dict[str, list[dict]] = {}
     for collection_key, table in PAYLOAD_TABLE_COLLECTIONS.items():
         try:
             rows = execute(connection, f"select payload from {table} order by updated_at desc").fetchall()
         except Exception:
             continue
         payloads = [payload for payload in (decode_payload(row_get(row, "payload")) for row in rows) if payload]
-        if payloads:
+        loaded_collections[collection_key] = payloads
+    # If every payload table is empty this can be a first deployment over a
+    # legacy state, before its one-time synchronization. Once at least one
+    # payload exists, normalized tables are authoritative, including empties.
+    normalized_storage_initialized = any(loaded_collections.values())
+    if normalized_storage_initialized:
+        for collection_key, payloads in loaded_collections.items():
             state[collection_key] = payloads
     return state
 
@@ -225,5 +256,8 @@ def clean_public_user(user: dict) -> dict:
 
 def stamp_payload(payload: dict) -> dict:
     stamped = dict(payload)
+    previous_version = str(stamped.get("serverUpdatedAt") or "")
+    if previous_version:
+        stamped[EXPECTED_VERSION_KEY] = previous_version
     stamped["serverUpdatedAt"] = server_timestamp()
     return stamped

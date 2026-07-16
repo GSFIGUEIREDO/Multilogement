@@ -47,7 +47,6 @@ def handle_signup(
     except AuthServiceError as error:
         handler.json_response({"error": error.message}, error.status)
         return
-    sync_relational_tables_safely(result["state"], {"clients"})
     _session_response(
         handler,
         result["token"],
@@ -65,7 +64,6 @@ def handle_password_reset_request(
     payload = handler.read_json()
     state = ensure_bootstrap_state(payload.get("seed"))
     result = PasswordResetService().request_reset(payload.get("email", ""), public_base_url(handler.headers), state)
-    sync_relational_tables_safely(result["state"], {"passwordResetRequests"})
     handler.json_response({"ok": True, "emailSent": result["emailSent"], "mailConfigured": result["mailConfigured"]})
 
 
@@ -87,7 +85,6 @@ def handle_password_reset_confirm(
     except AuthServiceError as error:
         handler.json_response({"error": error.message}, error.status)
         return
-    sync_relational_tables_safely(result["state"], {"passwordResetRequests"})
     handler.json_response({"ok": True})
 
 

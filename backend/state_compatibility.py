@@ -106,9 +106,9 @@ def apply_state_changes(current: dict | None, changes: dict) -> dict:
         if not isinstance(current_items, list):
             current_items = []
         remove_ids = {
-            str(item_id)
+            str(item_id.get("id") if isinstance(item_id, dict) else item_id)
             for item_id in deletes.get(key, [])
-            if item_id is not None
+            if (item_id.get("id") if isinstance(item_id, dict) else item_id) is not None
         }
         by_id: dict[str, Any] = {
             str(item.get("id")): item
@@ -129,6 +129,39 @@ def apply_state_changes(current: dict | None, changes: dict) -> dict:
                 order.insert(0, item_id)
         merged[key] = [by_id[item_id] for item_id in order if item_id in by_id]
     return merged
+
+
+def conflicting_state_change(current: dict | None, changes: dict | None) -> tuple[str, str] | None:
+    if not isinstance(current, dict) or not isinstance(changes, dict):
+        return None
+    upserts = changes.get("upserts") if isinstance(changes.get("upserts"), dict) else {}
+    deletes = changes.get("deletes") if isinstance(changes.get("deletes"), dict) else {}
+    for key in MERGE_BY_ID_KEYS:
+        current_items = current.get(key, [])
+        if not isinstance(current_items, list):
+            current_items = []
+        current_by_id = {
+            str(item.get("id")): item
+            for item in current_items
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        for incoming in upserts.get(key, []) if isinstance(upserts.get(key), list) else []:
+            if not isinstance(incoming, dict) or incoming.get("id") is None:
+                continue
+            current_item = current_by_id.get(str(incoming.get("id")))
+            expected = str(incoming.get("serverUpdatedAt") or "")
+            current_version = str((current_item or {}).get("serverUpdatedAt") or "")
+            if expected and (not current_item or current_version != expected):
+                return key, str(incoming.get("id"))
+        for deleted in deletes.get(key, []) if isinstance(deletes.get(key), list) else []:
+            if not isinstance(deleted, dict) or deleted.get("id") is None:
+                continue
+            current_item = current_by_id.get(str(deleted.get("id")))
+            expected = str(deleted.get("serverUpdatedAt") or "")
+            current_version = str((current_item or {}).get("serverUpdatedAt") or "")
+            if expected and (not current_item or current_version != expected):
+                return key, str(deleted.get("id"))
+    return None
 
 
 def stamp_changed_items(state: dict, changes: dict | None = None) -> None:

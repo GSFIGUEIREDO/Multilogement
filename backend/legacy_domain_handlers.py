@@ -367,5 +367,7 @@ def _current_user(handler: Any):
 
 
 def _sync_and_filter(result: dict, user: Any, sync_relational_tables_safely: Callable, keys: set[str]) -> None:
-    sync_relational_tables_safely(result.get("state", {}), keys)
+    # Migrated use cases already persist their normalized tables. Replaying the
+    # returned state here created a race where an older response could overwrite
+    # a newer commit from another session.
     result["state"] = filter_state_for_user(result.get("state", {}), user)

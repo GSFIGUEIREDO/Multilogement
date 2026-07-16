@@ -42,6 +42,7 @@ class LegacyEndpointContext:
     get_state: Callable
     save_state: Callable
     sync_users: Callable
+    sync_relational_tables: Callable
     sync_relational_tables_safely: Callable
     ensure_bootstrap_state: Callable
     public_base_url: Callable
@@ -106,6 +107,7 @@ class LegacyEndpointMixin:
             get_state=ctx.get_state,
             save_state=ctx.save_state,
             sync_users=ctx.sync_users,
+            sync_relational_tables=ctx.sync_relational_tables,
             sync_relational_tables_safely=ctx.sync_relational_tables_safely,
         )
 

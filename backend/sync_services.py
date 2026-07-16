@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Any
 
-from .database import USE_POSTGRES, connect, execute, json_db_value, now_value, row_get
+from .database import USE_POSTGRES, connect, execute, json_db_value, now_value, row_get, server_timestamp
 from .security import sanitize_state_for_storage
 
 
@@ -22,6 +22,15 @@ def scalar_db_value(value: Any):
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
+
+
+def decoded_payload(value: Any) -> dict | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return value if isinstance(value, dict) else None
 
 
 def int_db_value(value: Any) -> int | None:
@@ -241,19 +250,29 @@ def sync_collection_table(connection, state: dict, collection_key: str) -> None:
         values ({placeholders})
         on conflict(id) do update set {update_clause}
     """
+    existing_rows = execute(connection, f"select id, payload from {table}").fetchall()
+    existing_payloads = {
+        str(row_get(row, "id")): payload
+        for row in existing_rows
+        if isinstance(payload := decoded_payload(row_get(row, "payload")), dict)
+    }
     seen_ids: set[str] = set()
     for item in items:
         if not isinstance(item, dict) or item.get("id") in (None, ""):
             continue
         item_id = str(item.get("id"))
         seen_ids.add(item_id)
+        stored_item = dict(item)
+        if not stored_item.get("serverUpdatedAt"):
+            stored_item["serverUpdatedAt"] = (
+                existing_payloads.get(item_id, {}).get("serverUpdatedAt") or server_timestamp()
+            )
         values: list[Any] = [item_id]
         for _, source in column_specs:
-            raw_value = source(item) if callable(source) else item.get(source)
+            raw_value = source(stored_item) if callable(source) else stored_item.get(source)
             values.append(scalar_db_value(raw_value))
-        values.extend([json_db_value(item), now_value()])
+        values.extend([json_db_value(stored_item), now_value()])
         execute(connection, statement, tuple(values))
-    existing_rows = execute(connection, f"select id from {table}").fetchall()
     for row in existing_rows:
         item_id = str(row_get(row, "id"))
         if item_id not in seen_ids:

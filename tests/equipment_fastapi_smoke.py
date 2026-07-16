@@ -142,6 +142,10 @@ def run() -> None:
     reset_database()
     assert legacy_domain_handlers.save_equipment_with_use_cases.__module__ == "src.climaparc.equipment.presentation.dispatch"
     before_raw_equipment = raw_equipment()
+    migrated_version = equipment_payload("eq-existing").get("serverUpdatedAt")
+    assert migrated_version
+    server.init_db()
+    assert equipment_payload("eq-existing").get("serverUpdatedAt") == migrated_version
 
     with TestClient(app) as admin_client:
         login(admin_client, "admin@test.local", "Admin12345")
@@ -188,6 +192,22 @@ def run() -> None:
         assert row_get(equipment_row("eq-existing"), "serial") == "SER-UPDATED"
         assert equipment_payload("eq-existing")["attachments"][0]["id"] == "file-1"
         assert raw_equipment() == before_raw_equipment
+
+    with TestClient(app) as first_admin, TestClient(app) as second_admin:
+        first_state = login(first_admin, "admin@test.local", "Admin12345").json()["state"]
+        second_state = login(second_admin, "admin@test.local", "Admin12345").json()["state"]
+        first_copy = copy.deepcopy(next(item for item in first_state["equipment"] if item["id"] == "eq-existing"))
+        stale_copy = copy.deepcopy(next(item for item in second_state["equipment"] if item["id"] == "eq-existing"))
+        assert first_copy["serverUpdatedAt"] == stale_copy["serverUpdatedAt"]
+
+        first_copy["serial"] = "SER-FIRST-SESSION"
+        first_update = first_admin.post("/api/equipment", json={"equipment": first_copy})
+        assert first_update.status_code == 200, first_update.text
+
+        stale_copy["serial"] = "SER-STALE-SESSION"
+        stale_update = second_admin.post("/api/equipment", json={"equipment": stale_copy})
+        assert stale_update.status_code == 409, stale_update.text
+        assert equipment_payload("eq-existing")["serial"] == "SER-FIRST-SESSION"
 
     with TestClient(app) as client_a:
         login(client_a, "client-a@test.local", "ClientA12345")

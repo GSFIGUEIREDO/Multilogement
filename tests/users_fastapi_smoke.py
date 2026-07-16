@@ -229,6 +229,23 @@ def run() -> None:
         self_delete = admin_client.post("/api/user-delete", json={"userId": "u-admin"})
         assert self_delete.status_code == 400, self_delete.text
 
+    with TestClient(app) as first_admin, TestClient(app) as second_admin:
+        first_state = login(first_admin, "admin@test.local", "Admin12345").json()["state"]
+        second_state = login(second_admin, "admin@test.local", "Admin12345").json()["state"]
+        first_copy = copy.deepcopy(next(item for item in first_state["users"] if item["id"] == "u-client-limited"))
+        stale_copy = copy.deepcopy(next(item for item in second_state["users"] if item["id"] == "u-client-limited"))
+        assert first_copy["serverUpdatedAt"] == stale_copy["serverUpdatedAt"]
+
+        first_copy.update({"name": "Client Limited First", "password": ""})
+        first_update = first_admin.post("/api/user", json={"user": first_copy})
+        assert first_update.status_code == 200, first_update.text
+
+        stale_copy.update({"name": "Client Limited Stale", "password": ""})
+        stale_update = second_admin.post("/api/user", json={"user": stale_copy})
+        assert stale_update.status_code == 409, stale_update.text
+        stored_profile = json.loads(profile_row("u-client-limited")["payload"])
+        assert stored_profile["name"] == "Client Limited First"
+
     with TestClient(app) as created_client:
         login(created_client, "created@test.local", "Created12345")
 

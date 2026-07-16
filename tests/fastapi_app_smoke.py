@@ -117,6 +117,27 @@ def run() -> None:
         conflict = admin_client.post("/api/state", json={"state": duplicate})
         assert conflict.status_code == 409, conflict.text
 
+        with TestClient(app) as second_admin:
+            login(second_admin, "admin@test.local", "Admin12345")
+            building = copy.deepcopy(next(item for item in current_state()["buildings"] if item["id"] == "b-a"))
+            initialized = admin_client.post(
+                "/api/state",
+                json={"changes": {"upserts": {"buildings": [{**building, "name": "Lieu initialise"}]}, "deletes": {}, "values": {}}},
+            )
+            assert initialized.status_code == 200, initialized.text
+            shared_version = copy.deepcopy(next(item for item in initialized.json()["state"]["buildings"] if item["id"] == "b-a"))
+            first_update = admin_client.post(
+                "/api/state",
+                json={"changes": {"upserts": {"buildings": [{**shared_version, "name": "Lieu version A"}]}, "deletes": {}, "values": {}}},
+            )
+            assert first_update.status_code == 200, first_update.text
+            stale_update = second_admin.post(
+                "/api/state",
+                json={"changes": {"upserts": {"buildings": [{**shared_version, "name": "Lieu version obsolete"}]}, "deletes": {}, "values": {}}},
+            )
+            assert stale_update.status_code == 409, stale_update.text
+            assert next(item for item in current_state()["buildings"] if item["id"] == "b-a")["name"] == "Lieu version A"
+
     print("fastapi_app_smoke: ok")
 
 

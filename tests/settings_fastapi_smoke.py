@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import shutil
@@ -138,6 +139,61 @@ def run() -> None:
         assert json.loads(row_get(field_row, "unit_scopes")) == ["interieure", "exterieure"]
         assert json.loads(row_get(field_row, "system_type_ids")) == ["system_type_ptac"]
         assert next(item for item in form_created.json()["state"]["interventionTypes"] if item["id"] == "int-existing")["defaultFormTemplateId"] == "form-new"
+
+        # Two independent sessions must never silently overwrite the same
+        # form. This is the exact scenario that used to resurrect questions.
+        with TestClient(app) as second_editor:
+            login(second_editor, "internal@test.local", "Internal12345")
+            shared_form = copy.deepcopy(form_created.json()["item"])
+            admin_version = copy.deepcopy(shared_form)
+            admin_version["fields"] = [
+                {"id": "q-admin", "label": "Question conservee", "type": "text", "unitScopes": ["all"]}
+            ]
+            admin_saved = admin_client.post("/api/setting-item", json={"collectionKey": "formTemplates", "item": admin_version})
+            assert admin_saved.status_code == 200, admin_saved.text
+
+            stale_version = copy.deepcopy(shared_form)
+            stale_version["fields"].append(
+                {"id": "q-stale", "label": "Copie ancienne", "type": "text", "unitScopes": ["all"]}
+            )
+            stale_save = second_editor.post("/api/setting-item", json={"collectionKey": "formTemplates", "item": stale_version})
+            assert stale_save.status_code == 409, stale_save.text
+            persisted_form = next(item for item in current_state()["formTemplates"] if item["id"] == "form-new")
+            assert [field["id"] for field in persisted_form["fields"]] == ["q-admin"]
+
+            distinct_items = [
+                {"id": "svc-concurrent-a", "name": "Concurrent A", "defaultPriority": "normale"},
+                {"id": "svc-concurrent-b", "name": "Concurrent B", "defaultPriority": "normale"},
+            ]
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                responses = list(executor.map(
+                    lambda args: args[0].post("/api/setting-item", json={"collectionKey": "serviceTypes", "item": args[1]}),
+                    [(admin_client, distinct_items[0]), (second_editor, distinct_items[1])],
+                ))
+            assert all(response.status_code == 200 for response in responses), [response.text for response in responses]
+            service_ids = {item["id"] for item in current_state()["serviceTypes"]}
+            assert {"svc-concurrent-a", "svc-concurrent-b"}.issubset(service_ids)
+
+            deletable = {
+                "id": "form-delete-concurrent",
+                "name": "Suppression concurrente",
+                "activityFields": {},
+                "fields": [{"id": "q-delete", "label": "Question", "type": "text", "unitScopes": ["all"]}],
+            }
+            created_for_delete = admin_client.post("/api/setting-item", json={"collectionKey": "formTemplates", "item": deletable})
+            assert created_for_delete.status_code == 200, created_for_delete.text
+            stale_deleted_form = copy.deepcopy(created_for_delete.json()["item"])
+            deleted_form = admin_client.post(
+                "/api/setting-item-delete",
+                json={"collectionKey": "formTemplates", "itemId": "form-delete-concurrent"},
+            )
+            assert deleted_form.status_code == 200, deleted_form.text
+            resurrection = second_editor.post(
+                "/api/setting-item",
+                json={"collectionKey": "formTemplates", "item": stale_deleted_form},
+            )
+            assert resurrection.status_code == 409, resurrection.text
+            assert all(item["id"] != "form-delete-concurrent" for item in current_state()["formTemplates"])
 
         system_type = {"id": "system_type_split_test", "name": "Thermopompe test", "topology": "split", "sortOrder": 90, "active": True}
         system_type_created = admin_client.post("/api/setting-item", json={"collectionKey": "hvacSystemTypes", "item": system_type})

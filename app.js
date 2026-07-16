@@ -9,12 +9,16 @@
   let toastTimer = null;
   let refreshTimer = null;
   let restoringSession = false;
+  let refreshInProgress = false;
   let lastLocalChangeAt = 0;
   let lastNavigationAt = 0;
+  let uiRevision = 0;
   let lastServerState = null;
   let applyingHistoryState = false;
   let browserHistoryReady = false;
+  let browserHistoryDepth = 0;
   let lastReportServerContext = null;
+  const UI_PREFERENCES_KEY_PREFIX = "climaparc_ui_";
 
   const SHARED_COLLECTION_KEYS = [
     "users",
@@ -33,7 +37,13 @@
     "roleDefinitions",
     "dataFields",
     "hvacSystemTypes",
-    "passwordResetRequests"
+    "passwordResetRequests",
+    "storageLocations",
+    "equipmentMovements",
+    "equipmentReplacements",
+    "hvacSystems",
+    "workOrderTargets",
+    "workOrderCompletionAudits"
   ];
 
   const DEFAULT_HVAC_SYSTEM_TYPES = [
@@ -598,6 +608,8 @@
     next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
       id: template.id,
       name: template.name,
+      serverUpdatedAt: template.serverUpdatedAt || "",
+      associatedActivityTypeIds: Array.isArray(template.associatedActivityTypeIds) ? template.associatedActivityTypeIds : [],
       activityFields: normalizeActivityFields(template.activityFields),
       fields: (template.fields || []).map((field) => ({
         id: field.id,
@@ -640,6 +652,7 @@
     next.passwordResetRequests = data.passwordResetRequests || [];
     next.clientDocuments = (data.clientDocuments || []).map((doc) => ({
       id: doc.id || uid("doc"),
+      serverUpdatedAt: doc.serverUpdatedAt || "",
       clientId: doc.clientId || "",
       buildingId: doc.buildingId || "",
       apartmentId: doc.apartmentId || "",
@@ -720,6 +733,7 @@
     next.workOrderCompletionAudits = Array.isArray(data.workOrderCompletionAudits) ? data.workOrderCompletionAudits : [];
     next.reminders = (Array.isArray(data.reminders) ? data.reminders : []).map((reminder) => ({
       id: reminder.id || uid("rem"),
+      serverUpdatedAt: reminder.serverUpdatedAt || "",
       equipmentId: reminder.equipmentId || "",
       title: reminder.title || "Rappel",
       frequencyValue: Number(reminder.frequencyValue || 1),
@@ -815,6 +829,7 @@
     return fields.map((field) => ({
       id: field.id || uid("datafield"),
       name: field.name || field.label || "Champ",
+      serverUpdatedAt: field.serverUpdatedAt || "",
       group: managedGroups[field.id] || field.group || "Non groupé",
       type: field.type || "single",
       appliesTo: field.appliesTo?.length ? field.appliesTo : ["activity"],
@@ -937,11 +952,50 @@
     return [...order.filter((item) => defaults.includes(item)), ...defaults.filter((item) => !order.includes(item))];
   }
 
+  function uiPreferencesKey(userId = state.sessionUserId) {
+    return userId ? `${UI_PREFERENCES_KEY_PREFIX}${userId}` : "";
+  }
+
+  function uiPreferenceSnapshot() {
+    return {
+      sidebarMode: state.sidebarMode,
+      navOrder: state.navOrder,
+      dashboardLayouts: state.dashboardLayouts,
+      dashboardCalendarDate: state.dashboardCalendarDate,
+      filters: state.filters,
+      workOrderFilters: state.workOrderFilters,
+      reportFilters: state.reportFilters
+    };
+  }
+
+  function saveUiPreferences() {
+    const key = uiPreferencesKey();
+    if (!key || !storage) return;
+    storage.write(key, uiPreferenceSnapshot());
+  }
+
+  function applyUiPreferences(userId) {
+    const key = uiPreferencesKey(userId);
+    const preferences = key && storage ? storage.read(key) : null;
+    if (!preferences) return;
+    state = {
+      ...state,
+      sidebarMode: preferences.sidebarMode || state.sidebarMode,
+      navOrder: mergeNavOrder(preferences.navOrder || state.navOrder),
+      dashboardLayouts: preferences.dashboardLayouts || state.dashboardLayouts,
+      dashboardCalendarDate: preferences.dashboardCalendarDate || state.dashboardCalendarDate,
+      filters: { ...state.filters, ...(preferences.filters || {}) },
+      workOrderFilters: { ...state.workOrderFilters, ...(preferences.workOrderFilters || {}) },
+      reportFilters: { ...state.reportFilters, ...(preferences.reportFilters || {}) }
+    };
+  }
+
   function saveState() {
     if (!SERVER_ENABLED) {
       storage.write(STORAGE_KEY, state);
       return;
     }
+    saveUiPreferences();
     if (!state.sessionUserId || restoringSession) return;
     if (!canUseLegacyStateSave()) return;
     clearTimeout(saveTimer);
@@ -964,10 +1018,14 @@
           render();
         })
         .catch(() => {
-        state.toast = "Sauvegarde serveur indisponible.";
-        render();
-        scheduleToastClear();
-      });
+          if (state.modal) {
+            showToastWithoutRender("Sauvegarde serveur indisponible.");
+          } else {
+            state.toast = "Sauvegarde serveur indisponible.";
+            render();
+            scheduleToastClear();
+          }
+        });
     }, 250);
   }
 
@@ -1002,21 +1060,15 @@
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
+    const requestUiContext = captureMutationUiContext();
     const payload = await api.saveEquipment(equipment);
     if (payload.state) {
-      rememberServerState(payload.state);
-      const uiState = currentUiState();
-      state = {
-        ...normalizeState(payload.state),
-        ...uiState,
-        sessionUserId: uiState.sessionUserId,
+      acceptServerState(payload.state, {
         selectedEquipmentId: equipment.id,
         activeView: "detail",
         modal: null,
         toast: successToast
-      };
-      render();
-      scheduleToastClear();
+      }, requestUiContext);
     }
   }
 
@@ -1028,20 +1080,14 @@
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
+    const requestUiContext = captureMutationUiContext();
     const payload = await api.saveUser(user);
     if (payload.state) {
-      rememberServerState(payload.state);
-      const uiState = currentUiState();
-      state = {
-        ...normalizeState(payload.state),
-        ...uiState,
-        sessionUserId: uiState.sessionUserId,
+      acceptServerState(payload.state, {
         activeView: "utilisateurs",
         modal: null,
         toast: successToast
-      };
-      render();
-      scheduleToastClear();
+      }, requestUiContext);
     }
   }
 
@@ -1053,20 +1099,14 @@
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
+    const requestUiContext = captureMutationUiContext();
     const payload = await apiCall(item);
     if (payload.state) {
-      rememberServerState(payload.state);
-      const uiState = currentUiState();
-      state = {
-        ...normalizeState(payload.state),
-        ...uiState,
+      acceptServerState(payload.state, {
         ...uiPatch,
-        sessionUserId: uiState.sessionUserId,
         modal: null,
         toast: successToast
-      };
-      render();
-      scheduleToastClear();
+      }, requestUiContext);
     }
   }
 
@@ -1074,8 +1114,12 @@
     const previousItems = JSON.parse(JSON.stringify(state[collectionKey] || []));
     const items = Array.isArray(state[collectionKey]) ? state[collectionKey] : [];
     const index = items.findIndex((entry) => entry.id === item.id);
-    if (index >= 0) items[index] = item;
-    else items.push(item);
+    const itemToSave = {
+      ...item,
+      serverUpdatedAt: item.serverUpdatedAt || (index >= 0 ? items[index]?.serverUpdatedAt : "") || ""
+    };
+    if (index >= 0) items[index] = itemToSave;
+    else items.push(itemToSave);
     state[collectionKey] = items;
 
     if (!SERVER_ENABLED) {
@@ -1085,25 +1129,44 @@
     if (!state.sessionUserId || restoringSession) return;
     clearTimeout(saveTimer);
     saveTimer = null;
-    updateUiState({ ...uiPatch, toast: "Sauvegarde des paramètres..." });
+    const requestUiContext = captureMutationUiContext();
+    showToastWithoutRender("Sauvegarde des paramètres...");
+    const submitButton = document.querySelector("form[data-form] button[type='submit']");
+    let versionConflict = false;
+    if (submitButton) submitButton.disabled = true;
     try {
-      const payload = await api.saveSettingItem(collectionKey, item);
+      const payload = await api.saveSettingItem(collectionKey, itemToSave);
       if (payload.state) {
-        rememberServerState(payload.state);
-        const uiState = currentUiState();
-        state = {
-          ...normalizeState(payload.state),
-          ...uiState,
+        acceptServerState(payload.state, {
           ...uiPatch,
-          sessionUserId: uiState.sessionUserId,
           toast: successToast
-        };
-        render();
-        scheduleToastClear();
+        }, requestUiContext);
       }
     } catch (error) {
       state[collectionKey] = previousItems;
-      updateUiState({ ...uiPatch, toast: error.message || "Paramètres non sauvegardés." });
+      versionConflict = error.status === 409;
+      if (versionConflict) {
+        try {
+          const latest = await api.session();
+          if (latest?.state) {
+            const uiState = currentUiState();
+            rememberServerState(latest.state);
+            state = {
+              ...normalizeState(latest.state),
+              ...uiState,
+              sessionUserId: latest.user?.id || uiState.sessionUserId
+            };
+          }
+        } catch (_refreshError) {
+          // Keep the draft visible even if the latest version cannot be loaded.
+        }
+      }
+      const message = error.status === 409
+        ? "Ce formulaire a été modifié par une autre personne. Fermez-le puis rouvrez-le avant de reprendre vos changements."
+        : (error.message || "Paramètres non sauvegardés.");
+      showToastWithoutRender(message);
+    } finally {
+      if (submitButton?.isConnected && !versionConflict) submitButton.disabled = false;
     }
   }
 
@@ -1177,25 +1240,28 @@
 
   function replaceBrowserHistoryState() {
     if (!canUseBrowserHistory()) return;
-    window.history.replaceState({ climaparcUi: true, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
+    window.history.replaceState({ climaparcUi: true, depth: browserHistoryDepth, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
     browserHistoryReady = true;
   }
 
   function pushBrowserHistoryState() {
     if (!canUseBrowserHistory() || applyingHistoryState || restoringSession) return;
     if (!browserHistoryReady) replaceBrowserHistoryState();
-    window.history.pushState({ climaparcUi: true, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
+    browserHistoryDepth += 1;
+    window.history.pushState({ climaparcUi: true, depth: browserHistoryDepth, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
   }
 
   function ensureBrowserHistoryGuard() {
     if (!canUseBrowserHistory()) return;
+    browserHistoryDepth = 0;
     replaceBrowserHistoryState();
-    window.history.pushState({ climaparcUi: true, ui: historyUiState() }, document.title, window.location.pathname + window.location.search);
+    pushBrowserHistoryState();
   }
 
-  function applyBrowserHistoryState(ui) {
+  function applyBrowserHistoryState(ui, depth = 0) {
     if (!ui || !currentUser()) return;
     applyingHistoryState = true;
+    browserHistoryDepth = Math.max(0, Number(depth || 0));
     state = {
       ...state,
       ...ui,
@@ -1203,12 +1269,15 @@
       toast: "",
       mobileMenuOpen: false
     };
+    uiRevision += 1;
+    lastLocalChangeAt = Date.now();
+    lastNavigationAt = lastLocalChangeAt;
     render();
     applyingHistoryState = false;
   }
 
   function goBack(fallback = {}) {
-    if (canUseBrowserHistory() && browserHistoryReady && window.history.length > 1) {
+    if (canUseBrowserHistory() && browserHistoryReady && browserHistoryDepth > 1) {
       window.history.back();
       return;
     }
@@ -1256,13 +1325,30 @@
     lastServerState = sharedStateSnapshot(normalizeState(serverState || seed));
   }
 
-  function acceptServerState(serverState, uiPatch = {}) {
+  function captureMutationUiContext() {
+    return {
+      activeView: state.activeView,
+      modal: stableJson(state.modal)
+    };
+  }
+
+  function mutationUiContextIsCurrent(context) {
+    return !context || (
+      state.activeView === context.activeView
+      && stableJson(state.modal) === context.modal
+    );
+  }
+
+  function acceptServerState(serverState, uiPatch = {}, requestUiContext = null) {
     rememberServerState(serverState);
     const uiState = currentUiState();
+    const safePatch = mutationUiContextIsCurrent(requestUiContext)
+      ? uiPatch
+      : (uiPatch.toast ? { toast: uiPatch.toast } : {});
     state = {
       ...normalizeState(serverState),
       ...uiState,
-      ...uiPatch,
+      ...safePatch,
       sessionUserId: uiState.sessionUserId
     };
     render();
@@ -1285,15 +1371,15 @@
       const currentById = new Map(currentItems.filter((item) => item?.id).map((item) => [item.id, item]));
       const baseById = new Map(baseItems.filter((item) => item?.id).map((item) => [item.id, item]));
       const changed = currentItems.filter((item) => item?.id && stableJson(item) !== stableJson(baseById.get(item.id)));
-      const removed = baseItems.filter((item) => item?.id && !currentById.has(item.id)).map((item) => item.id);
+      const removed = baseItems
+        .filter((item) => item?.id && !currentById.has(item.id))
+        .map((item) => ({ id: item.id, serverUpdatedAt: item.serverUpdatedAt || "" }));
       if (changed.length) upserts[key] = changed;
       if (removed.length) deletes[key] = removed;
     });
+    // View state and personal preferences are browser-local. Sending them through
+    // the compatibility endpoint made one user's navigation overwrite another's.
     const values = {};
-    Object.keys(current).forEach((key) => {
-      if (SHARED_COLLECTION_KEYS.includes(key)) return;
-      if (stableJson(current[key]) !== stableJson(base[key])) values[key] = current[key];
-    });
     if (!Object.keys(upserts).length && !Object.keys(deletes).length && !Object.keys(values).length) return null;
     return { upserts, deletes, values };
   }
@@ -1304,9 +1390,11 @@
   }
 
   function setState(patch) {
+    const previousView = state.activeView;
     state = { ...state, ...patch };
+    uiRevision += 1;
     lastLocalChangeAt = Date.now();
-    const isNavigationPatch = Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal");
+    const isNavigationPatch = Object.prototype.hasOwnProperty.call(patch, "activeView") && patch.activeView !== previousView;
     if (isNavigationPatch) {
       lastNavigationAt = lastLocalChangeAt;
     }
@@ -1317,12 +1405,15 @@
   }
 
   function updateUiState(patch) {
+    const previousView = state.activeView;
     state = { ...state, ...patch };
+    uiRevision += 1;
     lastLocalChangeAt = Date.now();
-    const isNavigationPatch = Object.prototype.hasOwnProperty.call(patch, "activeView") || Object.prototype.hasOwnProperty.call(patch, "modal");
+    const isNavigationPatch = Object.prototype.hasOwnProperty.call(patch, "activeView") && patch.activeView !== previousView;
     if (isNavigationPatch) {
       lastNavigationAt = lastLocalChangeAt;
     }
+    saveUiPreferences();
     render();
     if (isNavigationPatch) pushBrowserHistoryState();
     if (Object.prototype.hasOwnProperty.call(patch, "toast")) scheduleToastClear();
@@ -1330,6 +1421,7 @@
 
   function updateGlobalSearch(input) {
     state = { ...state, globalSearch: input.value };
+    uiRevision += 1;
     lastLocalChangeAt = Date.now();
     render();
     const nextInput = document.querySelector("[data-action='global-search']");
@@ -1359,8 +1451,21 @@
     if (!state.toast) return;
     toastTimer = setTimeout(() => {
       state = { ...state, toast: "" };
-      render();
+      document.querySelectorAll(".toast").forEach((toast) => toast.remove());
     }, 2500);
+  }
+
+  function showToastWithoutRender(message) {
+    state = { ...state, toast: message };
+    const app = document.getElementById("app");
+    let toast = app?.querySelector(".toast");
+    if (!toast && app) {
+      toast = document.createElement("div");
+      toast.className = "toast";
+      app.appendChild(toast);
+    }
+    if (toast) toast.textContent = message;
+    scheduleToastClear();
   }
 
   function currentUser() {
@@ -2205,7 +2310,7 @@
     reminderItem, attachmentItem, modalShell, normalizeActivityFields,
     dataFieldOptionsForSelect, buildingForApartment, comboInput, activityOptions,
     today, uid, updateUiState, saveEquipmentNow, documentsModule,
-    acceptServerState, showToast
+    acceptServerState, captureMutationUiContext, showToast
   });
 
   function filteredEquipment() { return equipmentViewModule.filteredEquipment(); }
@@ -2592,7 +2697,8 @@
     updateUiState,
     saveUserNow,
     showToast,
-    acceptServerState
+    acceptServerState,
+    captureMutationUiContext
   });
 
   function usersView() {
@@ -3286,6 +3392,7 @@
     if (!SERVER_ENABLED) return;
     if (state.resetToken) return;
     const restoreStartedAt = Date.now();
+    const restoreUiRevision = uiRevision;
     const uiState = currentUiState();
     restoringSession = true;
     try {
@@ -3293,11 +3400,12 @@
       rememberServerState(payload.state);
       state = {
         ...normalizeState(payload.state),
-        ...(lastLocalChangeAt > restoreStartedAt ? uiState : {}),
+        ...(lastLocalChangeAt > restoreStartedAt || uiRevision !== restoreUiRevision ? uiState : {}),
         sessionUserId: payload.user.id,
-        modal: lastLocalChangeAt > restoreStartedAt ? uiState.modal : null,
+        modal: lastLocalChangeAt > restoreStartedAt || uiRevision !== restoreUiRevision ? uiState.modal : null,
         toast: ""
       };
+      applyUiPreferences(payload.user.id);
       state.activeView = state.activeView || "tableau";
       render();
       ensureBrowserHistoryGuard();
@@ -3310,11 +3418,20 @@
   }
 
   async function refreshStateFromServer() {
-    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || state.modal || saveTimer || Date.now() - lastLocalChangeAt < 10000 || Date.now() - lastNavigationAt < 30000) return;
-    restoringSession = true;
-    const uiState = currentUiState();
+    if (!SERVER_ENABLED || !state.sessionUserId || restoringSession || refreshInProgress || state.modal || saveTimer || api.hasPendingMutations?.()) return;
+    const refreshStartedAt = Date.now();
+    const refreshUiRevision = uiRevision;
+    const refreshMutationGeneration = api.mutationGeneration?.() || 0;
+    refreshInProgress = true;
     try {
       const payload = await api.session();
+      if (
+        refreshUiRevision !== uiRevision
+        || lastLocalChangeAt > refreshStartedAt
+        || api.hasPendingMutations?.()
+        || (api.mutationGeneration?.() || 0) !== refreshMutationGeneration
+      ) return;
+      const uiState = currentUiState();
       rememberServerState(payload.state);
       state = {
         ...normalizeState(payload.state),
@@ -3327,13 +3444,13 @@
     } catch (error) {
       // Keep the current UI state if the refresh cannot reach the server.
     } finally {
-      restoringSession = false;
+      refreshInProgress = false;
     }
   }
 
   function startAutoRefresh() {
     if (!SERVER_ENABLED || refreshTimer) return;
-    refreshTimer = setInterval(refreshStateFromServer, 8000);
+    refreshTimer = setInterval(refreshStateFromServer, 5000);
   }
 
   if (typeof document !== "undefined") {
@@ -3344,7 +3461,12 @@
     window.addEventListener("popstate", (event) => {
       if (!currentUser()) return;
       if (event.state?.climaparcUi) {
-        applyBrowserHistoryState(event.state.ui);
+        applyBrowserHistoryState(event.state.ui, event.state.depth);
+        if (Number(event.state.depth || 0) === 0) {
+          window.setTimeout(() => {
+            if (currentUser() && browserHistoryDepth === 0) pushBrowserHistoryState();
+          }, 0);
+        }
         return;
       }
       ensureBrowserHistoryGuard();
@@ -3370,6 +3492,7 @@
         rememberServerState(payload.state);
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
+        applyUiPreferences(payload.user.id);
         state.activeView = "tableau";
         state.modal = null;
         state.toast = "Compte créé.";
@@ -3448,6 +3571,7 @@
         rememberServerState(payload.state);
         state = normalizeState(payload.state);
         state.sessionUserId = payload.user.id;
+        applyUiPreferences(payload.user.id);
         state.activeView = "tableau";
         state.modal = null;
         state.toast = "";
@@ -3468,6 +3592,7 @@
   }
 
   async function logout() {
+    saveUiPreferences();
     if (SERVER_ENABLED) {
       await api.logout();
     }
@@ -3477,6 +3602,7 @@
     }
     lastServerState = null;
     browserHistoryReady = false;
+    browserHistoryDepth = 0;
     setState({ sessionUserId: null, activeView: "tableau", modal: null });
     if (typeof window !== "undefined" && window.history) {
       window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
@@ -3769,9 +3895,9 @@
     }, "Formulaire terrain enregistre.");
   }
 
-  function applyOperationalResponse(response, patch, message) {
+  function applyOperationalResponse(response, patch, message, requestUiContext = null) {
     if (!response?.state) return;
-    acceptServerState(response.state, { ...patch, modal: null, toast: message });
+    acceptServerState(response.state, { ...patch, modal: null, toast: message }, requestUiContext);
   }
 
   async function createHvacSystemForApartment(workOrderId, apartmentId) {
@@ -3787,10 +3913,11 @@
     if (!systemType) return showToast("Sélectionnez un type de système actif.");
     const system = { id: uid("system"), apartmentId, systemTypeId: systemType.id, topology: systemType.topology, brand: values.brand.trim(), name: values.name.trim(), sortOrder: state.hvacSystems.filter((item) => item.apartmentId === apartmentId).length * 10, active: true };
     updateUiState({ toast: "Création du système HVAC..." });
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.createHvacSystem(system, workOrderId);
       if (!response?.state) return;
-      acceptServerState(response.state, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId, modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id, activityTypeId: state.workOrders.find((item) => item.id === workOrderId)?.defaultActivityTypeId || "" }, toast: "Système HVAC créé. Ajoutez sa première unité." });
+      acceptServerState(response.state, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId, modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id, activityTypeId: state.workOrders.find((item) => item.id === workOrderId)?.defaultActivityTypeId || "" }, toast: "Système HVAC créé. Ajoutez sa première unité." }, requestUiContext);
     } catch (error) {
       showToast(error.message || "Système HVAC non créé.");
     }
@@ -3798,9 +3925,10 @@
 
   async function completeWorkOrderApartment(workOrderId, apartmentId) {
     updateUiState({ toast: "Validation de l'appartement..." });
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.completeWorkOrderApartment(workOrderId, apartmentId);
-      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId }, "Appartement terminé.");
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId }, "Appartement terminé.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Appartement non terminé.");
     }
@@ -3811,9 +3939,10 @@
     const progress = order ? workOrderProgress(order) : { doneApartments: 0, totalApartments: 0 };
     const reason = progress.doneApartments < progress.totalApartments ? prompt("Motif obligatoire pour clôturer un BT incomplet:") : "";
     if (progress.doneApartments < progress.totalApartments && !reason?.trim()) return;
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.closeWorkOrder(workOrderId, reason || "");
-      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId }, "Bon de travail clôturé.");
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId }, "Bon de travail clôturé.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Bon de travail non clôturé.");
     }
@@ -3822,9 +3951,10 @@
   async function reopenWorkOrderNow(workOrderId) {
     const reason = prompt("Motif de réouverture:");
     if (!reason?.trim()) return;
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.reopenWorkOrder(workOrderId, reason);
-      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId }, "Bon de travail réouvert.");
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId }, "Bon de travail réouvert.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Bon de travail non réouvert.");
     }
@@ -3886,14 +4016,11 @@
       setState({ ...uiPatch, toast: successToast });
       return;
     }
+    const requestUiContext = captureMutationUiContext();
     try {
       const payload = await api.saveFieldIntervention(apartment, equipment, intervention, order, replacement);
       if (!payload.state) return;
-      rememberServerState(payload.state);
-      const uiState = currentUiState();
-      state = { ...normalizeState(payload.state), ...uiState, ...uiPatch, sessionUserId: uiState.sessionUserId, toast: successToast };
-      render();
-      scheduleToastClear();
+      acceptServerState(payload.state, { ...uiPatch, toast: successToast }, requestUiContext);
     } catch (error) {
       showToast(error.message || "Activité non sauvegardée.");
     }
@@ -3927,9 +4054,10 @@
     if (values.clientMessage && (values.clientMessage !== previousMessage || intervention.recommendation.status === "envoyee")) {
       addRecommendationMessage(intervention.recommendation, "interne", values.clientMessage);
     }
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.reviewRecommendation(intervention.id, intervention.recommendation);
-      applyOperationalResponse(response, { activeView: "recommandations" }, "Recommandation enregistrée.");
+      applyOperationalResponse(response, { activeView: "recommandations" }, "Recommandation enregistrée.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Recommandation non enregistrée.");
     }
@@ -3949,9 +4077,10 @@
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
     if (recommendation.requiresClientApproval === undefined) recommendation.requiresClientApproval = true;
     addRecommendationMessage(recommendation, "interne", recommendation.clientMessage || recommendation.description);
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.reviewRecommendation(intervention.id, recommendation);
-      applyOperationalResponse(response, { activeView: "recommandations" }, "Recommandation envoyée au client.");
+      applyOperationalResponse(response, { activeView: "recommandations" }, "Recommandation envoyée au client.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Recommandation non envoyée.");
     }
@@ -3966,9 +4095,10 @@
     recommendation.sentAt = today();
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
     addRecommendationMessage(recommendation, "interne", values.reply);
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.reviewRecommendation(intervention.id, recommendation);
-      applyOperationalResponse(response, { activeView: "recommandations" }, "Réponse envoyée au client.");
+      applyOperationalResponse(response, { activeView: "recommandations" }, "Réponse envoyée au client.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Réponse non envoyée.");
     }
@@ -3983,9 +4113,10 @@
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     if (status === "approuvee") addRecommendationMessage(recommendation, "client", "Recommandation approuvée.");
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.respondRecommendation(intervention.id, recommendation);
-      applyOperationalResponse(response, { activeView: "recommandations" }, status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
+      applyOperationalResponse(response, { activeView: "recommandations" }, status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Réponse non enregistrée.");
     }
@@ -4000,9 +4131,10 @@
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     addRecommendationMessage(recommendation, "client", values.clientComment);
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.respondRecommendation(intervention.id, recommendation);
-      applyOperationalResponse(response, { activeView: "recommandations" }, recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
+      applyOperationalResponse(response, { activeView: "recommandations" }, recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Message non envoyé.");
     }
@@ -4093,9 +4225,10 @@
 
   async function routeRecommendation(interventionId, mode, workOrderId = "") {
     updateUiState({ toast: mode === "new" ? "Création du BT..." : "Ajout au BT..." });
+    const requestUiContext = captureMutationUiContext();
     try {
       const response = await api.routeRecommendation(interventionId, mode, workOrderId);
-      applyOperationalResponse(response, { activeView: "recommandations" }, mode === "new" ? `BT créé: ${response.workOrder?.number || ""}` : "Recommandation ajoutée au BT.");
+      applyOperationalResponse(response, { activeView: "recommandations" }, mode === "new" ? `BT créé: ${response.workOrder?.number || ""}` : "Recommandation ajoutée au BT.", requestUiContext);
     } catch (error) {
       showToast(error.message || "Recommandation non ajoutée au BT.");
     }
@@ -4335,6 +4468,16 @@
       if (!event.target.closest(".combo-field")) hideComboOptions();
       if (!target) return;
       const action = target.dataset.action;
+      if (
+        target.closest("form[data-form='formTemplate']")
+        && [
+          "add-form-question", "add-form-section", "duplicate-form-question",
+          "add-form-option", "add-other-option", "remove-form-option", "remove-form-question"
+        ].includes(action)
+      ) {
+        uiRevision += 1;
+        lastLocalChangeAt = Date.now();
+      }
       if (action === "close-modal" && modalCard && target.classList.contains("modal-backdrop")) return;
       if (action === "logout") logout();
       if (action === "combo-option") {
@@ -4537,16 +4680,40 @@
       }
       if (action === "ticket-status") {
         const ticket = state.tickets.find((item) => item.id === target.dataset.id);
-        if (ticket) {
-          ticket.status = target.dataset.status;
-          ticket.closedAt = target.dataset.status === "ferme" ? ticket.closedAt || today() : "";
+        if (!ticket) return;
+        const previous = { ...ticket };
+        ticket.status = target.dataset.status;
+        ticket.closedAt = target.dataset.status === "ferme" ? ticket.closedAt || today() : "";
+        if (!SERVER_ENABLED) {
+          setState({ toast: "Statut de la demande mis à jour." });
+          return;
         }
-        setState({ toast: "Statut de la demande mis à jour." });
+        updateUiState({ toast: "Sauvegarde de la demande..." });
+        try {
+          await saveDomainItemNow(api.saveTicket, ticket, { activeView: "appels" }, "Statut de la demande mis à jour.");
+        } catch (error) {
+          Object.assign(ticket, previous);
+          updateUiState({ toast: error.message || "Statut de la demande non sauvegardé." });
+        }
+        return;
       }
       if (action === "order-status") {
         const order = state.workOrders.find((item) => item.id === target.dataset.id);
-        if (order) order.status = target.dataset.status;
-        setState({ toast: "Statut du BT mis à jour." });
+        if (!order) return;
+        const previous = { ...order };
+        order.status = target.dataset.status;
+        if (!SERVER_ENABLED) {
+          setState({ toast: "Statut du BT mis à jour." });
+          return;
+        }
+        updateUiState({ toast: "Sauvegarde du BT..." });
+        try {
+          await saveDomainItemNow(api.saveWorkOrder, order, { activeView: "bons" }, "Statut du BT mis à jour.");
+        } catch (error) {
+          Object.assign(order, previous);
+          updateUiState({ toast: error.message || "Statut du BT non sauvegardé." });
+        }
+        return;
       }
       if (action === "reminder-status") {
         const reminder = state.reminders.find((item) => item.id === target.dataset.id);
@@ -4597,20 +4764,14 @@
           return;
         }
         updateUiState({ toast: "Sauvegarde des alertes..." });
+        const requestUiContext = captureMutationUiContext();
         try {
           const response = await api.saveReminders(updatedReminders);
           if (response.state) {
-            rememberServerState(response.state);
-            const uiState = currentUiState();
-            state = {
-              ...normalizeState(response.state),
-              ...uiState,
+            acceptServerState(response.state, {
               activeView: "alertes",
-              sessionUserId: uiState.sessionUserId,
               toast: "Alertes marquées comme vues."
-            };
-            render();
-            scheduleToastClear();
+            }, requestUiContext);
           }
         } catch (error) {
           state.reminders = previousReminders;
@@ -4626,20 +4787,14 @@
           return;
         }
         updateUiState({ activeView: "alertes", toast: "Suppression du rappel..." });
+        const requestUiContext = captureMutationUiContext();
         try {
           const response = await api.deleteReminder(target.dataset.id);
           if (response.state) {
-            rememberServerState(response.state);
-            const uiState = currentUiState();
-            state = {
-              ...normalizeState(response.state),
-              ...uiState,
+            acceptServerState(response.state, {
               activeView: "alertes",
-              sessionUserId: uiState.sessionUserId,
               toast: "Rappel supprimé."
-            };
-            render();
-            scheduleToastClear();
+            }, requestUiContext);
           }
         } catch (error) {
           state.reminders = previousReminders;
@@ -4661,6 +4816,10 @@
       if (action === "export") exportReport(target.dataset.report);
     });
     app.addEventListener("change", async (event) => {
+      if (event.target.closest("form")) {
+        uiRevision += 1;
+        lastLocalChangeAt = Date.now();
+      }
       handleFilter(event);
       handleWorkOrderFilter(event);
       await handleReportFilter(event);
@@ -4687,6 +4846,10 @@
         updateGlobalSearch(event.target);
         return;
       }
+      if (event.target.closest("form")) {
+        uiRevision += 1;
+        lastLocalChangeAt = Date.now();
+      }
       if (event.target.matches("[data-phone-input]")) {
         event.target.value = formatCanadianPhone(event.target.value);
       }
@@ -4699,7 +4862,14 @@
     });
     app.addEventListener("dragstart", handleQuestionDragStart);
     app.addEventListener("dragover", handleQuestionDragOver);
-    app.addEventListener("drop", handleQuestionDrop);
+    app.addEventListener("drop", (event) => {
+      const form = event.target.closest?.("form[data-form='formTemplate']");
+      handleQuestionDrop(event);
+      if (form) {
+        uiRevision += 1;
+        lastLocalChangeAt = Date.now();
+      }
+    });
     app.addEventListener("dragend", () => {
       document.querySelectorAll("[data-dashboard-widget].dragging").forEach((card) => card.classList.remove("dragging"));
       draggedDashboardWidget = null;

@@ -32,7 +32,17 @@
     "formTemplates",
     "roleDefinitions",
     "dataFields",
+    "hvacSystemTypes",
     "passwordResetRequests"
+  ];
+
+  const DEFAULT_HVAC_SYSTEM_TYPES = [
+    { id: "system_type_ptac", name: "PTAC", topology: "monobloc", sortOrder: 10, active: true },
+    { id: "system_type_ttw", name: "TTW", topology: "monobloc", sortOrder: 20, active: true },
+    { id: "system_type_thermopompe_murale", name: "Thermopompe murale", topology: "split", sortOrder: 30, active: true },
+    { id: "system_type_climatiseur_mural", name: "Air climatisé mural", topology: "split", sortOrder: 40, active: true },
+    { id: "system_type_thermopompe_centrale", name: "Thermopompe centrale", topology: "split", sortOrder: 50, active: true },
+    { id: "system_type_climatiseur_central", name: "Air climatisé central", topology: "split", sortOrder: 60, active: true }
   ];
 
   const seed = {
@@ -76,6 +86,7 @@
       activityStatus: "all"
     },
     passwordResetRequests: [],
+    hvacSystemTypes: JSON.parse(JSON.stringify(DEFAULT_HVAC_SYSTEM_TYPES)),
     clientDocuments: [],
     users: [
       {
@@ -597,6 +608,8 @@
         defaultValue: field.defaultValue ?? (field.type === "multiple" ? [] : ""),
         layout: field.layout || "full",
         unitScope: field.unitScope || "all",
+        unitScopes: Array.isArray(field.unitScopes) && field.unitScopes.length ? field.unitScopes : [field.unitScope || "all"],
+        systemTypeIds: Array.isArray(field.systemTypeIds) ? field.systemTypeIds : [],
         branchRules: field.branchRules || {},
         nextFieldId: field.nextFieldId || "",
         showWhen: field.showWhen || null
@@ -696,7 +709,13 @@
     next.storageLocations = Array.isArray(data.storageLocations) ? data.storageLocations : [];
     next.equipmentMovements = Array.isArray(data.equipmentMovements) ? data.equipmentMovements : [];
     next.equipmentReplacements = Array.isArray(data.equipmentReplacements) ? data.equipmentReplacements : [];
-    next.hvacSystems = Array.isArray(data.hvacSystems) ? data.hvacSystems : [];
+    const receivedSystemTypes = Array.isArray(data.hvacSystemTypes) ? data.hvacSystemTypes : [];
+    const systemTypesById = new Map([...DEFAULT_HVAC_SYSTEM_TYPES, ...receivedSystemTypes].map((item) => [item.id, { sortOrder: 0, active: true, topology: "split", ...item }]));
+    next.hvacSystemTypes = Array.from(systemTypesById.values()).sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+    next.hvacSystems = (Array.isArray(data.hvacSystems) ? data.hvacSystems : []).map((system) => {
+      const inferredType = next.hvacSystemTypes.find((type) => type.id === system.systemTypeId);
+      return { topology: inferredType?.topology || "split", brand: "", sortOrder: 0, active: true, ...system };
+    });
     next.workOrderTargets = Array.isArray(data.workOrderTargets) ? data.workOrderTargets : [];
     next.workOrderCompletionAudits = Array.isArray(data.workOrderCompletionAudits) ? data.workOrderCompletionAudits : [];
     next.reminders = (Array.isArray(data.reminders) ? data.reminders : []).map((reminder) => ({
@@ -2627,6 +2646,7 @@
     if (modal.type === "dataField") return dataFieldModal(modal);
     if (modal.type === "interventionType") return interventionTypeModal(modal);
     if (modal.type === "storageLocation") return storageLocationModal(modal);
+    if (modal.type === "hvacSystemType") return settingsViewModule.hvacSystemTypeModal(modal);
     if (modal.type === "formTemplate") return formTemplateModal(modal);
     if (modal.type === "role") return roleModal(modal);
     if (modal.type === "signup") return signupModal();
@@ -2634,6 +2654,7 @@
     if (modal.type === "resetPassword") return resetPasswordModal();
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
+    if (modal.type === "hvacSystemSetup") return hvacSystemSetupModal(modal);
     if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
     if (modal.type === "recommendationRoute") return recommendationRouteModal(modal.id);
     if (modal.type === "recommendationReply") return recommendationReplyModal(modal.id);
@@ -2869,7 +2890,7 @@
           <div class="field"><label>Température de retour</label><input name="retour" value="${escapeHtml(existing?.readings?.retour || "")}" placeholder="Ex.: 23.0 C"></div>
         </div>
         <div class="field"><label>Pression / observation</label><input name="pression" value="${escapeHtml(existing?.readings?.pression || "")}"></div>
-        <div class="field"><label>Résumé de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+        ${existing?.summary ? `<div class="legacy-summary-note"><strong>Note historique</strong><span>${escapeHtml(existing.summary)}</span></div>` : ""}
         <button class="primary-button" type="submit">Enregistrer l'intervention</button>
       </form>
     `);
@@ -2948,7 +2969,7 @@
           </div>
           <div class="field"><label>Pièce nécessaire</label><input name="recommendationPart" value="${escapeHtml(recommendation.part || "")}" placeholder="Ex.: moteur, carte électronique"></div>
         </div>
-        <div class="field"><label>Resume de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+        ${existing?.summary ? `<div class="legacy-summary-note"><strong>Note historique</strong><span>${escapeHtml(existing.summary)}</span></div>` : ""}
         <div class="actions field-intervention-actions">
           <button class="primary-button" type="submit">Enregistrer</button>
           <button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter une unité intérieure</button>
@@ -2969,6 +2990,13 @@
   function isReplacementActivityType(typeId) {
     const type = state.interventionTypes.find((item) => item.id === typeId);
     return type?.behavior === "replacement" || type?.id === "remplacement_unite";
+  }
+
+  function hvacSystemSetupModal(modal) {
+    const apartment = state.apartments.find((item) => item.id === modal.apartmentId);
+    const types = state.hvacSystemTypes.filter((item) => item.active !== false).sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+    const existingCount = state.hvacSystems.filter((item) => item.apartmentId === modal.apartmentId).length;
+    return modalShell("Nouveau système HVAC", `<form class="form-grid" data-form="hvacSystemSetup" data-order-id="${escapeHtml(modal.orderId || "")}" data-apartment-id="${escapeHtml(modal.apartmentId || "")}"><div class="location-summary"><strong>Appartement ${escapeHtml(apartment?.number || "-")}</strong><span>Le type et la marque seront partagés par toutes les unités de ce système.</span></div><div class="field"><label>Nom du système</label><input name="name" value="Système ${existingCount + 1}" required></div><div class="split"><div class="field"><label>Type de système</label><select name="systemTypeId" required>${types.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} - ${item.topology === "monobloc" ? "système unique" : "intérieur + extérieur"}</option>`).join("")}</select></div><div class="field"><label>Marque</label><input name="brand" required placeholder="Ex.: Carrier"></div></div><button class="primary-button" type="submit">Créer et ajouter la première unité</button></form>`);
   }
 
   function fieldInterventionModal(modal) {
@@ -3016,6 +3044,11 @@
     const systems = state.hvacSystems.filter((item) => item.apartmentId === selectedApartmentId && item.active !== false);
     const selectedSystemId = modal.systemId || equipment.systemId || systems[0]?.id || "";
     const systemOptions = systems.map((item) => `<option value="${escapeHtml(item.id)}" ${selectedSystemId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
+    const selectedSystem = systems.find((item) => item.id === selectedSystemId);
+    const selectedSystemType = state.hvacSystemTypes.find((item) => item.id === selectedSystem?.systemTypeId);
+    const systemTopology = selectedSystem?.topology || selectedSystemType?.topology || "split";
+    const canonicalType = selectedSystemType?.name || equipment.type || "Machine";
+    const canonicalBrand = selectedSystem?.brand || equipment.brand || "";
     const activityTypeOptions = state.interventionTypes.filter((item) => item.active !== false).map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityTypeId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
     return modalShell(`Activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
       <form class="form-grid technician-field-form" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}" data-intervention-id="${escapeHtml(existing?.id || "")}" data-activity-type-id="${escapeHtml(selectedActivityTypeId)}" data-form-template-id="${escapeHtml(template?.id || "")}" data-replacement-activity="${replacementActivity ? "true" : "false"}" data-read-only="${readOnlyActivity ? "true" : "false"}">
@@ -3029,10 +3062,11 @@
         <details class="technician-form-section" open>
           <summary><span>2</span><strong>Informations de l'unité</strong><small>${escapeHtml(equipment.type || "Nouvelle machine")}</small></summary>
           <div class="technician-form-section-body">
-            <div class="split"><div class="field"><label>Machine</label><select name="activityEquipmentId" data-activity-equipment-select><option value="__new">Créer une nouvelle machine</option>${equipmentOptions}</select></div><div class="field"><label>Position de l'unité</label><select name="unitKind" ${identityLocked ? "aria-disabled=\"true\" class=\"select-readonly\"" : ""}><option value="interieure" ${equipment.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${equipment.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div></div>
-            <div class="field"><label>Système HVAC</label><select name="systemId"><option value="">Non groupé</option>${systemOptions}</select></div>
-            <div class="split">${activityTextInput("type", activityFields.type, equipment.type)}${activityTextInput("location", activityFields.location, equipment.location)}</div>
-            <div class="split">${activityTextInput("brand", activityFields.brand, equipment.brand)}${activityTextInput("model", activityFields.model, equipment.model)}</div>
+            <div class="split"><div class="field"><label>Machine</label><select name="activityEquipmentId" data-activity-equipment-select><option value="__new">Créer une nouvelle machine</option>${equipmentOptions}</select></div>${systemTopology === "monobloc" ? `<input type="hidden" name="unitKind" value="monobloc"><div class="field"><label>Configuration</label><input value="Système unique" readonly></div>` : `<div class="field"><label>Position de l'unité</label><select name="unitKind" ${identityLocked ? "aria-disabled=\"true\" class=\"select-readonly\"" : ""}><option value="interieure" ${equipment.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${equipment.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div>`}</div>
+            <div class="field"><label>Système HVAC</label><select name="systemId" data-field-system-select required>${systemOptions}</select></div>
+            <div class="system-identity-summary"><div><span>Type de système</span><strong>${escapeHtml(canonicalType)}</strong></div><div><span>Marque</span><strong>${escapeHtml(canonicalBrand || "À confirmer")}</strong></div></div>
+            <input type="hidden" name="type" value="${escapeHtml(canonicalType)}"><input type="hidden" name="brand" value="${escapeHtml(canonicalBrand)}">
+            <div class="split">${activityTextInput("location", activityFields.location, equipment.location)}${activityTextInput("model", activityFields.model, equipment.model)}</div>
             <div class="split"><div class="field"><label>${activityFields.serial.label}${activityFields.serial.required ? " *" : ""}</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" ${readOnly} ${activityFields.serial.required ? "required" : ""}></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="manufactureAgeInfo" value="${escapeHtml(equipment.manufactureAgeInfo || "")}" ${readOnly} placeholder="Ex.: 2018, environ 8 ans"></div></div>
             ${identityLocked ? `<p class="meta">Les données d'identification sont en lecture seule selon vos autorisations.</p>` : ""}
           </div>
@@ -3047,12 +3081,12 @@
             <div class="field"><label>Recommandation</label><select name="recommendationType" data-recommendation-select><option value="">Aucune recommandation</option>${recommendationTypes.map((option) => `<option value="${escapeHtml(option.value)}" ${recommendation.type === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
             <div class="recommendation-details ${hasRecommendation ? "" : "hidden"}" data-recommendation-details><div class="field"><label>Description</label><textarea name="recommendationDescription">${escapeHtml(recommendation.description || "")}</textarea></div><div class="split"><div class="field"><label>Priorité</label><select name="recommendationPriority"><option value="basse" ${recommendation.priority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${!recommendation.priority || recommendation.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${recommendation.priority === "urgente" ? "selected" : ""}>Urgente</option></select></div><div class="field"><label>Temps prévu</label><input name="recommendationTime" value="${escapeHtml(recommendation.time || "")}"></div></div><div class="field"><label>Pièce nécessaire</label><input name="recommendationPart" value="${escapeHtml(recommendation.part || "")}"></div></div>
             <div class="field"><label>${activityFields.notes.label}</label><textarea name="equipmentNotes">${escapeHtml(existing?.equipmentNotes || "")}</textarea></div>
-            <div class="field"><label>Résumé de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
+            ${existing?.summary ? `<div class="legacy-summary-note"><strong>Note historique</strong><span>${escapeHtml(existing.summary)}</span></div>` : ""}
+            <div class="replacement-inline ${replacementActivity ? "" : "hidden"}" data-replacement-section>${existingReplacement ? `<div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div>` : `<div class="form-subsection-title">Remplacement de l'unité</div><div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div><div class="split"><div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option><option value="monobloc" ${replacementUnit.unitKind === "monobloc" ? "selected" : ""}>Système unique</option></select></div><div class="field"><label>Type de système</label><input name="replacementType" value="${escapeHtml(canonicalType)}" readonly></div></div><div class="split"><div class="field"><label>Localisation</label><input name="replacementLocation" value="${escapeHtml(replacementUnit.location || equipment.location || "")}"></div><div class="field"><label>Marque</label><input name="replacementBrand" value="${escapeHtml(canonicalBrand)}" readonly></div></div><div class="split"><div class="field"><label>Modèle</label><input name="replacementModel" value="${escapeHtml(replacementUnit.model || "")}"></div><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div><div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div><div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div><div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div><div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div><div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement si l'activité est terminée.</span></div>`}</div>
             <div class="field"><label>Photos et documents</label><input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"><p class="meta">Maximum 3 fichiers, 10 MB par fichier.</p></div>
           </div>
         </details>
-        <details class="technician-form-section replacement-section ${replacementActivity ? "" : "hidden"}" open data-replacement-section><summary><span>4</span><strong>Remplacement de l'unité</strong><small>Nouvelle unité et destination de l'ancienne</small></summary><div class="technician-form-section-body">${existingReplacement ? `<div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div>` : `<div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div><div class="split"><div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div><div class="field"><label>Type</label><input name="replacementType" value="${escapeHtml(replacementUnit.type || "")}"></div></div><div class="split"><div class="field"><label>Localisation</label><input name="replacementLocation" value="${escapeHtml(replacementUnit.location || equipment.location || "")}"></div><div class="field"><label>Marque</label><input name="replacementBrand" value="${escapeHtml(replacementUnit.brand || "")}"></div></div><div class="split"><div class="field"><label>Modèle</label><input name="replacementModel" value="${escapeHtml(replacementUnit.model || "")}"></div><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div><div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div><div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div><div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div><div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div><div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement après cet enregistrement.</span></div>`}</div></details>
-        ${readOnlyActivity ? `<div class="meta">Consultation en lecture seule.</div>` : `<div class="actions field-intervention-actions sticky-form-actions"><button class="primary-button" type="submit">Enregistrer</button><button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter une unité intérieure</button><button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter une unité extérieure</button></div>`}
+        ${readOnlyActivity ? `<div class="meta">Consultation en lecture seule.</div>` : `<div class="actions field-intervention-actions sticky-form-actions"><button class="primary-button" type="submit">Enregistrer</button>${systemTopology === "split" ? `<button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter une unité intérieure</button><button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter une unité extérieure</button>` : ""}</div>`}
       </form>
     `, "modal-card-field");
   }
@@ -3167,7 +3201,7 @@
 
   const interventionsViewModule = window.ClimaParcInterventionsView.create({
     getState: () => state, escapeHtml, formatCanadianPhone,
-    normalizeDataOptions, formTemplateForOrder
+    normalizeDataOptions, formTemplateForOrder, formTemplateForActivity
   });
 
   function activityTextInput(name, config, value) {
@@ -3235,10 +3269,12 @@
     if (formType === "serviceType") await saveServiceType(values);
     if (formType === "interventionType") await saveInterventionType(values);
     if (formType === "storageLocation") await settingsViewModule.saveStorageLocation(form, values);
+    if (formType === "hvacSystemType") await settingsViewModule.saveHvacSystemType(form, values);
     if (formType === "formTemplate") await saveFormTemplate(form, values);
     if (formType === "role") await saveRole(form, values);
     if (formType === "checklist") await saveChecklist(form, values);
     if (formType === "fieldIntervention") await saveFieldIntervention(form, values);
+    if (formType === "hvacSystemSetup") await saveHvacSystemSetup(form, values);
     if (formType === "recommendationReview") await saveRecommendationReview(values);
     if (formType === "recommendationRoute") await routeRecommendation(values.interventionId, "existing", values.workOrderId);
     if (formType === "recommendationReply") await saveRecommendationReply(values);
@@ -3562,11 +3598,9 @@
       date: today(),
       technicianId: currentUser().role === "technicien" ? currentUser().id : order.technicianId,
       status: "terminee",
-      summary: "",
       readings: {},
       checklistDone: []
     };
-    intervention.summary = values.summary;
     intervention.readings = { soufflage: values.soufflage, retour: values.retour, pression: values.pression };
     intervention.checklistDone = done;
     if (!existing) state.interventions.unshift(intervention);
@@ -3666,7 +3700,8 @@
       status: existingRecommendation.status || "a_valider",
       createdAt: existingRecommendation.createdAt || today()
     } : null;
-    intervention.summary = values.summary;
+    if (existing?.summary) intervention.summary = existing.summary;
+    else delete intervention.summary;
     let pendingAttachments = [];
     try {
       pendingAttachments = await collectAttachments(form, apartmentId, equipment.id);
@@ -3742,13 +3777,20 @@
   async function createHvacSystemForApartment(workOrderId, apartmentId) {
     const apartment = state.apartments.find((item) => item.id === apartmentId);
     if (!apartment) return showToast("Appartement introuvable.");
-    const existingCount = state.hvacSystems.filter((item) => item.apartmentId === apartmentId).length;
-    const system = { id: uid("system"), apartmentId, name: `Système ${existingCount + 1}`, active: true };
+    updateUiState({ modal: { type: "hvacSystemSetup", orderId: workOrderId, apartmentId } });
+  }
+
+  async function saveHvacSystemSetup(form, values) {
+    const workOrderId = form.dataset.orderId;
+    const apartmentId = form.dataset.apartmentId;
+    const systemType = state.hvacSystemTypes.find((item) => item.id === values.systemTypeId && item.active !== false);
+    if (!systemType) return showToast("Sélectionnez un type de système actif.");
+    const system = { id: uid("system"), apartmentId, systemTypeId: systemType.id, topology: systemType.topology, brand: values.brand.trim(), name: values.name.trim(), sortOrder: state.hvacSystems.filter((item) => item.apartmentId === apartmentId).length * 10, active: true };
     updateUiState({ toast: "Création du système HVAC..." });
     try {
       const response = await api.createHvacSystem(system, workOrderId);
-      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId, modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id } }, "Système HVAC créé.");
-      updateUiState({ modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id, activityTypeId: state.workOrders.find((item) => item.id === workOrderId)?.defaultActivityTypeId || "" } });
+      if (!response?.state) return;
+      acceptServerState(response.state, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId, modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id, activityTypeId: state.workOrders.find((item) => item.id === workOrderId)?.defaultActivityTypeId || "" }, toast: "Système HVAC créé. Ajoutez sa première unité." });
     } catch (error) {
       showToast(error.message || "Système HVAC non créé.");
     }
@@ -4327,8 +4369,14 @@
         });
         return;
       }
-      if (action === "select-building") updateUiState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
-      if (action === "select-equipment") updateUiState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
+      if (action === "select-building") {
+        updateUiState({ selectedBuildingId: target.dataset.id, activeView: "lieu_detail" });
+        return;
+      }
+      if (action === "select-equipment") {
+        updateUiState({ selectedEquipmentId: target.dataset.id, activeView: "detail" });
+        return;
+      }
       if (action === "dashboard-ticket") {
         updateUiState({ activeView: "appels", modal: currentUser()?.role === "client" ? null : { type: "ticket", id: target.dataset.id } });
         return;
@@ -4385,6 +4433,7 @@
           orderId: target.dataset.order || null,
           reminderId: target.dataset.reminder || null
         } });
+        return;
       }
       if (action === "close-modal") {
         updateUiState({ modal: null });
@@ -4623,12 +4672,14 @@
       updateTechnicianPermissionsVisibility(event.target.closest("form"));
       updateUserAccessEditor(event.target.closest("form"), event.target.name === "clientId");
       if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
+      if (event.target.matches("[data-field-system-select]")) updateFieldSystemSelection(event.target);
       if (event.target.matches("[data-field-activity-type]")) updateFieldActivityType(event.target);
       if (event.target.matches("[data-replacement-equipment-select]")) populateReplacementEquipment(event.target);
       if (event.target.matches("[data-disposition-select]")) updateDispositionVisibility(event.target.closest("form"));
       if (event.target.matches("[data-activity-result]")) updateReplacementSectionVisibility(event.target.closest("form"));
       if (event.target.matches("[data-workorder-type]")) workOrdersViewModule.updateWorkOrderDefaultForm(event.target);
       if (event.target.name === "q-type") updateQuestionOptionEditor(event.target.closest("[data-question]"));
+      if (event.target.name === "q-unit-scope") formBuilderModule.updateUnitScopeSelection(event.target);
       if (event.target.name?.startsWith("activity-datafield-")) updateActivityOptionPicker(event.target);
     });
     app.addEventListener("input", (event) => {
@@ -4684,6 +4735,10 @@
     const form = select.closest("form");
     const equipment = state.equipment.find((item) => item.id === select.value);
     if (!form) return;
+    if (equipment && state.modal?.type === "fieldIntervention" && state.modal.equipmentId !== equipment.id) {
+      updateUiState({ modal: { ...state.modal, equipmentId: equipment.id, systemId: equipment.systemId || "", unitKind: equipment.unitKind || "interieure" } });
+      return;
+    }
     form.dataset.equipmentId = equipment?.id || "";
     ["type", "location", "brand", "model", "serial", "manufactureAgeInfo"].forEach((name) => {
       const input = form.querySelector(`[name="${name}"]`);
@@ -4699,6 +4754,20 @@
     if (notes) notes.value = "";
     updateEquipmentIdentityAccess(form, equipment);
     hideComboOptions();
+  }
+
+  function updateFieldSystemSelection(select) {
+    const system = state.hvacSystems.find((item) => item.id === select.value);
+    if (!system || state.modal?.type !== "fieldIntervention" || state.modal.systemId === system.id) return;
+    const systemType = state.hvacSystemTypes.find((item) => item.id === system.systemTypeId);
+    updateUiState({
+      modal: {
+        ...state.modal,
+        systemId: system.id,
+        equipmentId: null,
+        unitKind: (system.topology || systemType?.topology) === "monobloc" ? "monobloc" : (state.modal.unitKind || "interieure")
+      }
+    });
   }
 
   function updateEquipmentIdentityAccess(form, equipment) {
@@ -4757,13 +4826,23 @@
     if (!form || form.dataset.form !== "fieldIntervention") return;
     const section = form.querySelector("[data-replacement-section]");
     if (!section) return;
-    const result = form.querySelector("[data-activity-result]")?.value || "";
-    const visible = form.dataset.replacementActivity === "true" && dataFieldOptionBehavior("activity_status", result) === "completed";
+    const visible = form.dataset.replacementActivity === "true";
     section.classList.toggle("hidden", !visible);
     section.querySelectorAll("input, select, textarea").forEach((input) => {
       input.disabled = !visible;
     });
-    if (visible) updateDispositionVisibility(form);
+    if (visible) {
+      const systemId = form.querySelector('[name="systemId"]')?.value || "";
+      const system = state.hvacSystems.find((item) => item.id === systemId);
+      const systemType = state.hvacSystemTypes.find((item) => item.id === system?.systemTypeId);
+      const monobloc = (system?.topology || systemType?.topology) === "monobloc";
+      const positionSelect = section.querySelector('[name="replacementUnitKind"]');
+      if (positionSelect) {
+        if (monobloc) positionSelect.value = "monobloc";
+        positionSelect.closest(".field")?.classList.toggle("hidden", monobloc);
+      }
+      updateDispositionVisibility(form);
+    }
   }
 
   function updateFieldActivityType(select) {
@@ -4774,6 +4853,7 @@
     const fields = form.querySelector("[data-activity-form-fields]");
     if (fields) fields.innerHTML = (template?.fields || []).map((field) => renderDynamicField(field, field.defaultValue)).join("");
     form.dataset.activityTypeId = select.value;
+    form.dataset.formTemplateId = template?.id || "";
     form.dataset.replacementActivity = isReplacementActivityType(select.value) ? "true" : "false";
     updateDynamicVisibility(form);
     updateReplacementSectionVisibility(form);

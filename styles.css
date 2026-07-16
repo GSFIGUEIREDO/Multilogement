@@ -2019,6 +2019,153 @@ td button.link-button {
   gap: 12px;
 }
 
+.system-group-header > div:first-child,
+.machine-accordion-title,
+.activity-detail-head > div:first-child,
+.legacy-summary-note {
+  display: grid;
+  gap: 3px;
+}
+
+.system-group-header > div:first-child > span,
+.machine-accordion-title > span,
+.activity-detail-head > div:first-child > span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.split-system-visual {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.8fr) 52px minmax(300px, 1.2fr);
+  align-items: center;
+  gap: 0;
+}
+
+.outdoor-unit-column,
+.indoor-units-column,
+.monobloc-system,
+.machine-history-list,
+.machine-activities {
+  display: grid;
+  gap: 10px;
+}
+
+.system-connection {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+}
+
+.system-connection span {
+  width: 100%;
+  border-top: 2px solid #9db3b5;
+}
+
+.machine-accordion {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.machine-accordion > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.machine-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.machine-accordion > summary::before {
+  content: ">";
+  color: var(--brand);
+  font-weight: 800;
+  transform: rotate(0deg);
+  transition: transform 0.15s ease;
+}
+
+.machine-accordion[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.machine-accordion-body {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.activity-detail {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-left: 4px solid var(--brand);
+  background: #f4f8f8;
+}
+
+.activity-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.machine-history {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.machine-history > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.machine-history-list {
+  margin-top: 10px;
+}
+
+.system-placeholder {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.system-identity-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.system-identity-summary > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f4f8f8;
+}
+
+.system-identity-summary span,
+.legacy-summary-note span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.legacy-summary-note {
+  padding: 10px;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+}
+
 .activity-card {
   border-left: 4px solid var(--brand);
 }
@@ -2847,6 +2994,41 @@ td button.link-button {
   .system-group-header .actions button,
   .apartment-completion-action button {
     width: 100%;
+  }
+
+  .split-system-visual {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .system-connection {
+    min-height: 24px;
+  }
+
+  .system-connection span {
+    width: 2px;
+    height: 24px;
+    border-top: 0;
+    border-left: 2px solid #9db3b5;
+  }
+
+  .machine-accordion > summary,
+  .activity-detail-head {
+    align-items: stretch;
+  }
+
+  .machine-accordion > summary {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .machine-accordion > summary > .badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .system-identity-summary {
+    grid-template-columns: 1fr;
   }
 
   .sticky-form-actions {

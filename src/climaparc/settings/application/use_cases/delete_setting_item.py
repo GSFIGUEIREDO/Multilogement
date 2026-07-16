@@ -8,6 +8,7 @@ from src.climaparc.settings.domain.policies import (
     clear_ui_state,
     find_item_index,
     require_can_manage_settings,
+    require_setting_item_deletable,
     require_supported_collection,
 )
 from src.climaparc.settings.domain.repositories import SettingsPayloadRepository, SettingsStateRepository
@@ -38,6 +39,7 @@ class DeleteSettingItemUseCase:
         if index < 0:
             raise ApplicationError("Element de parametres introuvable.", HTTPStatus.NOT_FOUND)
 
+        require_setting_item_deletable(state, command.collection_key, item_id)
         collection.pop(index)
         clear_ui_state(state)
         self.payload_repository.delete(command.collection_key, item_id)

@@ -1943,7 +1943,7 @@ td button.link-button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  overflow: clip;
+  overflow: visible;
 }
 
 .technician-form-section > summary {
@@ -2006,6 +2006,8 @@ td button.link-button {
 .hvac-system-group {
   display: grid;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2017,6 +2019,60 @@ td button.link-button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+}
+
+.system-action-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.system-action-menu > summary {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  list-style: none;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.system-action-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.system-action-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 12;
+  display: grid;
+  width: min(320px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.system-action-menu-list button {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: #fff;
+  text-align: left;
+}
+
+.system-action-menu-list button:last-child {
+  border-bottom: 0;
+}
+
+.system-action-menu-list button:hover,
+.system-action-menu-list button:focus-visible {
+  background: var(--surface-soft);
 }
 
 .system-group-header > div:first-child,
@@ -2034,11 +2090,57 @@ td button.link-button {
   font-size: 0.86rem;
 }
 
+.machine-accordion-title > span {
+  overflow-wrap: anywhere;
+}
+
 .split-system-visual {
   display: grid;
   grid-template-columns: minmax(250px, 0.8fr) 52px minmax(300px, 1.2fr);
   align-items: center;
   gap: 0;
+}
+
+.system-machine-map {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.system-machine-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.system-unit-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 10px;
+  color: var(--brand-dark);
+}
+
+.system-unit-label span {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  height: 28px;
+  padding-inline: 6px;
+  border-radius: 6px;
+  color: #fff;
+  background: var(--brand);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.system-unit-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
 }
 
 .outdoor-unit-column,
@@ -2062,6 +2164,7 @@ td button.link-button {
 }
 
 .machine-accordion {
+  min-width: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -2152,6 +2255,29 @@ td button.link-button {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #f4f8f8;
+}
+
+.replacement-system-summary {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f4f8f8;
+}
+
+.replacement-system-summary span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.replacement-inline {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
 }
 
 .system-identity-summary span,
@@ -2953,8 +3079,11 @@ td button.link-button {
   }
 
   .combo-options {
+    position: static;
     max-height: 260px;
+    margin-top: 4px;
     z-index: 60;
+    box-shadow: none;
   }
 
   .option-row {
@@ -2986,8 +3115,8 @@ td button.link-button {
   }
 
   .system-group-header {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
 
   .system-group-header .actions,
@@ -2999,6 +3128,24 @@ td button.link-button {
   .split-system-visual {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .system-machine-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .system-unit-label {
+    min-height: 0;
+    padding: 4px 0;
+  }
+
+  .system-action-menu-list {
+    width: min(300px, calc(100vw - 32px));
+  }
+
+  .hvac-system-group {
+    padding: 12px;
   }
 
   .system-connection {

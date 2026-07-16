@@ -601,11 +601,13 @@
     next.navOrder = mergeNavOrder(data.navOrder);
     next.serviceTypes = data.serviceTypes || JSON.parse(JSON.stringify(seed.serviceTypes));
     next.dataFields = ensureCoreDataFields(normalizeDataFields(data.dataFields || seed.dataFields));
-    next.interventionTypes = (data.interventionTypes || seed.interventionTypes).map((item) => ({ defaultFormTemplateId: "", behavior: "standard", ...item }));
-    if (!next.interventionTypes.some((item) => item.behavior === "replacement" || item.id === "remplacement_unite")) {
+    const hasPersistedInterventionTypes = Array.isArray(data.interventionTypes);
+    next.interventionTypes = (hasPersistedInterventionTypes ? data.interventionTypes : seed.interventionTypes).map((item) => ({ defaultFormTemplateId: "", behavior: "standard", ...item }));
+    if (!hasPersistedInterventionTypes && !next.interventionTypes.some((item) => item.behavior === "replacement" || item.id === "remplacement_unite")) {
       next.interventionTypes.push(JSON.parse(JSON.stringify(seed.interventionTypes.find((item) => item.id === "remplacement_unite"))));
     }
-    next.formTemplates = (data.formTemplates || seed.formTemplates).map((template) => ({
+    const hasPersistedFormTemplates = Array.isArray(data.formTemplates);
+    next.formTemplates = (hasPersistedFormTemplates ? data.formTemplates : seed.formTemplates).map((template) => ({
       id: template.id,
       name: template.name,
       serverUpdatedAt: template.serverUpdatedAt || "",
@@ -627,7 +629,7 @@
         showWhen: field.showWhen || null
       }))
     }));
-    if (!next.formTemplates.some((item) => item.id === "form_remplacement_unite")) {
+    if (!hasPersistedFormTemplates && !next.formTemplates.some((item) => item.id === "form_remplacement_unite")) {
       next.formTemplates.push(JSON.parse(JSON.stringify(seed.formTemplates.find((item) => item.id === "form_remplacement_unite"))));
     }
     next.roleDefinitions = data.roleDefinitions || JSON.parse(JSON.stringify(seed.roleDefinitions));
@@ -722,8 +724,8 @@
     next.storageLocations = Array.isArray(data.storageLocations) ? data.storageLocations : [];
     next.equipmentMovements = Array.isArray(data.equipmentMovements) ? data.equipmentMovements : [];
     next.equipmentReplacements = Array.isArray(data.equipmentReplacements) ? data.equipmentReplacements : [];
-    const receivedSystemTypes = Array.isArray(data.hvacSystemTypes) ? data.hvacSystemTypes : [];
-    const systemTypesById = new Map([...DEFAULT_HVAC_SYSTEM_TYPES, ...receivedSystemTypes].map((item) => [item.id, { sortOrder: 0, active: true, topology: "split", ...item }]));
+    const receivedSystemTypes = Array.isArray(data.hvacSystemTypes) ? data.hvacSystemTypes : DEFAULT_HVAC_SYSTEM_TYPES;
+    const systemTypesById = new Map(receivedSystemTypes.map((item) => [item.id, { sortOrder: 0, active: true, topology: "split", ...item }]));
     next.hvacSystemTypes = Array.from(systemTypesById.values()).sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
     next.hvacSystems = (Array.isArray(data.hvacSystems) ? data.hvacSystems : []).map((system) => {
       const inferredType = next.hvacSystemTypes.find((type) => type.id === system.systemTypeId);
@@ -3156,6 +3158,34 @@
     const canonicalType = selectedSystemType?.name || equipment.type || "Machine";
     const canonicalBrand = selectedSystem?.brand || equipment.brand || "";
     const activityTypeOptions = state.interventionTypes.filter((item) => item.active !== false).map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityTypeId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
+    const replacementLocationOptions = activityOptions("location", activityFields.location);
+    const replacementModelOptions = activityOptions("model", activityFields.model);
+    const replacementEditor = existingReplacement
+      ? `<div class="replacement-inline ${replacementActivity ? "" : "hidden"}" data-replacement-section><div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div></div>`
+      : `<div class="replacement-inline ${replacementActivity ? "" : "hidden"}" data-replacement-section>
+          <div class="form-subsection-title">Remplacement de l'unité</div>
+          <div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div>
+          <div class="split">
+            <div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option><option value="monobloc" ${replacementUnit.unitKind === "monobloc" ? "selected" : ""}>Système unique</option></select></div>
+            <div class="replacement-system-summary"><span>Système conservé</span><strong>${escapeHtml(selectedSystem?.name || canonicalType)}</strong></div>
+          </div>
+          <div class="system-identity-summary replacement-inherited-identity">
+            <div><span>Type de système hérité</span><strong>${escapeHtml(canonicalType)}</strong></div>
+            <div><span>Marque héritée</span><strong>${escapeHtml(canonicalBrand || "À confirmer")}</strong></div>
+          </div>
+          <input type="hidden" name="replacementType" value="${escapeHtml(canonicalType)}">
+          <input type="hidden" name="replacementBrand" value="${escapeHtml(canonicalBrand)}">
+          <div class="split">
+            <div class="field combo-field"><label>Localisation</label>${comboInput("replacementLocation", replacementUnit.location || equipment.location || "", replacementLocationOptions)}</div>
+            <div class="field combo-field"><label>Modèle</label>${comboInput("replacementModel", replacementUnit.model || "", replacementModelOptions)}</div>
+          </div>
+          <div class="split"><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div></div>
+          <div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div>
+          <div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div>
+          <div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div>
+          <div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div>
+          <div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement si l'activité est terminée.</span></div>
+        </div>`;
     return modalShell(`Activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
       <form class="form-grid technician-field-form" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}" data-intervention-id="${escapeHtml(existing?.id || "")}" data-activity-type-id="${escapeHtml(selectedActivityTypeId)}" data-form-template-id="${escapeHtml(template?.id || "")}" data-replacement-activity="${replacementActivity ? "true" : "false"}" data-read-only="${readOnlyActivity ? "true" : "false"}">
         <details class="technician-form-section" open>
@@ -3178,18 +3208,18 @@
           </div>
         </details>
         <details class="technician-form-section" open>
-          <summary><span>3</span><strong>Activité et conclusion</strong><small data-activity-template-name>${escapeHtml(template?.name || "Formulaire terrain")}</small></summary>
+          <summary><span>3</span><strong>Activité</strong><small data-activity-template-name>${escapeHtml(template?.name || "Formulaire terrain")}</small></summary>
           <div class="technician-form-section-body">
             <div class="field"><label>Type d'activité</label><select name="activityTypeId" data-field-activity-type required>${activityTypeOptions}</select></div>
             <div class="form-builder dynamic-form-grid" data-activity-form-fields>${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}</div>
+            ${replacementEditor}
+            <div class="field"><label>Photos et documents</label><input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"><p class="meta">Maximum 3 fichiers, 10 MB par fichier.</p></div>
+            ${existing?.summary ? `<div class="legacy-summary-note"><strong>Note historique</strong><span>${escapeHtml(existing.summary)}</span></div>` : ""}
             <div class="form-subsection-title">Conclusion</div>
             <div class="split"><div class="field"><label>Résultat de l'activité</label><select name="activityStatus" data-activity-result>${activityStatuses.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.activityStatus || "completee") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div><div class="field"><label>État constaté de la machine${activityFields.status.required ? " *" : ""}</label><select name="machineStatus" ${activityFields.status.required ? "required" : ""}><option value="">Sélectionner</option>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.machineStatus || equipment.conditionStatus || equipment.status) === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div></div>
             <div class="field"><label>Recommandation</label><select name="recommendationType" data-recommendation-select><option value="">Aucune recommandation</option>${recommendationTypes.map((option) => `<option value="${escapeHtml(option.value)}" ${recommendation.type === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
             <div class="recommendation-details ${hasRecommendation ? "" : "hidden"}" data-recommendation-details><div class="field"><label>Description</label><textarea name="recommendationDescription">${escapeHtml(recommendation.description || "")}</textarea></div><div class="split"><div class="field"><label>Priorité</label><select name="recommendationPriority"><option value="basse" ${recommendation.priority === "basse" ? "selected" : ""}>Basse</option><option value="normale" ${!recommendation.priority || recommendation.priority === "normale" ? "selected" : ""}>Normale</option><option value="urgente" ${recommendation.priority === "urgente" ? "selected" : ""}>Urgente</option></select></div><div class="field"><label>Temps prévu</label><input name="recommendationTime" value="${escapeHtml(recommendation.time || "")}"></div></div><div class="field"><label>Pièce nécessaire</label><input name="recommendationPart" value="${escapeHtml(recommendation.part || "")}"></div></div>
             <div class="field"><label>${activityFields.notes.label}</label><textarea name="equipmentNotes">${escapeHtml(existing?.equipmentNotes || "")}</textarea></div>
-            ${existing?.summary ? `<div class="legacy-summary-note"><strong>Note historique</strong><span>${escapeHtml(existing.summary)}</span></div>` : ""}
-            <div class="replacement-inline ${replacementActivity ? "" : "hidden"}" data-replacement-section>${existingReplacement ? `<div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div>` : `<div class="form-subsection-title">Remplacement de l'unité</div><div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div><div class="split"><div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option><option value="monobloc" ${replacementUnit.unitKind === "monobloc" ? "selected" : ""}>Système unique</option></select></div><div class="field"><label>Type de système</label><input name="replacementType" value="${escapeHtml(canonicalType)}" readonly></div></div><div class="split"><div class="field"><label>Localisation</label><input name="replacementLocation" value="${escapeHtml(replacementUnit.location || equipment.location || "")}"></div><div class="field"><label>Marque</label><input name="replacementBrand" value="${escapeHtml(canonicalBrand)}" readonly></div></div><div class="split"><div class="field"><label>Modèle</label><input name="replacementModel" value="${escapeHtml(replacementUnit.model || "")}"></div><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div><div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div><div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div><div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div><div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div><div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement si l'activité est terminée.</span></div>`}</div>
-            <div class="field"><label>Photos et documents</label><input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"><p class="meta">Maximum 3 fichiers, 10 MB par fichier.</p></div>
           </div>
         </details>
         ${readOnlyActivity ? `<div class="meta">Consultation en lecture seule.</div>` : `<div class="actions field-intervention-actions sticky-form-actions"><button class="primary-button" type="submit">Enregistrer</button>${systemTopology === "split" ? `<button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter une unité intérieure</button><button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter une unité extérieure</button>` : ""}</div>`}
@@ -4678,6 +4708,23 @@
         await duplicateFormTemplate(target.dataset.id);
         return;
       }
+      if (action === "delete-setting-item") {
+        const collectionKey = target.dataset.collectionKey || "";
+        const itemId = target.dataset.id || "";
+        const itemLabel = target.closest("article")?.querySelector("h3")?.textContent?.trim() || "cet élément";
+        if (!confirm(`Supprimer définitivement « ${itemLabel} »? Cette action ne peut pas être annulée.`)) return;
+        const requestUiContext = captureMutationUiContext();
+        updateUiState({ toast: "Suppression en cours..." });
+        try {
+          const response = await api.deleteSettingItem(collectionKey, itemId);
+          if (response.state) {
+            acceptServerState(response.state, { activeView: "parametres", modal: null, toast: `${itemLabel} supprimé.` }, requestUiContext);
+          }
+        } catch (error) {
+          showToast(error.message || "Élément non supprimé.");
+        }
+        return;
+      }
       if (action === "ticket-status") {
         const ticket = state.tickets.find((item) => item.id === target.dataset.id);
         if (!ticket) return;
@@ -4959,6 +5006,18 @@
     const form = select.closest("form");
     const equipment = state.equipment.find((item) => item.id === select.value);
     if (!form) return;
+    const sourceEquipment = state.equipment.find((item) => item.id === form.dataset.equipmentId);
+    const selectedSystem = state.hvacSystems.find((item) => item.id === form.querySelector('[name="systemId"]')?.value);
+    const selectedSystemType = state.hvacSystemTypes.find((item) => item.id === selectedSystem?.systemTypeId);
+    const fallback = {
+      unitKind: sourceEquipment?.unitKind || "interieure",
+      type: selectedSystemType?.name || sourceEquipment?.type || "Machine",
+      location: sourceEquipment?.location || "",
+      brand: selectedSystem?.brand || sourceEquipment?.brand || "",
+      model: "",
+      serial: "",
+      manufactureAgeInfo: ""
+    };
     const mapping = {
       replacementUnitKind: "unitKind",
       replacementType: "type",
@@ -4970,7 +5029,7 @@
     };
     Object.entries(mapping).forEach(([name, property]) => {
       const input = form.querySelector(`[name="${name}"]`);
-      if (input) input.value = equipment?.[property] || (name === "replacementUnitKind" ? "interieure" : "");
+      if (input) input.value = equipment?.[property] || fallback[property] || "";
     });
   }
 

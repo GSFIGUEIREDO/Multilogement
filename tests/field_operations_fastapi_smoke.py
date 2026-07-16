@@ -48,7 +48,7 @@ def base_state() -> dict:
             {"id": "apt-a2", "buildingId": "b-a", "number": "102"},
         ],
         "equipment": [
-            {"id": "eq-old", "apartmentId": "apt-a", "unitKind": "interieure", "type": "PTAC", "brand": "Carrier", "model": "42C", "serial": "OLD-1", "status": "hors_service", "lifecycleStatus": "installed", "attachments": []},
+            {"id": "eq-old", "apartmentId": "apt-a", "systemId": "system-a", "unitKind": "monobloc", "type": "PTAC", "brand": "Carrier", "model": "42C", "serial": "OLD-1", "status": "hors_service", "lifecycleStatus": "installed", "attachments": []},
         ],
         "tickets": [],
         "workOrders": [
@@ -71,6 +71,8 @@ def base_state() -> dict:
             {"id": "inspection", "name": "Inspection", "behavior": "standard", "defaultFormTemplateId": "form_remplacement_unite", "checklist": []},
         ],
         "formTemplates": [{"id": "form_remplacement_unite", "name": "Remplacement", "fields": [], "activityFields": {}}],
+        "hvacSystemTypes": [{"id": "system_type_ptac", "name": "PTAC", "topology": "monobloc", "sortOrder": 10, "active": True}],
+        "hvacSystems": [],
         "roleDefinitions": [],
         "dataFields": [
             {"id": "activity_status", "name": "Résultat", "group": "Résultats d'activité", "type": "single", "appliesTo": ["activity"], "options": [{"id": "completee", "value": "completee", "label": "Terminée", "behavior": "completed", "active": True}]},
@@ -108,8 +110,8 @@ def login(client, email: str, password: str) -> None:
 def field_payload(suffix: str = "") -> dict:
     return {
         "apartment": None,
-        "equipment": {"id": "eq-old", "apartmentId": "apt-a", "unitKind": "interieure", "type": "PTAC", "brand": "Carrier", "model": "42C", "serial": "OLD-1", "status": "actif", "machineStatus": "actif", "manufactureAgeInfo": "", "lifecycleStatus": "installed", "attachments": []},
-        "intervention": {"id": f"int-replace{suffix}", "equipmentId": "eq-old", "apartmentId": "apt-a", "workOrderId": "wo-replace", "typeId": "remplacement_unite", "date": "2026-07-14", "technicianId": "u-tech", "status": "terminee", "activityStatus": "completee", "machineStatus": "actif", "summary": "Remplacement terminé", "formResponses": {}},
+        "equipment": {"id": "eq-old", "apartmentId": "apt-a", "systemId": "system-a", "unitKind": "monobloc", "type": "PTAC", "brand": "Carrier", "model": "42C", "serial": "OLD-1", "status": "actif", "machineStatus": "actif", "manufactureAgeInfo": "", "lifecycleStatus": "installed", "attachments": []},
+        "intervention": {"id": f"int-replace{suffix}", "equipmentId": "eq-old", "apartmentId": "apt-a", "workOrderId": "wo-replace", "typeId": "remplacement_unite", "date": "2026-07-14", "technicianId": "u-tech", "status": "terminee", "activityStatus": "completee", "machineStatus": "actif", "formResponses": {}},
         "workOrder": {"id": "wo-replace", "number": "BT-2026-001", "scope": "equipment", "equipmentId": "eq-old", "apartmentId": "apt-a", "buildingId": "b-a", "typeId": "remplacement_unite", "formTemplateId": "form_remplacement_unite", "technicianId": "u-tech", "assignedTechnicianIds": ["u-tech"], "status": "en_cours"},
         "replacement": {
             "action": "transfer_apartment",
@@ -117,7 +119,7 @@ def field_payload(suffix: str = "") -> dict:
             "reason": "Remplacement planifié",
             "movementId": f"move-1{suffix}",
             "replacementId": f"replacement-1{suffix}",
-            "newEquipment": {"id": f"eq-new{suffix}", "apartmentId": "apt-a", "unitKind": "interieure", "type": "PTAC", "brand": "Gree", "model": "NEW", "serial": f"NEW-1{suffix}", "status": "actif", "manufactureAgeInfo": "environ 2 ans", "attachments": []},
+            "newEquipment": {"id": f"eq-new{suffix}", "apartmentId": "apt-a", "systemId": "system-a", "unitKind": "monobloc", "type": "PTAC", "brand": "Carrier", "model": "NEW", "serial": f"NEW-1{suffix}", "status": "actif", "manufactureAgeInfo": "environ 2 ans", "attachments": []},
         },
     }
 
@@ -209,12 +211,11 @@ def run() -> None:
     reset_database()
     with TestClient(app) as technician:
         login(technician, "tech@test.local", "Tech12345")
-        system = technician.post("/api/hvac-system", json={"system": {"id": "system-a", "apartmentId": "apt-a", "name": "Système multizone"}, "workOrderId": "wo-replace"})
+        system = technician.post("/api/hvac-system", json={"system": {"id": "system-a", "apartmentId": "apt-a", "name": "PTAC 101", "systemTypeId": "system_type_ptac", "brand": "Carrier"}, "workOrderId": "wo-replace"})
         assert system.status_code == 200, system.text
         for suffix in ("-inspection", "-entretien"):
             activity = field_payload(suffix)
             activity["intervention"]["typeId"] = "inspection"
-            activity["intervention"]["summary"] = f"Activité {suffix}"
             activity["equipment"]["systemId"] = "system-a"
             activity["replacement"] = None
             multi_saved = technician.post("/api/field-intervention", json=activity)
@@ -251,7 +252,7 @@ def run() -> None:
 
     with TestClient(app) as unassigned_technician:
         login(unassigned_technician, "tech2@test.local", "Tech12345")
-        forbidden_system = unassigned_technician.post("/api/hvac-system", json={"system": {"id": "system-forbidden", "apartmentId": "apt-a", "name": "Non autorisé"}, "workOrderId": "wo-replace"})
+        forbidden_system = unassigned_technician.post("/api/hvac-system", json={"system": {"id": "system-forbidden", "apartmentId": "apt-a", "name": "Non autorisé", "systemTypeId": "system_type_ptac", "brand": "Carrier"}, "workOrderId": "wo-replace"})
         assert forbidden_system.status_code == 403, forbidden_system.text
 
     with TestClient(app) as client:

@@ -24,6 +24,7 @@ const workOrders = window.ClimaParcWorkOrdersView.create({ getState: () => ({}) 
 const settings = window.ClimaParcSettingsView.create({ getState: () => ({}) });
 const interventions = window.ClimaParcInterventionsView.create({ getState: () => ({}) });
 const formBuilder = window.ClimaParcFormBuilder.create({ getState: () => ({}) });
+const escapeHtml = (value) => String(value ?? "");
 
 for (const method of [
   "buildingsView",
@@ -37,6 +38,43 @@ for (const method of [
   if (typeof places[method] !== "function") {
     throw new Error(`ClimaParcPlacesView.${method} manquant.`);
   }
+}
+
+const placeFixtureState = {
+  selectedBuildingId: "b-a",
+  clients: [{ id: "client-a", name: "Client A" }],
+  buildings: [{ id: "b-a", clientId: "client-a", name: "Lieu A", address: "1 rue Test" }],
+  apartments: [{ id: "apt-a", buildingId: "b-a", number: "101" }],
+  equipment: [{ id: "eq-a", apartmentId: "apt-a", type: "PTAC", brand: "Carrier", model: "42C", status: "actif", unitKind: "monobloc" }],
+  storageLocations: [{ id: "storage-a", scopeType: "building", buildingId: "b-a", clientId: "client-a", name: "Dépôt local", active: true }]
+};
+const placeFixtureView = window.ClimaParcPlacesView.create({
+  getState: () => placeFixtureState,
+  appShell: (body) => body,
+  renderTopbar: (title, subtitle, actions) => `${title}|${subtitle}|${actions}`,
+  currentUser: () => ({ role: "administrateur" }),
+  can: () => true,
+  canManageBuildings: () => true,
+  canEditApartments: () => true,
+  scopedBuildings: () => placeFixtureState.buildings,
+  apartmentsForBuilding: (id) => placeFixtureState.apartments.filter((item) => item.buildingId === id),
+  equipmentForApartment: (id) => placeFixtureState.equipment.filter((item) => item.apartmentId === id),
+  escapeHtml,
+  displayPhone: () => "-",
+  unitKindLabel: () => "Système unique",
+  statusText: (value) => value,
+  modalShell: (_title, body) => body,
+  phoneField: (name) => `<input name="${name}">`
+});
+const buildingDetail = placeFixtureView.buildingDetailView();
+if (!buildingDetail.includes("Entrepôts du lieu") || !buildingDetail.includes("Dépôt local")) {
+  throw new Error("Le détail du lieu doit rendre les entrepôts locaux sans erreur de portée.");
+}
+if (!buildingDetail.includes('data-modal="building" data-id="b-a"')) {
+  throw new Error("Le bouton Modifier du lieu doit cibler le bon modal.");
+}
+if (!placeFixtureView.buildingModal({ id: "b-a" }).includes('value="Lieu A"')) {
+  throw new Error("Le modal Modifier doit charger les données du lieu sélectionné.");
 }
 
 const userFixtureState = {
@@ -64,7 +102,6 @@ const userFixtureState = {
     { id: "client", name: "Client" }
   ]
 };
-const escapeHtml = (value) => String(value ?? "");
 const userFixtureView = window.ClimaParcUsersView.create({
   getState: () => userFixtureState,
   currentUser: () => ({ id: "u-admin", role: "administrateur" }),
@@ -108,6 +145,45 @@ for (const method of [
   if (typeof formBuilder[method] !== "function") {
     throw new Error(`ClimaParcFormBuilder.${method} manquant.`);
   }
+}
+
+const interventionFixtureState = {
+  dataFields: [],
+  equipment: [],
+  workOrders: [],
+  hvacSystemTypes: [
+    { id: "type-split", topology: "split" },
+    { id: "type-mono", topology: "monobloc" }
+  ],
+  hvacSystems: [
+    { id: "system-split", systemTypeId: "type-split", topology: "split" },
+    { id: "system-mono", systemTypeId: "type-mono", topology: "monobloc" }
+  ]
+};
+const interventionFixtureView = window.ClimaParcInterventionsView.create({
+  getState: () => interventionFixtureState,
+  escapeHtml,
+  formatCanadianPhone: (value) => value,
+  normalizeDataOptions: (value) => value,
+  formTemplateForOrder: () => ({ fields: [] }),
+  formTemplateForActivity: () => ({ fields: [] })
+});
+const runtimeForm = (systemId, unitKind) => ({
+  querySelector(selector) {
+    if (selector === '[name="systemId"]') return { value: systemId };
+    if (selector === '[name="unitKind"]') return { value: unitKind };
+    return null;
+  }
+});
+const sharedQuestion = { unitScopes: ["interieure", "exterieure"], systemTypeIds: ["type-split"] };
+if (!interventionFixtureView.fieldAppliesToCurrentUnit(runtimeForm("system-split", "interieure"), sharedQuestion)) {
+  throw new Error("Une question multi-position doit apparaître pour l'unité intérieure sélectionnée.");
+}
+if (!interventionFixtureView.fieldAppliesToCurrentUnit(runtimeForm("system-split", "exterieure"), sharedQuestion)) {
+  throw new Error("Une question multi-position doit apparaître pour l'unité extérieure sélectionnée.");
+}
+if (interventionFixtureView.fieldAppliesToCurrentUnit(runtimeForm("system-mono", "monobloc"), sharedQuestion)) {
+  throw new Error("Le filtre de type de système doit exclure les systèmes uniques non sélectionnés.");
 }
 
 for (const method of [

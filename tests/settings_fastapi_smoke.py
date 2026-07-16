@@ -47,6 +47,7 @@ def base_state() -> dict:
         "formTemplates": [{"id": "form-existing", "name": "Formulaire", "fields": [{"id": "q1", "label": "Etat", "type": "text"}], "activityFields": {}}],
         "roleDefinitions": [{"id": "role-existing", "name": "Role existant", "rights": ["equipment"]}],
         "dataFields": [{"id": "field-existing", "name": "Marque", "group": "Machine", "type": "single", "appliesTo": ["equipment"], "options": []}],
+        "hvacSystemTypes": [{"id": "system_type_ptac", "name": "PTAC", "topology": "monobloc", "sortOrder": 10, "active": True}],
         "passwordResetRequests": [],
         "sessionUserId": None,
         "modal": None,
@@ -78,7 +79,7 @@ def raw_state_json() -> dict:
 
 
 def settings_snapshot(state: dict) -> dict:
-    keys = ["serviceTypes", "interventionTypes", "formTemplates", "roleDefinitions", "dataFields"]
+    keys = ["serviceTypes", "interventionTypes", "formTemplates", "roleDefinitions", "dataFields", "hvacSystemTypes"]
     return {key: copy.deepcopy(state.get(key, [])) for key in keys}
 
 
@@ -128,12 +129,20 @@ def run() -> None:
             "name": "Inspection PTAC",
             "associatedActivityTypeIds": ["int-existing"],
             "activityFields": {},
-            "fields": [{"id": "q-status", "label": "Statut", "type": "single", "options": ["OK"], "required": True}],
+            "fields": [{"id": "q-status", "label": "Statut", "type": "single", "options": ["OK"], "required": True, "unitScopes": ["interieure", "exterieure"], "systemTypeIds": ["system_type_ptac"]}],
         }
         form_created = admin_client.post("/api/setting-item", json={"collectionKey": "formTemplates", "item": form_template})
         assert form_created.status_code == 200, form_created.text
         assert len(table_rows("select field_id from climaparc_form_template_fields where template_id = ?", ("form-new",))) == 1
+        field_row = table_rows("select unit_scopes, system_type_ids from climaparc_form_template_fields where template_id = ?", ("form-new",))[0]
+        assert json.loads(row_get(field_row, "unit_scopes")) == ["interieure", "exterieure"]
+        assert json.loads(row_get(field_row, "system_type_ids")) == ["system_type_ptac"]
         assert next(item for item in form_created.json()["state"]["interventionTypes"] if item["id"] == "int-existing")["defaultFormTemplateId"] == "form-new"
+
+        system_type = {"id": "system_type_split_test", "name": "Thermopompe test", "topology": "split", "sortOrder": 90, "active": True}
+        system_type_created = admin_client.post("/api/setting-item", json={"collectionKey": "hvacSystemTypes", "item": system_type})
+        assert system_type_created.status_code == 200, system_type_created.text
+        assert len(table_rows("select id from climaparc_hvac_system_types where id = ?", ("system_type_split_test",))) == 1
 
         role = {"id": "role-new", "name": "Maintenance", "rights": ["equipment", "workorders"]}
         role_created = admin_client.post("/api/setting-item", json={"collectionKey": "roleDefinitions", "item": role})

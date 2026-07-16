@@ -23,12 +23,16 @@ def run() -> None:
         assert routed.status_code == 200, routed.text
         assert routed.json()["target"]["approvalStatus"] == "pending"
         assert routed.json()["target"]["activityTypeId"] == "remplacement_unite"
+        system = admin.post(
+            "/api/hvac-system",
+            json={"system": {"id": "system-a", "apartmentId": "apt-a", "name": "PTAC 101", "systemTypeId": "system_type_ptac", "brand": "Carrier"}, "workOrderId": "wo-replace"},
+        )
+        assert system.status_code == 200, system.text
 
     with TestClient(fixture.app) as technician:
         fixture.login(technician, "tech@test.local", "Tech12345")
         inspection = fixture.field_payload("-pending-inspection")
         inspection["intervention"]["typeId"] = "inspection"
-        inspection["intervention"]["summary"] = "Inspection autorisee avant approbation"
         inspection["replacement"] = None
         inspection_saved = technician.post("/api/field-intervention", json=inspection)
         assert inspection_saved.status_code == 200, inspection_saved.text

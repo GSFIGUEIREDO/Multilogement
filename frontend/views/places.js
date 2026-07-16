@@ -41,6 +41,7 @@
 
       function buildingsView() {
         const buildings = scopedBuildings().sort((a, b) => a.name.localeCompare(b.name, "fr"));
+        const centralStorages = state.storageLocations.filter((item) => item.scopeType === "client" && item.active !== false);
         const actions = canManageBuildings()
           ? `<button class="primary-button" data-action="open-modal" data-modal="building">Nouveau lieu</button>`
           : "";
@@ -49,12 +50,19 @@
           <section class="cards-grid">
             ${buildings.map((building) => buildingCard(building)).join("") || `<div class="empty">Aucun lieu enregistré.</div>`}
           </section>
+          ${centralStorages.length ? `<section class="panel"><div class="panel-header"><h2>Entrepôts centraux</h2></div><div class="panel-body cards-list">${centralStorages.map((storage) => storageCard(storage)).join("")}</div></section>` : ""}
         `);
+      }
+
+      function storageCard(storage) {
+        const inventory = state.equipment.filter((item) => item.storageLocationId === storage.id);
+        return `<article class="list-item"><div class="actions" style="justify-content:space-between"><h3>${escapeHtml(storage.name)}</h3><span class="badge neutral">${inventory.length} machine${inventory.length === 1 ? "" : "s"}</span></div><div class="meta">${escapeHtml(storage.address || "Adresse non précisée")}</div><div class="mini-list">${inventory.map((item) => `<button class="mini-row" data-action="select-equipment" data-id="${escapeHtml(item.id)}"><strong>${escapeHtml(item.type || "Machine")}</strong><span>${escapeHtml(item.brand || "")} ${escapeHtml(item.model || "")} | ${escapeHtml(item.serial || "Sans série")}</span></button>`).join("") || `<span class="meta">Aucune machine visible dans cet entrepôt.</span>`}</div></article>`;
       }
 
       function buildingCard(building) {
         const client = state.clients.find((item) => item.id === building.clientId);
         const apartments = apartmentsForBuilding(building.id);
+        const localStorages = state.storageLocations.filter((item) => item.scopeType === "building" && item.buildingId === building.id && item.active !== false);
         const equipmentCount = apartments.reduce((total, apartment) => total + equipmentForApartment(apartment.id).length, 0);
         return `
           <article class="place-card">
@@ -113,6 +121,7 @@
                 ${apartments.map((apartment) => apartmentBlock(apartment)).join("") || `<div class="empty">Aucun appartement dans ce lieu.</div>`}
               </div>
             </div>
+            ${localStorages.length ? `<div class="panel"><div class="panel-header"><h2>Entrepôts du lieu</h2></div><div class="panel-body cards-list">${localStorages.map((storage) => storageCard(storage)).join("")}</div></div>` : ""}
           </section>
         `);
       }
@@ -275,7 +284,8 @@
         buildingsView,
         deleteApartment,
         saveApartment,
-        saveBuilding
+        saveBuilding,
+        storageCard
       };
     }
   };

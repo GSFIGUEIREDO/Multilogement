@@ -65,7 +65,9 @@
         const template = state.formTemplates.find((item) => item.id === modal.id) || {};
         const fields = template.fields?.length ? template.fields : [{ id: "", label: "", type: "text", options: [], showWhen: null, layout: "full", defaultValue: "" }];
         const activityFields = normalizeActivityFields(template.activityFields);
-        return modalShell(template.id ? "Modifier le formulaire terrain" : "Nouveau formulaire terrain", `<form class="form-grid" data-form="formTemplate"><input type="hidden" name="id" value="${escapeHtml(template.id || "")}"><div class="field"><label>Nom du formulaire</label><input name="name" value="${escapeHtml(template.name || "")}" required></div><div class="form-section-title">Champs de l'activité</div><div class="forms-builder">${activityFieldCatalog().map(([key, label]) => formActivityFieldRow(key, label, activityFields[key])).join("")}</div><div class="form-section-title">Questions du formulaire</div><div class="forms-builder" data-question-list>${fields.map((field, index) => formBuilderQuestion(field, index, fields)).join("")}</div><button class="ghost-button" type="button" data-action="add-form-question">Ajouter une question</button><button class="ghost-button" type="button" data-action="add-form-section">Ajouter une section</button><button class="primary-button" type="submit">${template.id ? "Enregistrer" : "Créer le formulaire"}</button></form>`, "modal-card-wide form-template-modal");
+        const associatedIds = new Set(state.interventionTypes.filter((item) => item.defaultFormTemplateId === template.id).map((item) => item.id));
+        const activityLinks = state.interventionTypes.map((item) => `<label><input type="checkbox" name="associatedActivityTypeIds" value="${escapeHtml(item.id)}" ${associatedIds.has(item.id) ? "checked" : ""}> ${escapeHtml(item.name)}</label>`).join("");
+        return modalShell(template.id ? "Modifier le formulaire terrain" : "Nouveau formulaire terrain", `<form class="form-grid" data-form="formTemplate"><input type="hidden" name="id" value="${escapeHtml(template.id || "")}"><div class="field"><label>Nom du formulaire</label><input name="name" value="${escapeHtml(template.name || "")}" required></div><div class="field"><label>Types d'activité associés</label><div class="choice-list">${activityLinks || `<span class="meta">Créez d'abord un type d'activité.</span>`}</div><p class="meta">Un même formulaire peut servir à plusieurs activités. Chaque activité conserve un seul formulaire terrain.</p></div><div class="form-section-title">Champs de l'activité</div><div class="forms-builder">${activityFieldCatalog().map(([key, label]) => formActivityFieldRow(key, label, activityFields[key])).join("")}</div><div class="form-section-title">Questions du formulaire</div><div class="forms-builder" data-question-list>${fields.map((field, index) => formBuilderQuestion(field, index, fields)).join("")}</div><button class="ghost-button" type="button" data-action="add-form-question">Ajouter une question</button><button class="ghost-button" type="button" data-action="add-form-section">Ajouter une section</button><button class="primary-button" type="submit">${template.id ? "Enregistrer" : "Créer le formulaire"}</button></form>`, "modal-card-wide form-template-modal");
       }
 
       function parseOptions(value) {
@@ -100,7 +102,7 @@
           return { id, label, type, options, required: Boolean(card.querySelector('[name="q-required"]')?.checked), defaultValue: ["multiple", "checkbox"].includes(type) ? defaults : (defaults[0] || card.querySelector('[name="q-default"]')?.value.trim() || ""), layout: card.querySelector('[name="q-layout"]')?.value || "full", unitScope: card.querySelector('[name="q-unit-scope"]')?.value || "all", branchRules, nextFieldId: card.querySelector('[name="q-next-branch"]')?.value || "", showWhen: null };
         }).filter(Boolean);
         if (!fields.length) return showToast("Ajoutez au moins une question.");
-        const payload = { id: values.id || uid("form"), name: values.name, activityFields: collectActivityFieldSettings(form), fields };
+        const payload = { id: values.id || uid("form"), name: values.name, associatedActivityTypeIds: Array.from(form.querySelectorAll('[name="associatedActivityTypeIds"]:checked')).map((input) => input.value), activityFields: collectActivityFieldSettings(form), fields };
         await saveSettingCollectionItem("formTemplates", payload, state.formTemplates.some((item) => item.id === payload.id) ? "Formulaire modifié." : "Formulaire créé.");
       }
 
@@ -191,6 +193,7 @@
         const idMap = Object.fromEntries(copy.fields.map((field) => [field.id, uid(field.type === "section" ? "section" : "q")]));
         copy.id = uid("form");
         copy.name = `${template.name} - copie`;
+        copy.associatedActivityTypeIds = [];
         copy.fields = copy.fields.map((field) => ({ ...field, id: idMap[field.id], showWhen: field.showWhen ? { ...field.showWhen, fieldId: idMap[field.showWhen.fieldId] || field.showWhen.fieldId } : null, nextFieldId: idMap[field.nextFieldId] || field.nextFieldId || "", branchRules: Object.fromEntries(Object.entries(field.branchRules || {}).map(([option, target]) => [option, idMap[target] || target])) }));
         await saveSettingCollectionItem("formTemplates", copy, "Formulaire dupliqué.", { modal: { type: "formTemplate", id: copy.id }, activeView: "parametres" });
       }

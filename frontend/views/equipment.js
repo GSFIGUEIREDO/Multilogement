@@ -28,11 +28,14 @@
         const filters = state.filters;
         return scopedEquipment().filter((item) => {
           const { apartment, building } = equipmentContext(item.id);
+          const homeBuilding = state.buildings.find((entry) => entry.id === item.homeBuildingId) || building;
           const search = `${item.type} ${item.brand} ${item.model} ${item.serial} ${building?.name} ${apartment?.number}`.toLowerCase();
           return (
-            (filters.buildingId === "all" || building?.id === filters.buildingId) &&
+            (filters.buildingId === "all" || homeBuilding?.id === filters.buildingId) &&
             (filters.apartmentId === "all" || apartment?.id === filters.apartmentId) &&
             (filters.status === "all" || item.status === filters.status) &&
+            (!filters.storageLocationId || filters.storageLocationId === "all" || item.storageLocationId === filters.storageLocationId) &&
+            (!filters.lifecycleStatus || filters.lifecycleStatus === "all" || (item.lifecycleStatus || "installed") === filters.lifecycleStatus) &&
             (!filters.search || search.includes(filters.search.toLowerCase()))
           );
         });
@@ -46,6 +49,8 @@
             <div class="field"><label>Immeuble</label><select data-action="filter" data-filter="buildingId"><option value="all">Tous</option>${buildings.map((building) => `<option value="${building.id}" ${state.filters.buildingId === building.id ? "selected" : ""}>${escapeHtml(building.name)}</option>`).join("")}</select></div>
             <div class="field"><label>Appartement</label><select data-action="filter" data-filter="apartmentId"><option value="all">Tous</option>${apartments.map((apartment) => `<option value="${apartment.id}" ${state.filters.apartmentId === apartment.id ? "selected" : ""}>${escapeHtml(apartment.number)}</option>`).join("")}</select></div>
             <div class="field"><label>Statut</label><select data-action="filter" data-filter="status"><option value="all">Tous</option><option value="actif" ${state.filters.status === "actif" ? "selected" : ""}>Actif</option><option value="surveillance" ${state.filters.status === "surveillance" ? "selected" : ""}>Surveillance</option><option value="a_planifier" ${state.filters.status === "a_planifier" ? "selected" : ""}>À planifier</option><option value="hors_service" ${state.filters.status === "hors_service" ? "selected" : ""}>Hors service</option></select></div>
+            <div class="field"><label>Cycle de vie</label><select data-action="filter" data-filter="lifecycleStatus"><option value="all">Tous</option><option value="installed" ${state.filters.lifecycleStatus === "installed" ? "selected" : ""}>Installée</option><option value="stored" ${state.filters.lifecycleStatus === "stored" ? "selected" : ""}>En entrepôt</option><option value="disposed" ${state.filters.lifecycleStatus === "disposed" ? "selected" : ""}>Mise au rebut</option></select></div>
+            <div class="field"><label>Entrepôt</label><select data-action="filter" data-filter="storageLocationId"><option value="all">Tous</option>${state.storageLocations.map((storage) => `<option value="${escapeHtml(storage.id)}" ${state.filters.storageLocationId === storage.id ? "selected" : ""}>${escapeHtml(storage.name)}</option>`).join("")}</select></div>
             <div class="field"><label>Recherche</label><input data-action="filter" data-filter="search" value="${escapeHtml(state.filters.search)}" placeholder="Modèle, série, lieu"></div>
           </div>
         `;
@@ -218,6 +223,11 @@
           conditionStatus: values.status || "actif", manufactureAgeInfo: values.manufactureAgeInfo || "",
           notes: values.notes, updatedAt: changedAt
         });
+        const apartment = state.apartments.find((item) => item.id === payload.apartmentId);
+        const building = state.buildings.find((item) => item.id === apartment?.buildingId);
+        payload.clientId = payload.clientId || building?.clientId || "";
+        payload.homeBuildingId = payload.homeBuildingId || building?.id || "";
+        payload.systemId = payload.systemId || "";
         if (!existing) state.equipment.unshift(payload);
         updateUiState({ modal: null, selectedEquipmentId: payload.id, activeView: "detail", toast: "Sauvegarde de la machine..." });
         try {

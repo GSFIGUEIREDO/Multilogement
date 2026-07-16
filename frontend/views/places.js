@@ -92,6 +92,7 @@
         if (!building) return buildingsView();
         const client = state.clients.find((item) => item.id === building.clientId);
         const apartments = apartmentsForBuilding(building.id);
+        const localStorages = state.storageLocations.filter((item) => item.scopeType === "building" && item.buildingId === building.id && item.active !== false);
         const actions = `
           <button class="ghost-button" data-action="go-back" data-fallback-view="lieux">Retour</button>
           ${can("documents") ? `<button class="ghost-button" data-action="open-modal" data-modal="buildingDocuments" data-building="${building.id}">Documents</button>` : ""}

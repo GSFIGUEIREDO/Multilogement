@@ -34,8 +34,24 @@
         return `<div class="option-row" data-option-row><span class="option-drag-handle" draggable="true" title="Déplacer">☰</span><input name="q-option" value="${escapeHtml(option)}" placeholder="Option"><label class="inline-check"><input type="checkbox" name="q-option-default" ${defaults.includes(option) ? "checked" : ""}><span>Défaut</span></label><div class="field compact-field"><label>Aller à</label><select name="q-option-branch"><option value="">Suivant</option><option value="__end" ${target === "__end" ? "selected" : ""}>Fin du formulaire</option>${targetOptions.map((item) => `<option value="${escapeHtml(item.id)}" ${target === item.id ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select></div><button class="icon-button" type="button" data-action="remove-form-option" aria-label="Supprimer">X</button></div>`;
       }
 
+      function normalizedUnitScopes(field = {}) {
+        if (Array.isArray(field.unitScopes) && field.unitScopes.length) return field.unitScopes;
+        return [field.unitScope || "all"];
+      }
+
+      function unitScopePicker(field = {}) {
+        const selected = new Set(normalizedUnitScopes(field));
+        const choices = [["all", "Toutes"], ["interieure", "Unité intérieure"], ["exterieure", "Unité extérieure"], ["monobloc", "Système unique"]];
+        return `<div class="field"><label>Afficher pour</label><div class="choice-list unit-scope-picker">${choices.map(([value, label]) => `<label><input type="checkbox" name="q-unit-scope" value="${value}" ${selected.has(value) ? "checked" : ""}> ${label}</label>`).join("")}</div></div>`;
+      }
+
+      function systemTypePicker(field = {}) {
+        const selected = new Set(field.systemTypeIds || []);
+        return `<div class="field"><label>Types de système concernés</label><div class="choice-list">${state.hvacSystemTypes.filter((item) => item.active !== false || selected.has(item.id)).sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0)).map((item) => `<label><input type="checkbox" name="q-system-type" value="${escapeHtml(item.id)}" ${selected.has(item.id) ? "checked" : ""}> ${escapeHtml(item.name)}</label>`).join("")}</div><p class="meta">Laissez tout décoché pour appliquer à tous les types de système.</p></div>`;
+      }
+
       function formBuilderSection(field, index) {
-        return `<article class="question-card section-card" data-question data-field-id="${escapeHtml(field.id || "")}" draggable="true"><div class="question-card-head"><strong><span class="drag-handle">☰</span> Section ${index + 1}</strong><button class="icon-button" type="button" data-action="remove-form-question" aria-label="Supprimer">X</button></div><input type="hidden" name="q-type" value="section"><input type="hidden" name="q-layout" value="full"><div class="field"><label>Titre de section</label><input name="q-label" value="${escapeHtml(field.label || "")}" placeholder="Ex.: Unité intérieure 1 - Inspection" required></div><div class="field"><label>Afficher pour</label><select name="q-unit-scope"><option value="all" ${!["interieure", "exterieure"].includes(field.unitScope) ? "selected" : ""}>Toutes les unités</option><option value="interieure" ${field.unitScope === "interieure" ? "selected" : ""}>Unités intérieures</option><option value="exterieure" ${field.unitScope === "exterieure" ? "selected" : ""}>Unités extérieures</option></select></div></article>`;
+        return `<article class="question-card section-card" data-question data-field-id="${escapeHtml(field.id || "")}" draggable="true"><div class="question-card-head"><strong><span class="drag-handle">☰</span> Section ${index + 1}</strong><button class="icon-button" type="button" data-action="remove-form-question" aria-label="Supprimer">X</button></div><input type="hidden" name="q-type" value="section"><input type="hidden" name="q-layout" value="full"><div class="field"><label>Titre de section</label><input name="q-label" value="${escapeHtml(field.label || "")}" placeholder="Ex.: Unité intérieure 1 - Inspection" required></div>${unitScopePicker(field)}${systemTypePicker(field)}</article>`;
       }
 
       function formBuilderQuestion(field, index, allFields) {
@@ -46,7 +62,7 @@
           <div class="question-card-head"><strong><span class="drag-handle">☰</span> Question ${index + 1}</strong><div class="actions"><button class="icon-button" type="button" data-action="duplicate-form-question" aria-label="Dupliquer">+</button><button class="icon-button" type="button" data-action="remove-form-question" aria-label="Supprimer">X</button></div></div>
           <div class="field"><label>Question</label><input name="q-label" value="${escapeHtml(field.label || "")}" placeholder="Ex.: Etat general de l'unite" required></div><label class="inline-check"><input type="checkbox" name="q-required" ${field.required ? "checked" : ""}><span>Réponse obligatoire</span></label>
           <div class="split"><div class="field"><label>Type de réponse</label><select name="q-type">${questionTypeOptions(field.type)}</select></div><div class="field"><label>Disposition</label><select name="q-layout"><option value="full" ${field.layout !== "half" ? "selected" : ""}>Largeur complète</option><option value="half" ${field.layout === "half" ? "selected" : ""}>Demi-colonne</option></select></div></div>
-          <div class="field"><label>Afficher pour</label><select name="q-unit-scope"><option value="all" ${!["interieure", "exterieure"].includes(field.unitScope) ? "selected" : ""}>Toutes les unités</option><option value="interieure" ${field.unitScope === "interieure" ? "selected" : ""}>Unités intérieures</option><option value="exterieure" ${field.unitScope === "exterieure" ? "selected" : ""}>Unités extérieures</option></select></div>
+          ${unitScopePicker(field)}${systemTypePicker(field)}
           <div class="field"><label>Réponse par défaut</label><input name="q-default" value="${escapeHtml(Array.isArray(field.defaultValue) ? field.defaultValue.join(", ") : field.defaultValue || "")}" placeholder="Option ou texte par défaut"></div>
           <div class="option-editor ${choices ? "" : "hidden"}" data-option-list>${(field.options?.length ? field.options : [""]).map((option) => formOptionRow(option, field, targets)).join("")}</div>
           <div class="actions option-actions ${choices ? "" : "hidden"}"><button class="link-button" type="button" data-action="add-form-option">+ Ajouter une option</button><button class="link-button" type="button" data-action="add-other-option">Ajouter une option « Autre »</button></div>
@@ -90,7 +106,10 @@
           if (!label) return null;
           const type = card.querySelector('[name="q-type"]')?.value || "text";
           const id = card.dataset.fieldId || uid(type === "section" ? "section" : "q");
-          if (type === "section") return { id, label, type, options: [], required: false, defaultValue: "", layout: "full", unitScope: card.querySelector('[name="q-unit-scope"]')?.value || "all", branchRules: {}, nextFieldId: "", showWhen: null };
+          const checkedScopes = Array.from(card.querySelectorAll('[name="q-unit-scope"]:checked')).map((input) => input.value);
+          const unitScopes = checkedScopes.includes("all") || !checkedScopes.length ? ["all"] : checkedScopes;
+          const systemTypeIds = Array.from(card.querySelectorAll('[name="q-system-type"]:checked')).map((input) => input.value);
+          if (type === "section") return { id, label, type, options: [], required: false, defaultValue: "", layout: "full", unitScope: unitScopes[0], unitScopes, systemTypeIds, branchRules: {}, nextFieldId: "", showWhen: null };
           const rows = Array.from(card.querySelectorAll("[data-option-row]"));
           const options = rows.map((row) => row.querySelector('[name="q-option"]')?.value.trim()).filter(Boolean);
           const defaults = rows.filter((row) => row.querySelector('[name="q-option-default"]')?.checked).map((row) => row.querySelector('[name="q-option"]')?.value.trim()).filter(Boolean);
@@ -99,7 +118,7 @@
             const target = row.querySelector('[name="q-option-branch"]')?.value || "";
             return option && target ? [option, target] : null;
           }).filter(Boolean));
-          return { id, label, type, options, required: Boolean(card.querySelector('[name="q-required"]')?.checked), defaultValue: ["multiple", "checkbox"].includes(type) ? defaults : (defaults[0] || card.querySelector('[name="q-default"]')?.value.trim() || ""), layout: card.querySelector('[name="q-layout"]')?.value || "full", unitScope: card.querySelector('[name="q-unit-scope"]')?.value || "all", branchRules, nextFieldId: card.querySelector('[name="q-next-branch"]')?.value || "", showWhen: null };
+          return { id, label, type, options, required: Boolean(card.querySelector('[name="q-required"]')?.checked), defaultValue: ["multiple", "checkbox"].includes(type) ? defaults : (defaults[0] || card.querySelector('[name="q-default"]')?.value.trim() || ""), layout: card.querySelector('[name="q-layout"]')?.value || "full", unitScope: unitScopes[0], unitScopes, systemTypeIds, branchRules, nextFieldId: card.querySelector('[name="q-next-branch"]')?.value || "", showWhen: null };
         }).filter(Boolean);
         if (!fields.length) return showToast("Ajoutez au moins une question.");
         const payload = { id: values.id || uid("form"), name: values.name, associatedActivityTypeIds: Array.from(form.querySelectorAll('[name="associatedActivityTypeIds"]:checked')).map((input) => input.value), activityFields: collectActivityFieldSettings(form), fields };
@@ -171,6 +190,16 @@
         if (list) list.innerHTML = (field?.options || []).map((option) => `<label><input type="checkbox" name="activity-option-${key}" value="${escapeHtml(option.id)}"> ${escapeHtml(option.label)}</label>`).join("") || `<span class="meta">Aucune option dans ce champ.</span>`;
       }
 
+      function updateUnitScopeSelection(input) {
+        const card = input?.closest("[data-question]");
+        if (!card || input.name !== "q-unit-scope") return;
+        const all = card.querySelector('[name="q-unit-scope"][value="all"]');
+        const specifics = Array.from(card.querySelectorAll('[name="q-unit-scope"]:not([value="all"])'));
+        if (input.value === "all" && input.checked) specifics.forEach((item) => { item.checked = false; });
+        if (input.value !== "all" && input.checked && all) all.checked = false;
+        if (!card.querySelector('[name="q-unit-scope"]:checked') && all) all.checked = true;
+      }
+
       function removeFormOption(row) {
         if (!row) return;
         const list = row.closest("[data-option-list]");
@@ -205,7 +234,7 @@
         formBranchTargets, formBuilderQuestion, formBuilderSection, formOptionRow,
         formTemplateModal, parseOptions, questionTypeOptions, refreshFormBranching,
         removeFormOption, removeFormQuestion, saveFormTemplate,
-        updateActivityOptionPicker, updateQuestionOptionEditor
+        updateActivityOptionPicker, updateQuestionOptionEditor, updateUnitScopeSelection
       };
     }
   };

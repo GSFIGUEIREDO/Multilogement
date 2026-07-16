@@ -84,6 +84,22 @@
         normalizeDataOptions
       } = context;
 
+  function interventionObservation(intervention) {
+    const responseText = Object.values(intervention.formResponses || {})
+      .flatMap((value) => Array.isArray(value) ? value : [value])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .join("; ");
+    return String(
+      intervention.equipmentNotes
+      || intervention.recommendation?.description
+      || intervention.notes
+      || responseText
+      || intervention.summary
+      || ""
+    ).trim();
+  }
+
   function reportsView() {
     const context = reportContext();
     const meta = reportAudienceMeta();
@@ -342,7 +358,7 @@
     const interventionsInPeriod = context.interventions.filter((item) => inPeriod(item.date, context.startDate, context.endDate));
     const incomplete = interventionsInPeriod.filter((item) => item.checklistDone?.length && !item.checklistDone.every(Boolean));
     const withoutPhoto = interventionsInPeriod.filter((item) => !(item.attachments?.length));
-    const withoutObservation = interventionsInPeriod.filter((item) => !(item.summary || "").trim());
+    const withoutObservation = interventionsInPeriod.filter((item) => !interventionObservation(item));
     const recurringEquipment = Object.entries(countBy([...context.tickets, ...context.interventions], (item) => item.equipmentId))
       .filter(([, count]) => count > 1)
       .sort((a, b) => b[1] - a[1])
@@ -509,7 +525,7 @@
     const totalSteps = interventions.reduce((sum, item) => sum + (item.checklistDone || []).length, 0);
     const progress = totalSteps ? Math.round((completedSteps / totalSteps) * 100) : 0;
     const missingPhotos = interventions.filter((item) => !(item.attachments?.length));
-    const missingNotes = interventions.filter((item) => !(item.summary || "").trim());
+    const missingNotes = interventions.filter((item) => !interventionObservation(item));
     return reportShell("Rapport de checklist d'intervention", "Contrôle rapide des étapes, lectures, photos et observations.", `
       ${reportKpis([
         ["Interventions", interventions.length],
@@ -522,11 +538,11 @@
         ${progressPanel("Progression checklist", progress, `${completedSteps}/${totalSteps || 0} étapes réalisées dans la période.`)}
         ${barChart("Documentation manquante", [["Sans photo/document", missingPhotos.length], ["Sans observation", missingNotes.length]])}
       </section>
-      ${tablePanel("Dernières interventions", ["Date", "Machine", "Étapes", "Photos", "Résumé"], interventions.slice(0, 10).map((item) => {
+      ${tablePanel("Dernières interventions", ["Date", "Machine", "Étapes", "Photos", "Observation"], interventions.slice(0, 10).map((item) => {
         const { equipment, apartment } = equipmentContext(item.equipmentId);
         const done = (item.checklistDone || []).filter(Boolean).length;
         const total = (item.checklistDone || []).length;
-        return [formatDate(item.date), `Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, `${done}/${total}`, item.attachments?.length || 0, item.summary || "-"];
+        return [formatDate(item.date), `Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, `${done}/${total}`, item.attachments?.length || 0, interventionObservation(item) || "-"];
       }))}
     `);
   }
@@ -563,7 +579,7 @@
         row.tickets[0] ? `${row.tickets[0].number || row.tickets[0].id} - ${row.tickets[0].title}` : "-"
       ]))}
       ${timelinePanel("Derniers événements", machineRows.flatMap((row) => [
-        ...row.interventions.slice(0, 2).map((item) => [item.date, `${row.machine.type} | Intervention | ${item.summary || "-"}`]),
+        ...row.interventions.slice(0, 2).map((item) => [item.date, `${row.machine.type} | Intervention | ${interventionObservation(item) || "-"}`]),
         ...row.tickets.slice(0, 2).map((ticket) => [ticket.createdAt, `${row.machine.type} | Appel | ${ticket.title}`])
       ]).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 10))}
     `);
@@ -610,7 +626,7 @@
     const notCompleted = todayOrders.filter((order) => order.status !== "termine");
     const todayInterventions = context.interventions.filter((item) => item.technicianId === currentUser()?.id && item.date === today());
     const missingPhotos = todayInterventions.filter((item) => !(item.attachments?.length));
-    const missingNotes = todayInterventions.filter((item) => !(item.summary || "").trim());
+    const missingNotes = todayInterventions.filter((item) => !interventionObservation(item));
     return reportShell("Rapport de fin de journée", "Synthèse pratique à valider avant de terminer le quart.", `
       ${reportKpis([
         ["BT conclus", completed.length],
@@ -624,15 +640,15 @@
           const { apartment, building, equipment } = workOrderContext(order);
           return [order.number, building?.address || building?.name || "-", apartment?.number || "-", order.notes || equipment?.notes || "-"];
         }))}
-        ${tablePanel("Documentation à compléter", ["Machine", "Photo", "Observation"], todayInterventions.filter((item) => !(item.attachments?.length) || !(item.summary || "").trim()).map((item) => {
+        ${tablePanel("Documentation à compléter", ["Machine", "Photo", "Observation"], todayInterventions.filter((item) => !(item.attachments?.length) || !interventionObservation(item)).map((item) => {
           const { equipment, apartment } = equipmentContext(item.equipmentId);
-          return [`Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, item.attachments?.length ? "OK" : "Manquante", (item.summary || "").trim() ? "OK" : "Manquante"];
+          return [`Apt ${apartment?.number || "-"} | ${equipment?.type || "-"}`, item.attachments?.length ? "OK" : "Manquante", interventionObservation(item) ? "OK" : "Manquante"];
         }))}
       </section>
       ${summaryPanel("Prochaines étapes", [
         "Vérifier les BT non conclus et inscrire la raison dans les notes.",
         "Ajouter les photos manquantes avant fermeture du BT.",
-        "Signaler les pièces nécessaires dans le résumé ou l'appel associé."
+        "Signaler les pièces nécessaires dans la recommandation ou les notes associées."
       ])}
     `);
   }
@@ -686,7 +702,7 @@
 
   function preventiveMaintenanceReport(context) {
     const preventiveTypes = new Set(state.interventionTypes.filter((type) => /nettoyage|prevent|prévent|entretien/i.test(type.name)).map((type) => type.id));
-    const preventiveInterventions = context.interventions.filter((item) => inPeriod(item.date, context.startDate, context.endDate) && (preventiveTypes.has(item.typeId) || /nettoyage|prevent|prévent|entretien/i.test(item.summary || "")));
+    const preventiveInterventions = context.interventions.filter((item) => inPeriod(item.date, context.startDate, context.endDate) && preventiveTypes.has(item.typeId));
     const attendedEquipment = new Set(preventiveInterventions.map((item) => item.equipmentId));
     const pendingEquipment = context.equipment.filter((item) => item.status !== "hors_service" && !attendedEquipment.has(item.id));
     const completionRate = context.equipment.length ? Math.round((attendedEquipment.size / context.equipment.length) * 100) : 0;

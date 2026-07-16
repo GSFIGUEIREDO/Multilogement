@@ -10,7 +10,7 @@
       const state = stateProxy(context.getState);
       const {
         escapeHtml, formatCanadianPhone, normalizeDataOptions,
-        formTemplateForOrder
+        formTemplateForOrder, formTemplateForActivity
       } = context;
 
       function dataFieldOptionsForConfig(config = {}) {
@@ -44,8 +44,10 @@
       }
 
       function renderDynamicField(field, value) {
-        if (field.type === "section") return `<div class="form-runtime-section dynamic-field" data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scope="${escapeHtml(field.unitScope || "all")}"><h3>${escapeHtml(field.label)}</h3></div>`;
-        const meta = `data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scope="${escapeHtml(field.unitScope || "all")}"`;
+        const scopes = Array.isArray(field.unitScopes) && field.unitScopes.length ? field.unitScopes : [field.unitScope || "all"];
+        const systemTypes = Array.isArray(field.systemTypeIds) ? field.systemTypeIds : [];
+        if (field.type === "section") return `<div class="form-runtime-section dynamic-field" data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scopes="${escapeHtml(scopes.join(","))}" data-system-types="${escapeHtml(systemTypes.join(","))}"><h3>${escapeHtml(field.label)}</h3></div>`;
+        const meta = `data-dynamic-field-id="${escapeHtml(field.id)}" data-unit-scopes="${escapeHtml(scopes.join(","))}" data-system-types="${escapeHtml(systemTypes.join(","))}"`;
         const options = field.options?.length ? field.options : ["Oui"];
         const required = field.required ? "required" : "";
         const label = `${escapeHtml(field.label)}${field.required ? " *" : ""}`;
@@ -64,7 +66,7 @@
 
       function fieldsByRuntimeForm(form) {
         const order = state.workOrders.find((item) => item.id === form.dataset.orderId);
-        return formTemplateForOrder(order)?.fields || [];
+        return formTemplateForActivity(form.dataset.activityTypeId, order)?.fields || [];
       }
 
       function runtimeFieldValues(form, field) {
@@ -76,9 +78,14 @@
       }
 
       function fieldAppliesToCurrentUnit(form, field) {
-        const scope = field.unitScope || "all";
-        if (scope === "all") return true;
-        return scope === (form.querySelector('[name="unitKind"]')?.value || "interieure");
+        const scopes = Array.isArray(field.unitScopes) && field.unitScopes.length ? field.unitScopes : [field.unitScope || "all"];
+        const selectedSystem = state.hvacSystems.find((item) => item.id === form.querySelector('[name="systemId"]')?.value);
+        const topology = selectedSystem?.topology || state.hvacSystemTypes.find((item) => item.id === selectedSystem?.systemTypeId)?.topology || "split";
+        const currentScope = topology === "monobloc" ? "monobloc" : (form.querySelector('[name="unitKind"]')?.value || "interieure");
+        const scopeMatches = scopes.includes("all") || scopes.includes(currentScope);
+        const typeFilters = Array.isArray(field.systemTypeIds) ? field.systemTypeIds : [];
+        const typeMatches = !typeFilters.length || typeFilters.includes(selectedSystem?.systemTypeId);
+        return scopeMatches && typeMatches;
       }
 
       function legacyShowWhenMatches(form, field) {

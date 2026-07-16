@@ -12,13 +12,13 @@ class DatabaseFieldOperationRepository:
         self.equipment_repository = EquipmentRepository()
         self.intervention_repository = PayloadTableRepository(
             "climaparc_interventions",
-            [("work_order_id", "workOrderId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("technician_id", "technicianId"), ("form_template_id", "formTemplateId"), ("status", "status"), ("activity_status", "activityStatus"), ("machine_status", "machineStatus"), ("date_text", "date")],
+            [("work_order_id", "workOrderId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("technician_id", "technicianId"), ("form_template_id", "formTemplateId"), ("type_id", "typeId"), ("target_id", "targetId"), ("status", "status"), ("activity_status", "activityStatus"), ("machine_status", "machineStatus"), ("date_text", "date")],
         )
         self.work_order_repository = PayloadTableRepository(
             "climaparc_work_orders",
-            [("number", "number"), ("ticket_id", "ticketId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("type_id", "typeId"), ("status", "status"), ("scheduled_date", "scheduledDate"), ("technician_id", "technicianId")],
+            [("number", "number"), ("ticket_id", "ticketId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("type_id", "typeId"), ("default_activity_type_id", "defaultActivityTypeId"), ("object_text", "object"), ("status", "status"), ("scheduled_date", "scheduledDate"), ("technician_id", "technicianId")],
         )
-        self.movement_repository = PayloadTableRepository("climaparc_equipment_movements", [("equipment_id", "equipmentId"), ("movement_type", "movementType"), ("from_apartment_id", "fromApartmentId"), ("to_apartment_id", "toApartmentId"), ("from_storage_location_id", "fromStorageLocationId"), ("to_storage_location_id", "toStorageLocationId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("performed_by", "performedBy"), ("performed_at_text", "performedAt")])
+        self.movement_repository = PayloadTableRepository("climaparc_equipment_movements", [("equipment_id", "equipmentId"), ("movement_type", "movementType"), ("from_apartment_id", "fromApartmentId"), ("to_apartment_id", "toApartmentId"), ("from_storage_location_id", "fromStorageLocationId"), ("to_storage_location_id", "toStorageLocationId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("performed_by", "performedBy"), ("performed_at_text", "performedAt"), ("from_home_building_id", "fromHomeBuildingId"), ("to_home_building_id", "toHomeBuildingId"), ("from_system_id", "fromSystemId"), ("to_system_id", "toSystemId")])
         self.replacement_repository = PayloadTableRepository("climaparc_equipment_replacements", [("old_equipment_id", "oldEquipmentId"), ("new_equipment_id", "newEquipmentId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("completed_at_text", "completedAt")])
 
     def get_state(self) -> dict | None:

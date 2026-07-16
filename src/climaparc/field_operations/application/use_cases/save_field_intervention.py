@@ -29,6 +29,18 @@ class SaveFieldInterventionUseCase:
             command.intervention,
             command.work_order,
         )
+        matching_targets = [
+                item for item in state.get("workOrderTargets", [])
+                if isinstance(item, dict)
+                and item.get("workOrderId") == work_order.get("id")
+                and (
+                    item.get("id") == intervention.get("targetId")
+                    or (item.get("apartmentId") == intervention.get("apartmentId") and (not item.get("equipmentId") or item.get("equipmentId") == equipment.get("id")))
+                )
+                and (not item.get("activityTypeId") or item.get("activityTypeId") == intervention.get("typeId"))
+        ]
+        if any(target.get("approvalStatus") in {"pending", "refused"} for target in matching_targets):
+            raise ApplicationError("Cette activite est bloquee par la decision du client.", HTTPStatus.CONFLICT)
         try:
             if apartment:
                 require_can_save_collection(state, command.current_user, "apartments", apartment)

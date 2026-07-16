@@ -52,6 +52,9 @@ def normalize_field_bundle(
     equipment["conditionStatus"] = intervention.get("machineStatus") or equipment.get("conditionStatus") or equipment.get("status") or "actif"
     equipment["status"] = equipment["conditionStatus"]
     equipment["clientId"] = equipment.get("clientId") or client_for_apartment(state, apartment_id)
+    source_apartment = next((item for item in state.get("apartments", []) if isinstance(item, dict) and item.get("id") == apartment_id), None)
+    equipment["homeBuildingId"] = equipment.get("homeBuildingId") or (source_apartment or {}).get("buildingId") or ""
+    equipment["systemId"] = str(equipment.get("systemId") or "")
     equipment["lifecycleStatus"] = equipment.get("lifecycleStatus") or "installed"
     equipment["storageLocationId"] = "" if equipment["lifecycleStatus"] == "installed" else equipment.get("storageLocationId") or ""
     intervention["apartmentId"] = apartment_id
@@ -77,8 +80,8 @@ def option_behavior(state: dict, field_id: str, value: object) -> str:
     return fallbacks.get(str(value or ""), "")
 
 
-def is_replacement_work_order(state: dict, work_order: dict) -> bool:
-    activity_type = next((item for item in state.get("interventionTypes", []) if isinstance(item, dict) and item.get("id") == work_order.get("typeId")), None)
+def is_replacement_activity(state: dict, intervention: dict) -> bool:
+    activity_type = next((item for item in state.get("interventionTypes", []) if isinstance(item, dict) and item.get("id") == intervention.get("typeId")), None)
     return bool(activity_type and (activity_type.get("behavior") == "replacement" or activity_type.get("id") == "remplacement_unite"))
 
 
@@ -90,7 +93,7 @@ def normalize_replacement_bundle(
     work_order: dict,
     payload: dict | None,
 ) -> tuple[dict, dict | None]:
-    if not is_replacement_work_order(state, work_order):
+    if not is_replacement_activity(state, intervention):
         return old_equipment, None
     if option_behavior(state, "activity_status", intervention.get("activityStatus")) != "completed":
         return old_equipment, None
@@ -134,6 +137,8 @@ def normalize_replacement_bundle(
     new_equipment["clientId"] = source_client_id
     new_equipment["lifecycleStatus"] = "installed"
     new_equipment["storageLocationId"] = ""
+    new_equipment["homeBuildingId"] = old_equipment.get("homeBuildingId") or next((item.get("buildingId") for item in state.get("apartments", []) if isinstance(item, dict) and item.get("id") == source_apartment_id), "")
+    new_equipment["systemId"] = old_equipment.get("systemId") or ""
     new_equipment["conditionStatus"] = new_equipment.get("conditionStatus") or new_equipment.get("status") or "actif"
     new_equipment["status"] = new_equipment["conditionStatus"]
     raw_age, manufacture_year, estimated_age = parse_manufacture_age(new_equipment.get("manufactureAgeInfo"))
@@ -150,22 +155,32 @@ def normalize_replacement_bundle(
     target_apartment_id = ""
     target_storage_id = ""
     target_client_id = source_client_id
+    source_home_building_id = str(old_equipment.get("homeBuildingId") or next((item.get("buildingId") for item in state.get("apartments", []) if isinstance(item, dict) and item.get("id") == source_apartment_id), "") or "")
+    target_home_building_id = source_home_building_id
+    source_system_id = str(old_equipment.get("systemId") or "")
+    target_system_id = ""
     updated_old = dict(old_equipment)
     if action == "transfer_apartment":
         target_apartment_id = str(payload.get("destinationApartmentId") or "")
         if not any(item.get("id") == target_apartment_id for item in state.get("apartments", []) if isinstance(item, dict)):
             raise ApplicationError("Appartement de destination introuvable.")
         target_client_id = client_for_apartment(state, target_apartment_id)
-        updated_old.update({"apartmentId": target_apartment_id, "clientId": target_client_id, "storageLocationId": "", "lifecycleStatus": "installed", "disposedAt": ""})
+        target_apartment = next((item for item in state.get("apartments", []) if isinstance(item, dict) and item.get("id") == target_apartment_id), None)
+        target_home_building_id = str((target_apartment or {}).get("buildingId") or "")
+        target_system_id = str(payload.get("destinationSystemId") or "")
+        updated_old.update({"apartmentId": target_apartment_id, "clientId": target_client_id, "homeBuildingId": target_home_building_id, "systemId": target_system_id, "storageLocationId": "", "lifecycleStatus": "installed", "disposedAt": ""})
     elif action == "storage":
         target_storage_id = str(payload.get("destinationStorageLocationId") or "")
         storage = next((item for item in state.get("storageLocations", []) if isinstance(item, dict) and item.get("id") == target_storage_id and item.get("active") is not False), None)
         if not storage:
             raise ApplicationError("Depot de destination introuvable.")
-        target_client_id = storage.get("clientId") or ""
-        updated_old.update({"apartmentId": "", "clientId": target_client_id, "storageLocationId": target_storage_id, "lifecycleStatus": "stored", "disposedAt": ""})
+        scope_type = storage.get("scopeType") or ("client" if storage.get("clientId") else "company")
+        if scope_type != "company" and storage.get("clientId") != source_client_id:
+            raise ApplicationError("Depot hors du perimetre du client.")
+        target_client_id = source_client_id
+        updated_old.update({"apartmentId": "", "clientId": source_client_id, "homeBuildingId": source_home_building_id, "systemId": "", "storageLocationId": target_storage_id, "lifecycleStatus": "stored", "disposedAt": ""})
     else:
-        updated_old.update({"apartmentId": "", "clientId": source_client_id, "storageLocationId": "", "lifecycleStatus": "disposed", "disposedAt": datetime.now(timezone.utc).date().isoformat()})
+        updated_old.update({"apartmentId": "", "clientId": source_client_id, "homeBuildingId": source_home_building_id, "systemId": "", "storageLocationId": "", "lifecycleStatus": "disposed", "disposedAt": datetime.now(timezone.utc).date().isoformat()})
 
     if source_client_id and target_client_id and source_client_id != target_client_id and requester.get("role") not in {"administrateur", "equipe_interne"}:
         raise ApplicationError("Une validation interne est requise pour un transfert entre clients.")
@@ -184,6 +199,10 @@ def normalize_replacement_bundle(
         "reason": str(payload.get("reason") or "Remplacement de l'unite"),
         "performedBy": requester.get("id") or "",
         "performedAt": performed_at,
+        "fromHomeBuildingId": source_home_building_id,
+        "toHomeBuildingId": target_home_building_id,
+        "fromSystemId": source_system_id,
+        "toSystemId": target_system_id,
     }
     relation = {
         "id": str(payload.get("replacementId") or ""),
@@ -211,6 +230,10 @@ def normalize_replacement_bundle(
                 "reason": str(payload.get("reason") or "Installation comme unite de remplacement"),
                 "performedBy": requester.get("id") or "",
                 "performedAt": performed_at,
+                "fromHomeBuildingId": str(persisted_new_equipment.get("homeBuildingId") or ""),
+                "toHomeBuildingId": new_equipment.get("homeBuildingId") or "",
+                "fromSystemId": str(persisted_new_equipment.get("systemId") or ""),
+                "toSystemId": new_equipment.get("systemId") or "",
             }
     if not movement["id"] or not relation["id"]:
         raise ApplicationError("Identifiants de remplacement invalides.")

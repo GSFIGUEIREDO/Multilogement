@@ -282,6 +282,9 @@ for (const method of [
 
 const index = fs.readFileSync("index.html", "utf8");
 const appSource = fs.readFileSync("app.js", "utf8");
+const workOrdersSource = fs.readFileSync("frontend/views/work-orders.js", "utf8");
+const settingsSource = fs.readFileSync("frontend/views/settings.js", "utf8");
+const stylesSource = fs.readFileSync("styles.css", "utf8");
 for (const script of [
   "frontend/views/places.js",
   "frontend/views/users.js",
@@ -329,6 +332,27 @@ if (slugifyBody.includes("settingsViewModule")) {
 const bootstrapSource = appSource.slice(0, appSource.indexOf("const placesViewModule"));
 if (/\b(?:settingsViewModule|interventionsViewModule|formBuilderModule|placesViewModule|usersViewModule|equipmentViewModule|ticketsViewModule|workOrdersViewModule)\b/.test(bootstrapSource)) {
   throw new Error("Le bootstrap ne peut pas dependre d'un module de vue initialise plus tard.");
+}
+
+if (!workOrdersSource.includes("system-machine-map") || !workOrdersSource.includes("system-action-menu")) {
+  throw new Error("L'execution du BT doit utiliser la fiche systeme responsive et son menu d'ajout.");
+}
+if (!settingsSource.includes('data-collection-key="${escapeHtml(collectionKey)}"')) {
+  throw new Error("Les elements administrables doivent exposer une action de suppression securisee.");
+}
+const fieldModalStart = appSource.indexOf("function fieldInterventionModal");
+const fieldModalEnd = appSource.indexOf("function recommendationReviewModal", fieldModalStart);
+const fieldModalSource = appSource.slice(fieldModalStart, fieldModalEnd);
+if (!fieldModalSource.includes('comboInput("replacementLocation"') || !fieldModalSource.includes('comboInput("replacementModel"')) {
+  throw new Error("Localisation et modele du remplacement doivent utiliser les listes filtrables.");
+}
+const replacementMarkupIndex = fieldModalSource.indexOf("replacementEditor}");
+const conclusionMarkupIndex = fieldModalSource.indexOf('>Conclusion</div>');
+if (replacementMarkupIndex < 0 || conclusionMarkupIndex < 0 || replacementMarkupIndex > conclusionMarkupIndex) {
+  throw new Error("La conclusion doit etre rendue apres le bloc de remplacement.");
+}
+if (!stylesSource.includes(".system-machine-row") || !stylesSource.includes("grid-template-columns: 1fr;")) {
+  throw new Error("Le plan des systemes doit disposer d'une adaptation mobile verticale.");
 }
 
 console.log("frontend modules smoke: ok");

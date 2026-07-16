@@ -139,6 +139,11 @@ def run() -> None:
         assert json.loads(row_get(field_row, "unit_scopes")) == ["interieure", "exterieure"]
         assert json.loads(row_get(field_row, "system_type_ids")) == ["system_type_ptac"]
         assert next(item for item in form_created.json()["state"]["interventionTypes"] if item["id"] == "int-existing")["defaultFormTemplateId"] == "form-new"
+        linked_form_delete = admin_client.post(
+            "/api/setting-item-delete",
+            json={"collectionKey": "formTemplates", "itemId": "form-new"},
+        )
+        assert linked_form_delete.status_code == 409, linked_form_delete.text
 
         # Two independent sessions must never silently overwrite the same
         # form. This is the exact scenario that used to resurrect questions.
@@ -199,6 +204,20 @@ def run() -> None:
         system_type_created = admin_client.post("/api/setting-item", json={"collectionKey": "hvacSystemTypes", "item": system_type})
         assert system_type_created.status_code == 200, system_type_created.text
         assert len(table_rows("select id from climaparc_hvac_system_types where id = ?", ("system_type_split_test",))) == 1
+        system_type_deleted = admin_client.post(
+            "/api/setting-item-delete",
+            json={"collectionKey": "hvacSystemTypes", "itemId": "system_type_split_test"},
+        )
+        assert system_type_deleted.status_code == 200, system_type_deleted.text
+
+        storage = {"id": "storage-unused", "name": "Depot inutilise", "scopeType": "company", "active": True}
+        storage_created = admin_client.post("/api/setting-item", json={"collectionKey": "storageLocations", "item": storage})
+        assert storage_created.status_code == 200, storage_created.text
+        storage_deleted = admin_client.post(
+            "/api/setting-item-delete",
+            json={"collectionKey": "storageLocations", "itemId": "storage-unused"},
+        )
+        assert storage_deleted.status_code == 200, storage_deleted.text
 
         role = {"id": "role-new", "name": "Maintenance", "rights": ["equipment", "workorders"]}
         role_created = admin_client.post("/api/setting-item", json={"collectionKey": "roleDefinitions", "item": role})

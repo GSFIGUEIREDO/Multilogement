@@ -23,3 +23,11 @@ class CreateReplacementDraftCommand:
     current_user: Any
     state: dict
     intervention: dict
+
+
+@dataclass(frozen=True)
+class RouteRecommendationCommand:
+    current_user: Any
+    intervention_id: str
+    mode: str
+    work_order_id: str = ""

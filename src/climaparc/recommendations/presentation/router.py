@@ -7,14 +7,17 @@ from src.climaparc.auth.infrastructure.repositories import DatabaseSessionReposi
 from src.climaparc.auth.presentation.router import SESSION_COOKIE
 from src.climaparc.recommendations.application.use_cases.client_update_recommendation import ClientUpdateRecommendationUseCase
 from src.climaparc.recommendations.application.use_cases.internal_review_recommendation import InternalReviewRecommendationUseCase
+from src.climaparc.recommendations.application.use_cases.route_recommendation import RouteRecommendationUseCase
 from src.climaparc.recommendations.presentation.dependencies import (
     get_client_update_recommendation_use_case,
     get_internal_review_recommendation_use_case,
+    get_route_recommendation_use_case,
     get_session_repository,
 )
 from src.climaparc.recommendations.presentation.dispatch import (
     client_update_recommendation_with_use_case,
     internal_review_recommendation_with_use_case,
+    route_recommendation_with_use_case,
 )
 from src.climaparc.shared.domain.errors import ApplicationError
 
@@ -25,6 +28,12 @@ router = APIRouter()
 class RecommendationRequest(BaseModel):
     interventionId: str = ""
     recommendation: dict | None = None
+
+
+class RecommendationRouteRequest(BaseModel):
+    interventionId: str = ""
+    mode: str = "new"
+    workOrderId: str = ""
 
 
 def raise_http(error: ApplicationError) -> None:
@@ -72,6 +81,28 @@ def internal_review_recommendation(
             current_user,
             payload.interventionId,
             payload.recommendation or {},
+            use_case,
+        )
+    except ApplicationError as error:
+        raise_http(error)
+
+
+@router.post("/api/recommendation/route")
+def route_recommendation(
+    request: Request,
+    payload: RecommendationRouteRequest,
+    session_repository: DatabaseSessionRepository = Depends(get_session_repository),
+    use_case: RouteRecommendationUseCase = Depends(get_route_recommendation_use_case),
+):
+    current_user = current_user_from_request(request, session_repository)
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Session expiree.")
+    try:
+        return route_recommendation_with_use_case(
+            current_user,
+            payload.interventionId,
+            payload.mode,
+            payload.workOrderId,
             use_case,
         )
     except ApplicationError as error:

@@ -16,3 +16,11 @@ class WorkOrderPayloadRepository(Protocol):
 class WorkOrderLookupRepository(Protocol):
     def exists(self, work_order_id: str) -> bool:
         ...
+
+
+class WorkOrderOperationRepository(Protocol):
+    def get_state(self) -> dict | None:
+        ...
+
+    def save_completion(self, work_order: dict, targets: list[dict], audit: dict) -> None:
+        ...

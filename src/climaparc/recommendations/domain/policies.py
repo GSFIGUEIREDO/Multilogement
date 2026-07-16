@@ -32,6 +32,8 @@ INTERNAL_RECOMMENDATION_FIELDS = {
     "reviewedBy",
     "decidedBy",
     "workOrderId",
+    "workOrderIds",
+    "requiresClientApproval",
 }
 
 

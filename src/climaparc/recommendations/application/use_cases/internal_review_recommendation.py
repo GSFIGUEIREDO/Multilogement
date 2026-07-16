@@ -34,8 +34,19 @@ class InternalReviewRecommendationUseCase:
         interventions = state.setdefault("interventions", [])
         index = find_intervention_index(interventions, intervention_id)
         interventions[index] = intervention
+        updated_targets = []
+        recommendation = intervention.get("recommendation", {})
+        requires_approval = recommendation.get("requiresClientApproval") is not False
+        for target in state.get("workOrderTargets", []):
+            if target.get("sourceRecommendationId") != intervention_id:
+                continue
+            updated = dict(target)
+            updated["approvalStatus"] = "not_required" if not requires_approval else "approved" if recommendation.get("status") == "approuvee" else "refused" if recommendation.get("status") == "refusee" else "pending"
+            if recommendation.get("status") == "refusee":
+                updated["status"] = "annule"
+            updated_targets.append(stamp_payload(updated))
         clear_ui_state(state)
-        self.payload_repository.upsert_intervention(intervention)
+        self.payload_repository.upsert_intervention_with_targets(intervention, updated_targets)
         state = self.state_repository.get(lock=False) or state
         clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": intervention}

@@ -124,6 +124,8 @@ def normalize_form_template(payload: dict) -> dict:
         raise ApplicationError("Ajoutez au moins une question.")
     item["fields"] = [dict(field) for field in fields if isinstance(field, dict) and field.get("id")]
     item["activityFields"] = item.get("activityFields") if isinstance(item.get("activityFields"), dict) else {}
+    associated = item.get("associatedActivityTypeIds") if isinstance(item.get("associatedActivityTypeIds"), list) else []
+    item["associatedActivityTypeIds"] = list(dict.fromkeys(str(value) for value in associated if value))
     return item
 
 
@@ -140,9 +142,22 @@ def normalize_role_definition(payload: dict) -> dict:
 def normalize_storage_location(payload: dict) -> dict:
     item = dict(payload)
     item["name"] = str(item.get("name") or "").strip()
+    item["scopeType"] = str(item.get("scopeType") or "client").strip()
+    if item["scopeType"] not in {"client", "building", "company"}:
+        raise ApplicationError("Portee du depot invalide.")
     item["clientId"] = str(item.get("clientId") or "").strip()
-    if not item["name"] or not item["clientId"]:
-        raise ApplicationError("Nom et client du depot obligatoires.")
+    item["buildingId"] = str(item.get("buildingId") or "").strip()
+    if not item["name"]:
+        raise ApplicationError("Nom du depot obligatoire.")
+    if item["scopeType"] in {"client", "building"} and not item["clientId"]:
+        raise ApplicationError("Client du depot obligatoire.")
+    if item["scopeType"] == "building" and not item["buildingId"]:
+        raise ApplicationError("Lieu du depot obligatoire.")
+    if item["scopeType"] == "company":
+        item["clientId"] = ""
+        item["buildingId"] = ""
+    elif item["scopeType"] == "client":
+        item["buildingId"] = ""
     item["address"] = str(item.get("address") or "").strip()
     item["active"] = item.get("active") is not False
     return item

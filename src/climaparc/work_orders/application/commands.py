@@ -15,3 +15,23 @@ class UpdateWorkOrderCommand:
     current_user: Any
     work_order: dict
 
+
+@dataclass(frozen=True)
+class CompleteApartmentCommand:
+    current_user: Any
+    work_order_id: str
+    apartment_id: str
+
+
+@dataclass(frozen=True)
+class CloseWorkOrderCommand:
+    current_user: Any
+    work_order_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ReopenWorkOrderCommand:
+    current_user: Any
+    work_order_id: str
+    reason: str

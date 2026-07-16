@@ -5,7 +5,6 @@ from http import HTTPStatus
 from backend.repositories import stamp_payload
 from backend.security import filter_state_for_user
 from src.climaparc.recommendations.application.commands import ClientUpdateRecommendationCommand
-from src.climaparc.recommendations.application.commands import CreateReplacementDraftCommand
 from src.climaparc.recommendations.domain.policies import (
     apply_client_recommendation_update,
     clear_ui_state,
@@ -18,10 +17,9 @@ from src.climaparc.shared.domain.errors import ApplicationError
 
 
 class ClientUpdateRecommendationUseCase:
-    def __init__(self, state_repository: RecommendationStateRepository, payload_repository: RecommendationPayloadRepository, replacement_draft_use_case=None):
+    def __init__(self, state_repository: RecommendationStateRepository, payload_repository: RecommendationPayloadRepository):
         self.state_repository = state_repository
         self.payload_repository = payload_repository
-        self.replacement_draft_use_case = replacement_draft_use_case
 
     def __call__(self, command: ClientUpdateRecommendationCommand) -> dict:
         if not command.current_user:
@@ -35,21 +33,28 @@ class ClientUpdateRecommendationUseCase:
         existing_index = find_intervention_index(state.setdefault("interventions", []), intervention_id)
         existing_intervention = state["interventions"][existing_index]
         existing_recommendation = existing_intervention.get("recommendation") or {}
-        if recommendation.get("status") == "approuvee" and existing_recommendation.get("status") == "approuvee" and existing_recommendation.get("workOrderId"):
+        if recommendation.get("status") == "approuvee" and existing_recommendation.get("status") == "approuvee":
             return {
                 "ok": True,
                 "state": filter_state_for_user(state, command.current_user),
                 "item": existing_intervention,
-                "workOrder": next((item for item in state.get("workOrders", []) if item.get("id") == existing_recommendation.get("workOrderId")), None),
             }
         intervention = stamp_payload(apply_client_recommendation_update(state, command.current_user, intervention_id, recommendation))
-        if intervention.get("recommendation", {}).get("status") == "approuvee" and self.replacement_draft_use_case:
-            return self.replacement_draft_use_case(CreateReplacementDraftCommand(command.current_user, state, intervention))
         interventions = state.setdefault("interventions", [])
         index = find_intervention_index(interventions, intervention_id)
         interventions[index] = intervention
+        updated_targets = []
+        decision_status = intervention.get("recommendation", {}).get("status")
+        for target in state.get("workOrderTargets", []):
+            if target.get("sourceRecommendationId") != intervention_id:
+                continue
+            updated = dict(target)
+            updated["approvalStatus"] = "approved" if decision_status == "approuvee" else "refused" if decision_status == "refusee" else "pending"
+            if decision_status == "refusee":
+                updated["status"] = "annule"
+            updated_targets.append(stamp_payload(updated))
         clear_ui_state(state)
-        self.payload_repository.upsert_intervention(intervention)
+        self.payload_repository.upsert_intervention_with_targets(intervention, updated_targets)
         state = self.state_repository.get(lock=False) or state
         clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": intervention}

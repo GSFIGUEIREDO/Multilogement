@@ -29,7 +29,7 @@ PAYLOAD_REPOSITORIES = {
     ),
     "storageLocations": PayloadTableRepository(
         "climaparc_storage_locations",
-        [("client_id", "clientId"), ("name", "name"), ("address", "address"), ("active", lambda item: item.get("active") is not False)],
+        [("client_id", "clientId"), ("building_id", "buildingId"), ("scope_type", "scopeType"), ("name", "name"), ("address", "address"), ("active", lambda item: item.get("active") is not False)],
     ),
 }
 
@@ -89,6 +89,15 @@ class DatabaseSettingsPayloadRepository:
         with connect() as connection:
             repository.upsert(connection, item)
             sync_setting_children(connection, collection_key, item)
+            if collection_key == "formTemplates":
+                selected_ids = set(item.get("associatedActivityTypeIds") or [])
+                for activity_type in load_collection(connection, "interventionTypes"):
+                    should_link = activity_type.get("id") in selected_ids
+                    is_linked = activity_type.get("defaultFormTemplateId") == item.get("id")
+                    if should_link == is_linked:
+                        continue
+                    activity_type["defaultFormTemplateId"] = item.get("id") if should_link else ""
+                    PAYLOAD_REPOSITORIES["interventionTypes"].upsert(connection, activity_type)
 
     def delete(self, collection_key: str, item_id: str) -> None:
         require_supported_collection(collection_key)

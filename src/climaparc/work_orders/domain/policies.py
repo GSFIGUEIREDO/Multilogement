@@ -10,7 +10,11 @@ from src.climaparc.shared.domain.errors import ApplicationError
 def normalize_work_order_payload(work_order_payload: dict) -> dict:
     if not isinstance(work_order_payload, dict) or not work_order_payload.get("id"):
         raise ApplicationError("Bon de travail invalide.")
-    return dict(work_order_payload)
+    item = dict(work_order_payload)
+    item["defaultActivityTypeId"] = str(item.get("defaultActivityTypeId") or item.get("typeId") or "")
+    item["typeId"] = str(item.get("typeId") or item["defaultActivityTypeId"])
+    item["object"] = str(item.get("object") or item.get("notes") or "").strip()
+    return item
 
 
 def require_can_save_work_order(state: dict, current_user_row: Any, work_order: dict) -> None:
@@ -31,4 +35,3 @@ def clear_ui_state(state: dict) -> None:
     state["sessionUserId"] = None
     state["modal"] = None
     state["toast"] = ""
-

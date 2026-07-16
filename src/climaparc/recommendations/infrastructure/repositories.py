@@ -7,6 +7,7 @@ from backend.sync_services import sync_intervention_children
 from backend.sync_services import sync_work_order_technicians
 from src.climaparc.work_orders.infrastructure.repositories import DatabaseWorkOrderPayloadRepository
 from src.climaparc.interventions.infrastructure.repositories import load_interventions
+from src.climaparc.work_orders.infrastructure.repositories import ensure_work_order_targets
 
 
 class DatabaseRecommendationStateRepository:
@@ -30,6 +31,8 @@ class DatabaseRecommendationPayloadRepository:
                 ("equipment_id", "equipmentId"),
                 ("technician_id", "technicianId"),
                 ("form_template_id", "formTemplateId"),
+                ("type_id", "typeId"),
+                ("target_id", "targetId"),
                 ("status", "status"),
                 ("activity_status", "activityStatus"),
                 ("machine_status", "machineStatus"),
@@ -42,12 +45,27 @@ class DatabaseRecommendationPayloadRepository:
             self.legacy_repository.upsert(connection, intervention)
             sync_intervention_children(connection, [intervention])
 
+    def upsert_intervention_with_targets(self, intervention: dict, targets: list[dict]) -> None:
+        target_repository = PayloadTableRepository(
+            "climaparc_work_order_targets",
+            [("work_order_id", "workOrderId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("activity_type_id", "activityTypeId"), ("status", "status"), ("approval_status", "approvalStatus"), ("source_recommendation_id", "sourceRecommendationId"), ("completed_at_text", "completedAt")],
+        )
+        with connect() as connection:
+            self.legacy_repository.upsert(connection, intervention)
+            sync_intervention_children(connection, [intervention])
+            for target in targets:
+                target_repository.upsert(connection, target)
+
 
 class DatabaseRecommendationWorkflowRepository(DatabaseRecommendationPayloadRepository):
     def __init__(self):
         super().__init__()
         self.state_repository = LegacyStateRepository()
         self.work_order_repository = DatabaseWorkOrderPayloadRepository().legacy_repository
+        self.target_repository = PayloadTableRepository(
+            "climaparc_work_order_targets",
+            [("work_order_id", "workOrderId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("activity_type_id", "activityTypeId"), ("status", "status"), ("approval_status", "approvalStatus"), ("source_recommendation_id", "sourceRecommendationId"), ("completed_at_text", "completedAt")],
+        )
 
     def get_state(self) -> dict | None:
         with connect() as connection:
@@ -59,3 +77,11 @@ class DatabaseRecommendationWorkflowRepository(DatabaseRecommendationPayloadRepo
             sync_intervention_children(connection, [intervention])
             self.work_order_repository.upsert(connection, work_order)
             sync_work_order_technicians(connection, [work_order])
+
+    def save_route(self, intervention: dict, work_order: dict, target: dict) -> None:
+        with connect() as connection:
+            self.legacy_repository.upsert(connection, intervention)
+            sync_intervention_children(connection, [intervention])
+            self.work_order_repository.upsert(connection, work_order)
+            sync_work_order_technicians(connection, [work_order])
+            self.target_repository.upsert(connection, target)

@@ -42,6 +42,7 @@ COLLECTION_KEYS = {
     "equipmentMovements",
     "equipmentReplacements",
     "hvacSystems",
+    "hvacSystemTypes",
     "workOrderTargets",
     "workOrderCompletionAudits",
 }
@@ -52,6 +53,7 @@ CONFIG_KEYS = {
     "formTemplates",
     "roleDefinitions",
     "dataFields",
+    "hvacSystemTypes",
 }
 
 CLIENT_RIGHT_DEFAULTS = {

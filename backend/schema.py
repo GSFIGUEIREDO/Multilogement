@@ -225,7 +225,17 @@ PAYLOAD_TABLES: dict[str, list[tuple[str, str]]] = {
         ("client_id", "text"),
         ("building_id", "text"),
         ("apartment_id", "text"),
+        ("system_type_id", "text"),
+        ("topology", "text"),
+        ("brand", "text"),
         ("name", "text"),
+        ("sort_order", "integer"),
+        ("active", "bool"),
+    ],
+    "climaparc_hvac_system_types": [
+        ("name", "text"),
+        ("topology", "text"),
+        ("sort_order", "integer"),
         ("active", "bool"),
     ],
     "climaparc_work_order_targets": [
@@ -289,6 +299,8 @@ CHILD_TABLES: dict[str, list[str]] = {
         f"is_required {sql_type('bool')}",
         "layout text",
         "unit_scope text",
+        "unit_scopes text",
+        "system_type_ids text",
         "data_field_id text",
         "show_when_field_id text",
         "show_when_value text",
@@ -379,6 +391,7 @@ CHILD_TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "climaparc_data_field_options": [("behavior", "text"), ("color", "text"), ("updated_at", sql_type("updated_nullable"))],
     "climaparc_equipment_attachments": [("storage_bucket", "text"), ("storage_path", "text"), ("updated_at", sql_type("updated_nullable"))],
     "climaparc_intervention_attachments": [("storage_bucket", "text"), ("storage_path", "text"), ("updated_at", sql_type("updated_nullable"))],
+    "climaparc_form_template_fields": [("unit_scopes", "text"), ("system_type_ids", "text")],
 }
 
 
@@ -428,6 +441,8 @@ INDEXES = [
     ("climaparc_equipment_replacements_old_equipment_id_idx", "climaparc_equipment_replacements", "old_equipment_id"),
     ("climaparc_equipment_replacements_new_equipment_id_idx", "climaparc_equipment_replacements", "new_equipment_id"),
     ("climaparc_hvac_systems_apartment_id_idx", "climaparc_hvac_systems", "apartment_id"),
+    ("climaparc_hvac_systems_system_type_id_idx", "climaparc_hvac_systems", "system_type_id"),
+    ("climaparc_hvac_system_types_topology_idx", "climaparc_hvac_system_types", "topology"),
     ("climaparc_work_order_targets_order_id_idx", "climaparc_work_order_targets", "work_order_id"),
     ("climaparc_work_order_targets_apartment_id_idx", "climaparc_work_order_targets", "apartment_id"),
     ("climaparc_work_order_completion_audits_order_id_idx", "climaparc_work_order_completion_audits", "work_order_id"),

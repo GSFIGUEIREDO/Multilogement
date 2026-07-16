@@ -216,7 +216,8 @@ RELATIONAL_SYNC_SPECS = {
     "storageLocations": {"table": "climaparc_storage_locations", "columns": [("client_id", "clientId"), ("building_id", "buildingId"), ("scope_type", "scopeType"), ("name", "name"), ("address", "address"), ("active", lambda item: item.get("active") is not False)]},
     "equipmentMovements": {"table": "climaparc_equipment_movements", "columns": [("equipment_id", "equipmentId"), ("movement_type", "movementType"), ("from_apartment_id", "fromApartmentId"), ("to_apartment_id", "toApartmentId"), ("from_storage_location_id", "fromStorageLocationId"), ("to_storage_location_id", "toStorageLocationId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("performed_by", "performedBy"), ("performed_at_text", "performedAt"), ("from_home_building_id", "fromHomeBuildingId"), ("to_home_building_id", "toHomeBuildingId"), ("from_system_id", "fromSystemId"), ("to_system_id", "toSystemId")]},
     "equipmentReplacements": {"table": "climaparc_equipment_replacements", "columns": [("old_equipment_id", "oldEquipmentId"), ("new_equipment_id", "newEquipmentId"), ("work_order_id", "workOrderId"), ("intervention_id", "interventionId"), ("completed_at_text", "completedAt")]},
-    "hvacSystems": {"table": "climaparc_hvac_systems", "columns": [("client_id", "clientId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("name", "name"), ("active", lambda item: item.get("active") is not False)]},
+    "hvacSystems": {"table": "climaparc_hvac_systems", "columns": [("client_id", "clientId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("system_type_id", "systemTypeId"), ("topology", "topology"), ("brand", "brand"), ("name", "name"), ("sort_order", "sortOrder"), ("active", lambda item: item.get("active") is not False)]},
+    "hvacSystemTypes": {"table": "climaparc_hvac_system_types", "columns": [("name", "name"), ("topology", "topology"), ("sort_order", "sortOrder"), ("active", lambda item: item.get("active") is not False)]},
     "workOrderTargets": {"table": "climaparc_work_order_targets", "columns": [("work_order_id", "workOrderId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("equipment_id", "equipmentId"), ("activity_type_id", "activityTypeId"), ("status", "status"), ("approval_status", "approvalStatus"), ("source_recommendation_id", "sourceRecommendationId"), ("completed_at_text", "completedAt")]},
     "workOrderCompletionAudits": {"table": "climaparc_work_order_completion_audits", "columns": [("work_order_id", "workOrderId"), ("apartment_id", "apartmentId"), ("action", "action"), ("reason", "reason"), ("performed_by", "performedBy"), ("performed_at_text", "performedAt")]},
 }
@@ -369,10 +370,10 @@ def sync_form_template_children(connection, templates: list[Any]) -> None:
                 f"""
                 insert into {rel_table('climaparc_form_template_fields')} (
                   template_id, field_id, section_id, label, field_type, is_required, layout,
-                  unit_scope, data_field_id, show_when_field_id, show_when_value, default_value,
+                  unit_scope, unit_scopes, system_type_ids, data_field_id, show_when_field_id, show_when_value, default_value,
                   sort_order, updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(template_id, field_id) do update set
                   section_id = excluded.section_id,
                   label = excluded.label,
@@ -380,6 +381,8 @@ def sync_form_template_children(connection, templates: list[Any]) -> None:
                   is_required = excluded.is_required,
                   layout = excluded.layout,
                   unit_scope = excluded.unit_scope,
+                  unit_scopes = excluded.unit_scopes,
+                  system_type_ids = excluded.system_type_ids,
                   data_field_id = excluded.data_field_id,
                   show_when_field_id = excluded.show_when_field_id,
                   show_when_value = excluded.show_when_value,
@@ -396,6 +399,8 @@ def sync_form_template_children(connection, templates: list[Any]) -> None:
                     bool(field.get("required")),
                     field.get("layout", "full"),
                     field.get("unitScope", "all"),
+                    json.dumps(field.get("unitScopes") or [field.get("unitScope", "all")], ensure_ascii=False),
+                    json.dumps(field.get("systemTypeIds") or [], ensure_ascii=False),
                     field.get("dataFieldId", ""),
                     show_when.get("fieldId", ""),
                     show_when.get("value", ""),

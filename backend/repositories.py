@@ -190,6 +190,7 @@ PAYLOAD_TABLE_COLLECTIONS = {
     "equipmentMovements": "climaparc_equipment_movements",
     "equipmentReplacements": "climaparc_equipment_replacements",
     "hvacSystems": "climaparc_hvac_systems",
+    "hvacSystemTypes": "climaparc_hvac_system_types",
     "workOrderTargets": "climaparc_work_order_targets",
     "workOrderCompletionAudits": "climaparc_work_order_completion_audits",
 }

@@ -26,6 +26,7 @@ MERGE_BY_ID_KEYS = {
     "equipmentMovements",
     "equipmentReplacements",
     "hvacSystems",
+    "hvacSystemTypes",
     "workOrderTargets",
     "workOrderCompletionAudits",
 }

@@ -31,6 +31,10 @@ PAYLOAD_REPOSITORIES = {
         "climaparc_storage_locations",
         [("client_id", "clientId"), ("building_id", "buildingId"), ("scope_type", "scopeType"), ("name", "name"), ("address", "address"), ("active", lambda item: item.get("active") is not False)],
     ),
+    "hvacSystemTypes": PayloadTableRepository(
+        "climaparc_hvac_system_types",
+        [("name", "name"), ("topology", "topology"), ("sort_order", "sortOrder"), ("active", lambda item: item.get("active") is not False)],
+    ),
 }
 
 
@@ -41,6 +45,7 @@ TABLE_BY_COLLECTION = {
     "roleDefinitions": "climaparc_role_definitions",
     "dataFields": "climaparc_data_fields",
     "storageLocations": "climaparc_storage_locations",
+    "hvacSystemTypes": "climaparc_hvac_system_types",
 }
 
 

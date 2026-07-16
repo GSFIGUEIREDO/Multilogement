@@ -7,7 +7,7 @@ from backend.repositories import PayloadTableRepository, StateRepository
 class DatabaseHvacSystemRepository:
     def __init__(self):
         self.state_repository = StateRepository()
-        self.payload_repository = PayloadTableRepository("climaparc_hvac_systems", [("client_id", "clientId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("name", "name"), ("active", lambda item: item.get("active") is not False)])
+        self.payload_repository = PayloadTableRepository("climaparc_hvac_systems", [("client_id", "clientId"), ("building_id", "buildingId"), ("apartment_id", "apartmentId"), ("system_type_id", "systemTypeId"), ("topology", "topology"), ("brand", "brand"), ("name", "name"), ("sort_order", "sortOrder"), ("active", lambda item: item.get("active") is not False)])
 
     def get_state(self) -> dict | None:
         with connect() as connection:

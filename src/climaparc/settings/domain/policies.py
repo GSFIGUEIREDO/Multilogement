@@ -14,6 +14,7 @@ SUPPORTED_SETTING_COLLECTIONS = {
     "formTemplates",
     "roleDefinitions",
     "storageLocations",
+    "hvacSystemTypes",
 }
 
 
@@ -44,6 +45,8 @@ def normalize_setting_item(collection_key: str, payload: dict) -> dict:
         return normalize_role_definition(payload)
     if collection_key == "storageLocations":
         return normalize_storage_location(payload)
+    if collection_key == "hvacSystemTypes":
+        return normalize_hvac_system_type(payload)
     raise ApplicationError("Collection de parametres invalide.")
 
 
@@ -122,7 +125,19 @@ def normalize_form_template(payload: dict) -> dict:
     fields = item.get("fields") if isinstance(item.get("fields"), list) else []
     if not fields:
         raise ApplicationError("Ajoutez au moins une question.")
-    item["fields"] = [dict(field) for field in fields if isinstance(field, dict) and field.get("id")]
+    normalized_fields = []
+    for field in fields:
+        if not isinstance(field, dict) or not field.get("id"):
+            continue
+        clean = dict(field)
+        scopes = clean.get("unitScopes") if isinstance(clean.get("unitScopes"), list) else [clean.get("unitScope") or "all"]
+        scopes = list(dict.fromkeys(str(value) for value in scopes if value in {"all", "interieure", "exterieure", "monobloc"})) or ["all"]
+        clean["unitScopes"] = ["all"] if "all" in scopes else scopes
+        clean["unitScope"] = clean["unitScopes"][0]
+        type_ids = clean.get("systemTypeIds") if isinstance(clean.get("systemTypeIds"), list) else []
+        clean["systemTypeIds"] = list(dict.fromkeys(str(value) for value in type_ids if value))
+        normalized_fields.append(clean)
+    item["fields"] = normalized_fields
     item["activityFields"] = item.get("activityFields") if isinstance(item.get("activityFields"), dict) else {}
     associated = item.get("associatedActivityTypeIds") if isinstance(item.get("associatedActivityTypeIds"), list) else []
     item["associatedActivityTypeIds"] = list(dict.fromkeys(str(value) for value in associated if value))
@@ -159,6 +174,22 @@ def normalize_storage_location(payload: dict) -> dict:
     elif item["scopeType"] == "client":
         item["buildingId"] = ""
     item["address"] = str(item.get("address") or "").strip()
+    item["active"] = item.get("active") is not False
+    return item
+
+
+def normalize_hvac_system_type(payload: dict) -> dict:
+    item = dict(payload)
+    item["name"] = str(item.get("name") or "").strip()
+    item["topology"] = str(item.get("topology") or "split").strip()
+    if not item["name"]:
+        raise ApplicationError("Nom du type de systeme obligatoire.")
+    if item["topology"] not in {"monobloc", "split"}:
+        raise ApplicationError("Topologie du systeme invalide.")
+    try:
+        item["sortOrder"] = int(item.get("sortOrder") or 0)
+    except (TypeError, ValueError):
+        item["sortOrder"] = 0
     item["active"] = item.get("active") is not False
     return item
 

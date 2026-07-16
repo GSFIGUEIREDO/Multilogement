@@ -14,7 +14,15 @@ def normalize_hvac_system(state: dict, payload: dict) -> dict:
     item = dict(payload)
     item["buildingId"] = building.get("id")
     item["clientId"] = building.get("clientId") or ""
+    system_type = next((entry for entry in state.get("hvacSystemTypes", []) if isinstance(entry, dict) and entry.get("id") == item.get("systemTypeId") and entry.get("active") is not False), None)
+    if not system_type:
+        raise ApplicationError("Type de systeme HVAC invalide.")
+    item["topology"] = system_type.get("topology") or "split"
+    item["brand"] = str(item.get("brand") or "").strip()
+    if not item["brand"]:
+        raise ApplicationError("Marque du systeme obligatoire.")
     item["name"] = str(item.get("name") or "Systeme HVAC").strip()
+    item["sortOrder"] = int(item.get("sortOrder") or 0)
     item["active"] = item.get("active") is not False
     return item
 

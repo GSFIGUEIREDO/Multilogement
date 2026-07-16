@@ -55,6 +55,27 @@ def normalize_field_bundle(
     source_apartment = next((item for item in state.get("apartments", []) if isinstance(item, dict) and item.get("id") == apartment_id), None)
     equipment["homeBuildingId"] = equipment.get("homeBuildingId") or (source_apartment or {}).get("buildingId") or ""
     equipment["systemId"] = str(equipment.get("systemId") or "")
+    system = next((item for item in state.get("hvacSystems", []) if isinstance(item, dict) and item.get("id") == equipment["systemId"] and item.get("active") is not False), None)
+    if not system:
+        raise ApplicationError("Systeme HVAC obligatoire.")
+    system_type = next((item for item in state.get("hvacSystemTypes", []) if isinstance(item, dict) and item.get("id") == system.get("systemTypeId")), None)
+    if not system_type:
+        raise ApplicationError("Type de systeme HVAC introuvable.")
+    equipment["type"] = str(system_type.get("name") or equipment.get("type") or "Machine")
+    equipment["brand"] = str(system.get("brand") or equipment.get("brand") or "").strip()
+    if not equipment["brand"]:
+        raise ApplicationError("Marque du systeme HVAC obligatoire.")
+    topology = system.get("topology") or system_type.get("topology") or "split"
+    other_members = [item for item in state.get("equipment", []) if isinstance(item, dict) and item.get("systemId") == system.get("id") and item.get("id") != equipment.get("id") and item.get("lifecycleStatus") != "disposed"]
+    if topology == "monobloc":
+        equipment["unitKind"] = "monobloc"
+        if not existing and other_members:
+            raise ApplicationError("Un systeme unique ne peut contenir qu'une machine.")
+    else:
+        if equipment.get("unitKind") not in {"interieure", "exterieure"}:
+            equipment["unitKind"] = "interieure"
+        if not existing and equipment["unitKind"] == "exterieure" and any(item.get("unitKind") == "exterieure" for item in other_members):
+            raise ApplicationError("Ce systeme possede deja une unite exterieure.")
     equipment["lifecycleStatus"] = equipment.get("lifecycleStatus") or "installed"
     equipment["storageLocationId"] = "" if equipment["lifecycleStatus"] == "installed" else equipment.get("storageLocationId") or ""
     intervention["apartmentId"] = apartment_id
@@ -139,6 +160,8 @@ def normalize_replacement_bundle(
     new_equipment["storageLocationId"] = ""
     new_equipment["homeBuildingId"] = old_equipment.get("homeBuildingId") or next((item.get("buildingId") for item in state.get("apartments", []) if isinstance(item, dict) and item.get("id") == source_apartment_id), "")
     new_equipment["systemId"] = old_equipment.get("systemId") or ""
+    new_equipment["type"] = old_equipment.get("type") or new_equipment.get("type") or "Machine"
+    new_equipment["brand"] = old_equipment.get("brand") or new_equipment.get("brand") or ""
     new_equipment["conditionStatus"] = new_equipment.get("conditionStatus") or new_equipment.get("status") or "actif"
     new_equipment["status"] = new_equipment["conditionStatus"]
     raw_age, manufacture_year, estimated_age = parse_manufacture_age(new_equipment.get("manufactureAgeInfo"))

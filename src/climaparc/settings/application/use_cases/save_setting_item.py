@@ -11,7 +11,7 @@ from src.climaparc.settings.domain.policies import (
     normalize_setting_item,
     require_can_manage_settings,
 )
-from src.climaparc.settings.domain.repositories import SettingsPayloadRepository, SettingsStateRepository
+from src.climaparc.settings.domain.repositories import SettingsConflictError, SettingsPayloadRepository, SettingsStateRepository
 from src.climaparc.shared.domain.errors import ApplicationError
 
 
@@ -24,7 +24,9 @@ class SaveSettingItemUseCase:
         if not command.current_user:
             raise ApplicationError("Session expiree.", HTTPStatus.UNAUTHORIZED)
         require_can_manage_settings(command.current_user)
-        item = stamp_payload(normalize_setting_item(command.collection_key, command.item))
+        normalized_item = normalize_setting_item(command.collection_key, command.item)
+        expected_server_updated_at = str(normalized_item.pop("serverUpdatedAt", "") or "")
+        item = stamp_payload(normalized_item)
 
         state = self.state_repository.get(lock=False)
         if not state:
@@ -40,7 +42,13 @@ class SaveSettingItemUseCase:
             collection.append(item)
 
         clear_ui_state(state)
-        self.payload_repository.upsert(command.collection_key, item)
+        try:
+            self.payload_repository.upsert(command.collection_key, item, expected_server_updated_at)
+        except SettingsConflictError:
+            raise ApplicationError(
+                "Cet element a ete modifie par une autre personne. Rechargez la version actuelle avant de continuer.",
+                HTTPStatus.CONFLICT,
+            ) from None
         state = self.state_repository.get(lock=False) or state
         clear_ui_state(state)
         return {"ok": True, "state": filter_state_for_user(state, command.current_user), "item": item}

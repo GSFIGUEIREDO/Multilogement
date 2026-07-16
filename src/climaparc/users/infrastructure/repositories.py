@@ -5,6 +5,7 @@ from typing import Any
 from backend.database import connect, execute, row_get
 from backend.repositories import AuthUserRepository as LegacyAuthUserRepository
 from backend.repositories import StateRepository as LegacyStateRepository
+from backend.repositories import versioned_payload_for_write
 from src.climaparc.shared.infrastructure.user_profiles import (
     delete_user_profile,
     enrich_user_with_profile,
@@ -36,6 +37,7 @@ class DatabaseUserAccountRepository:
 
     def upsert(self, user: dict) -> None:
         with connect() as connection:
+            user = versioned_payload_for_write(connection, profile_table(), user)
             self.legacy_repository.upsert(connection, user)
             upsert_user_profile(connection, user)
 

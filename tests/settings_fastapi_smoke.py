@@ -126,12 +126,14 @@ def run() -> None:
         form_template = {
             "id": "form-new",
             "name": "Inspection PTAC",
+            "associatedActivityTypeIds": ["int-existing"],
             "activityFields": {},
             "fields": [{"id": "q-status", "label": "Statut", "type": "single", "options": ["OK"], "required": True}],
         }
         form_created = admin_client.post("/api/setting-item", json={"collectionKey": "formTemplates", "item": form_template})
         assert form_created.status_code == 200, form_created.text
         assert len(table_rows("select field_id from climaparc_form_template_fields where template_id = ?", ("form-new",))) == 1
+        assert next(item for item in form_created.json()["state"]["interventionTypes"] if item["id"] == "int-existing")["defaultFormTemplateId"] == "form-new"
 
         role = {"id": "role-new", "name": "Maintenance", "rights": ["equipment", "workorders"]}
         role_created = admin_client.post("/api/setting-item", json={"collectionKey": "roleDefinitions", "item": role})

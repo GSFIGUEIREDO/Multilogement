@@ -56,6 +56,17 @@ def base_state() -> dict:
                 "clientId": "client-b",
                 "clientAccessLevel": "direction",
             },
+            {
+                "id": "u-client-limited",
+                "name": "Client A limite",
+                "email": "client-limited@test.local",
+                "password": "Client12345",
+                "role": "client",
+                "clientId": "client-a",
+                "clientAccessLevel": "gestionnaire",
+                "allowedBuildingIds": ["b-a"],
+                "portalRights": ["portal", "lieux", "equipment"],
+            },
         ],
         "clients": [
             {"id": "client-a", "name": "Client A"},
@@ -63,14 +74,18 @@ def base_state() -> dict:
         ],
         "buildings": [
             {"id": "b-a", "clientId": "client-a", "name": "Lieu A", "address": "1 Rue A"},
+            {"id": "b-a2", "clientId": "client-a", "name": "Lieu A2", "address": "3 Rue A"},
             {"id": "b-b", "clientId": "client-b", "name": "Lieu B", "address": "2 Rue B"},
         ],
         "apartments": [
             {"id": "apt-a", "buildingId": "b-a", "number": "101"},
+            {"id": "apt-a2", "buildingId": "b-a2", "number": "301"},
             {"id": "apt-b", "buildingId": "b-b", "number": "202"},
         ],
         "equipment": [
-            {"id": "eq-a", "apartmentId": "apt-a", "type": "PTAC", "brand": "A", "model": "A1", "serial": "AAA"},
+            {"id": "eq-a", "apartmentId": "apt-a", "homeBuildingId": "b-a", "clientId": "client-a", "type": "PTAC", "brand": "A", "model": "A1", "serial": "AAA"},
+            {"id": "eq-store-a", "apartmentId": "", "homeBuildingId": "b-a", "clientId": "client-a", "storageLocationId": "storage-central-a", "lifecycleStatus": "stored", "type": "PTAC"},
+            {"id": "eq-store-a2", "apartmentId": "", "homeBuildingId": "b-a2", "clientId": "client-a", "storageLocationId": "storage-central-a", "lifecycleStatus": "stored", "type": "PTAC"},
             {"id": "eq-b", "apartmentId": "apt-b", "type": "PTAC", "brand": "B", "model": "B1", "serial": "BBB"},
         ],
         "tickets": [
@@ -133,6 +148,16 @@ def base_state() -> dict:
         "roleDefinitions": [],
         "dataFields": [],
         "passwordResetRequests": [],
+        "storageLocations": [
+            {"id": "storage-central-a", "scopeType": "client", "clientId": "client-a", "name": "Central A", "active": True},
+            {"id": "storage-local-a", "scopeType": "building", "clientId": "client-a", "buildingId": "b-a", "name": "Local A", "active": True},
+            {"id": "storage-local-a2", "scopeType": "building", "clientId": "client-a", "buildingId": "b-a2", "name": "Local A2", "active": True},
+            {"id": "storage-b", "scopeType": "client", "clientId": "client-b", "name": "Central B", "active": True},
+            {"id": "storage-company", "scopeType": "company", "clientId": "", "name": "Atelier ClimaParc", "active": True},
+        ],
+        "hvacSystems": [],
+        "workOrderTargets": [],
+        "workOrderCompletionAudits": [],
         "sessionUserId": None,
         "modal": None,
         "toast": "",
@@ -185,11 +210,22 @@ def run() -> None:
     admin = row("u-admin")
     tech = row("u-tech")
     client_a = row("u-client-a")
+    client_limited = row("u-client-limited")
 
     filtered_a = filter_state_for_user(current_state(), client_a)
     assert {item["id"] for item in filtered_a["clients"]} == {"client-a"}
-    assert {item["id"] for item in filtered_a["buildings"]} == {"b-a"}
+    assert {item["id"] for item in filtered_a["buildings"]} == {"b-a", "b-a2"}
     assert all(item.get("clientId") != "client-b" for item in filtered_a.get("tickets", []))
+    assert {item["id"] for item in filtered_a["storageLocations"]} == {"storage-central-a", "storage-local-a", "storage-local-a2"}
+    assert {"eq-store-a", "eq-store-a2"}.issubset({item["id"] for item in filtered_a["equipment"]})
+
+    filtered_limited = filter_state_for_user(current_state(), client_limited)
+    assert {item["id"] for item in filtered_limited["buildings"]} == {"b-a"}
+    assert {item["id"] for item in filtered_limited["storageLocations"]} == {"storage-central-a", "storage-local-a"}
+    limited_equipment_ids = {item["id"] for item in filtered_limited["equipment"]}
+    assert "eq-store-a" in limited_equipment_ids
+    assert "eq-store-a2" not in limited_equipment_ids
+    assert "eq-b" not in limited_equipment_ids
 
     assert_raises_status(HTTPStatus.FORBIDDEN, lambda: FileService().temporary_url(client_a, "doc-b"))
     assert_raises_status(HTTPStatus.FORBIDDEN, lambda: FileService().delete(client_a, "doc-b"))
@@ -202,8 +238,8 @@ def run() -> None:
     assert "delay" not in filtered_recommendation
 
     filtered_tech = filter_state_for_user(current_state(), tech)
-    assert {item["id"] for item in filtered_tech["buildings"]} == {"b-a", "b-b"}
-    assert {item["id"] for item in filtered_tech["equipment"]} == {"eq-a", "eq-b"}
+    assert {item["id"] for item in filtered_tech["buildings"]} == {"b-a", "b-a2", "b-b"}
+    assert {item["id"] for item in filtered_tech["equipment"]} == {"eq-a", "eq-store-a", "eq-store-a2", "eq-b"}
     assert {item["id"] for item in filtered_tech["workOrders"]} == {"wo-a", "wo-b"}
     assert {item["id"] for item in filtered_tech["interventions"]} == {"int-a", "int-b"}
 

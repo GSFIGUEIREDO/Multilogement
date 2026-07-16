@@ -29,6 +29,7 @@ def base_state() -> dict:
         "users": [
             {"id": "u-admin", "name": "Admin", "email": "admin@test.local", "password": "Admin12345", "role": "administrateur"},
             {"id": "u-tech", "name": "Tech", "email": "tech@test.local", "password": "Tech12345", "role": "technicien"},
+            {"id": "u-tech-2", "name": "Tech 2", "email": "tech2@test.local", "password": "Tech12345", "role": "technicien"},
             {
                 "id": "u-client",
                 "name": "Client",
@@ -67,6 +68,7 @@ def base_state() -> dict:
         "serviceTypes": [],
         "interventionTypes": [
             {"id": "remplacement_unite", "name": "Remplacement d'une unité", "behavior": "replacement", "defaultFormTemplateId": "form_remplacement_unite", "checklist": []},
+            {"id": "inspection", "name": "Inspection", "behavior": "standard", "defaultFormTemplateId": "form_remplacement_unite", "checklist": []},
         ],
         "formTemplates": [{"id": "form_remplacement_unite", "name": "Remplacement", "fields": [], "activityFields": {}}],
         "roleDefinitions": [],
@@ -129,6 +131,7 @@ def assert_replacement_policy_variants() -> None:
             "equipmentId": "eq-old",
             "apartmentId": "apt-a",
             "workOrderId": "wo-replace",
+            "typeId": "remplacement_unite",
             "activityStatus": "completee",
         }
         replacement = {
@@ -178,6 +181,7 @@ def assert_replacement_policy_variants() -> None:
         "equipmentId": "eq-old",
         "apartmentId": "apt-a",
         "workOrderId": "wo-replace",
+        "typeId": "remplacement_unite",
         "activityStatus": "completee",
     }
     _, bundle = normalize_replacement_bundle(
@@ -205,7 +209,21 @@ def run() -> None:
     reset_database()
     with TestClient(app) as technician:
         login(technician, "tech@test.local", "Tech12345")
-        saved = technician.post("/api/field-intervention", json=field_payload())
+        system = technician.post("/api/hvac-system", json={"system": {"id": "system-a", "apartmentId": "apt-a", "name": "Système multizone"}, "workOrderId": "wo-replace"})
+        assert system.status_code == 200, system.text
+        for suffix in ("-inspection", "-entretien"):
+            activity = field_payload(suffix)
+            activity["intervention"]["typeId"] = "inspection"
+            activity["intervention"]["summary"] = f"Activité {suffix}"
+            activity["equipment"]["systemId"] = "system-a"
+            activity["replacement"] = None
+            multi_saved = technician.post("/api/field-intervention", json=activity)
+            assert multi_saved.status_code == 200, multi_saved.text
+        assert len([item for item in current_state()["interventions"] if item.get("workOrderId") == "wo-replace" and item.get("equipmentId") == "eq-old"]) == 2
+
+        replacement_payload = field_payload()
+        replacement_payload["equipment"]["systemId"] = "system-a"
+        saved = technician.post("/api/field-intervention", json=replacement_payload)
         assert saved.status_code == 200, saved.text
         state = current_state()
         old_equipment = next(item for item in state["equipment"] if item["id"] == "eq-old")
@@ -227,17 +245,34 @@ def run() -> None:
         assert len(state["equipmentMovements"]) == 1
         assert len(state["equipmentReplacements"]) == 1
 
+        completed = technician.post("/api/work-order/complete-apartment", json={"workOrderId": "wo-replace", "apartmentId": "apt-a"})
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["workOrder"]["status"] == "termine"
+
+    with TestClient(app) as unassigned_technician:
+        login(unassigned_technician, "tech2@test.local", "Tech12345")
+        forbidden_system = unassigned_technician.post("/api/hvac-system", json={"system": {"id": "system-forbidden", "apartmentId": "apt-a", "name": "Non autorisé"}, "workOrderId": "wo-replace"})
+        assert forbidden_system.status_code == 403, forbidden_system.text
+
     with TestClient(app) as client:
         login(client, "client@test.local", "Client12345")
         approval = client.post("/api/recommendation/client-response", json={"interventionId": "int-recommendation", "recommendation": {"status": "approuvee"}})
         assert approval.status_code == 200, approval.text
-        draft = approval.json().get("workOrder")
-        assert draft and draft["status"] == "brouillon"
-        assert draft["typeId"] == "remplacement_unite"
-        assert draft["approvedPrice"] == "900.00"
+        assert approval.json().get("workOrder") is None
         second = client.post("/api/recommendation/client-response", json={"interventionId": "int-recommendation", "recommendation": {"status": "approuvee"}})
         assert second.status_code == 200, second.text
-        assert len([item for item in current_state()["workOrders"] if item.get("sourceRecommendationInterventionId") == "int-recommendation"]) == 1
+
+    with TestClient(app) as admin:
+        login(admin, "admin@test.local", "Admin12345")
+        routed = admin.post("/api/recommendation/route", json={"interventionId": "int-recommendation", "mode": "new"})
+        assert routed.status_code == 200, routed.text
+        draft = routed.json().get("workOrder")
+        assert draft and draft["status"] == "brouillon"
+        assert draft["defaultActivityTypeId"] == "remplacement_unite"
+        assert draft["approvedPrice"] == "900.00"
+        second_route = admin.post("/api/recommendation/route", json={"interventionId": "int-recommendation", "mode": "new"})
+        assert second_route.status_code == 200, second_route.text
+        assert len([item for item in current_state()["workOrderTargets"] if item.get("sourceRecommendationId") == "int-recommendation"]) == 1
 
     failing = field_payload("-fail")
     failing["equipment"]["apartmentId"] = "apt-a2"

@@ -155,6 +155,30 @@ for (const method of [
   }
 }
 
+let workOrderUser = { id: "u-tech", role: "technicien" };
+const workOrderFixtureView = window.ClimaParcWorkOrdersView.create({
+  getState: () => ({ interventionTypes: [], users: [] }),
+  currentUser: () => workOrderUser,
+  workOrderApartments: () => [{ id: "apt-a" }],
+  can: () => false,
+  escapeHtml
+});
+const assignedOrder = { id: "wo-a", status: "en_cours", assignedTechnicianIds: ["u-tech"], defaultActivityTypeId: "inspection" };
+const assignedActions = workOrderFixtureView.workOrderActionButtons(assignedOrder, true);
+if (!assignedActions.includes("Exécuter") || !assignedActions.includes("Remplir le formulaire")) {
+  throw new Error("Le technicien assigné doit pouvoir exécuter et remplir le formulaire.");
+}
+workOrderUser = { id: "u-tech-2", role: "technicien" };
+const unassignedActions = workOrderFixtureView.workOrderActionButtons(assignedOrder, true);
+if (!unassignedActions.includes("Consulter") || unassignedActions.includes("Remplir le formulaire")) {
+  throw new Error("Le technicien non assigné doit seulement consulter le BT.");
+}
+workOrderUser = { id: "u-client", role: "client" };
+const clientActions = workOrderFixtureView.workOrderActionButtons(assignedOrder, true);
+if (!clientActions.includes("Consulter") || clientActions.includes("Exécuter") || clientActions.includes("Remplir le formulaire")) {
+  throw new Error("Le client doit seulement consulter le BT.");
+}
+
 for (const method of [
   "settingsView",
   "dataFieldModal",

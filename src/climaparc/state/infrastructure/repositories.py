@@ -5,7 +5,7 @@ from typing import Callable
 from backend.bootstrap import sync_users
 from backend.database import connect
 from backend.repositories import StateRepository
-from backend.sync_services import sync_relational_tables_safely
+from backend.sync_services import sync_relational_tables, sync_relational_tables_safely
 
 
 class DatabaseStateCompatibilityRepository:
@@ -18,6 +18,8 @@ class DatabaseStateCompatibilityRepository:
             merged_state, sync_keys = updater(current_state)
             self.state_repository.save(connection, merged_state)
             sync_users(connection, merged_state)
+            if sync_keys or sync_keys is None:
+                sync_relational_tables(connection, merged_state, sync_keys)
             return merged_state, sync_keys
 
     def sync_relational_tables_safely(self, state: dict, collection_keys: set[str] | None = None) -> None:

@@ -7,6 +7,7 @@ from backend.security import filter_state_for_user, sanitize_state_for_storage
 from backend.state_compatibility import (
     apply_state_changes,
     changed_collection_keys,
+    conflicting_state_change,
     duplicate_user_email,
     merge_shared_state,
     stamp_changed_items,
@@ -30,14 +31,18 @@ class SaveStateUseCase:
 
         changes = command.changes if isinstance(command.changes, dict) else None
         merged_state, sync_keys = self.repository.update_with_lock(lambda current_state: self._merge_state(current_state, command.state, changes))
-        if sync_keys or sync_keys is None:
-            self.repository.sync_relational_tables_safely(merged_state, sync_keys)
 
         return {"ok": True, "state": filter_state_for_user(merged_state, command.current_user)}
 
     @staticmethod
     def _merge_state(current_state: dict, incoming_state: dict | None, changes: dict | None) -> tuple[dict, set[str] | None]:
         if changes:
+            conflict = conflicting_state_change(current_state, changes)
+            if conflict:
+                raise ApplicationError(
+                    "Ces donnees ont ete modifiees par une autre personne. Rechargez la page avant de continuer.",
+                    HTTPStatus.CONFLICT,
+                )
             merged_state = apply_state_changes(current_state, changes)
             sync_keys = changed_collection_keys(changes)
         else:

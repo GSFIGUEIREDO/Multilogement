@@ -29,6 +29,34 @@ def require_can_manage_settings(current_user_row: Any) -> None:
         raise ApplicationError("Droits insuffisants.", HTTPStatus.FORBIDDEN)
 
 
+def require_setting_item_deletable(state: dict, collection_key: str, item_id: str) -> None:
+    dependencies: dict[str, list[tuple[str, tuple[str, ...]]]] = {
+        "serviceTypes": [("tickets", ("serviceTypeId",))],
+        "interventionTypes": [
+            ("serviceTypes", ("linkedInterventionTypeId",)),
+            ("workOrders", ("typeId", "defaultActivityTypeId")),
+            ("interventions", ("typeId",)),
+        ],
+        "formTemplates": [
+            ("interventionTypes", ("defaultFormTemplateId",)),
+            ("workOrders", ("formTemplateId",)),
+            ("interventions", ("formTemplateId",)),
+        ],
+        "hvacSystemTypes": [("hvacSystems", ("systemTypeId",))],
+        "storageLocations": [
+            ("equipment", ("storageLocationId",)),
+            ("equipmentMovements", ("fromStorageLocationId", "toStorageLocationId")),
+        ],
+    }
+    for state_key, fields in dependencies.get(collection_key, []):
+        collection = state.get(state_key) or []
+        if any(isinstance(item, dict) and any(str(item.get(field) or "") == item_id for field in fields) for item in collection):
+            raise ApplicationError(
+                "Cet element est encore utilise. Retirez ses associations avant de le supprimer.",
+                HTTPStatus.CONFLICT,
+            )
+
+
 def normalize_setting_item(collection_key: str, payload: dict) -> dict:
     require_supported_collection(collection_key)
     if not isinstance(payload, dict) or not payload.get("id"):

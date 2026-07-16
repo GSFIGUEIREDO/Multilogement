@@ -65,6 +65,27 @@
     saveWorkOrder(workOrder) {
       return post("/api/work-order", { workOrder });
     },
+    completeWorkOrderApartment(workOrderId, apartmentId) {
+      return post("/api/work-order/complete-apartment", { workOrderId, apartmentId });
+    },
+    closeWorkOrder(workOrderId, reason) {
+      return post("/api/work-order/close", { workOrderId, reason: reason || "" });
+    },
+    reopenWorkOrder(workOrderId, reason) {
+      return post("/api/work-order/reopen", { workOrderId, reason: reason || "" });
+    },
+    createHvacSystem(system, workOrderId) {
+      return post("/api/hvac-system", { system, workOrderId: workOrderId || "" });
+    },
+    routeRecommendation(interventionId, mode, workOrderId) {
+      return post("/api/recommendation/route", { interventionId, mode, workOrderId: workOrderId || "" });
+    },
+    reviewRecommendation(interventionId, recommendation) {
+      return post("/api/recommendation/review", { interventionId, recommendation });
+    },
+    respondRecommendation(interventionId, recommendation) {
+      return post("/api/recommendation/client-response", { interventionId, recommendation });
+    },
     saveIntervention(intervention) {
       return post("/api/intervention", { intervention });
     },

@@ -684,16 +684,21 @@
       conditionStatus: item.status || "actif",
       lifecycleStatus: "installed",
       storageLocationId: "",
+      homeBuildingId: "",
+      systemId: "",
       disposedAt: "",
       ...item
     })).map((item) => {
       const apartment = next.apartments.find((entry) => entry.id === item.apartmentId);
       const building = next.buildings.find((entry) => entry.id === apartment?.buildingId);
-      return { ...item, clientId: item.clientId || building?.clientId || "" };
+      return { ...item, clientId: item.clientId || building?.clientId || "", homeBuildingId: item.homeBuildingId || building?.id || "" };
     });
     next.storageLocations = Array.isArray(data.storageLocations) ? data.storageLocations : [];
     next.equipmentMovements = Array.isArray(data.equipmentMovements) ? data.equipmentMovements : [];
     next.equipmentReplacements = Array.isArray(data.equipmentReplacements) ? data.equipmentReplacements : [];
+    next.hvacSystems = Array.isArray(data.hvacSystems) ? data.hvacSystems : [];
+    next.workOrderTargets = Array.isArray(data.workOrderTargets) ? data.workOrderTargets : [];
+    next.workOrderCompletionAudits = Array.isArray(data.workOrderCompletionAudits) ? data.workOrderCompletionAudits : [];
     next.reminders = (Array.isArray(data.reminders) ? data.reminders : []).map((reminder) => ({
       id: reminder.id || uid("rem"),
       equipmentId: reminder.equipmentId || "",
@@ -718,7 +723,7 @@
       assignedTechnicianIds: order.technicianId ? [order.technicianId] : [],
       sourceReminderId: "",
       ...order
-    }));
+    })).map((order) => ({ ...order, defaultActivityTypeId: order.defaultActivityTypeId || order.typeId || "", object: order.object || order.notes || "" }));
     next.interventions = (data.interventions || seed.interventions).map((intervention) => ({
       apartmentId: "",
       formTemplateId: "",
@@ -728,6 +733,8 @@
       unitKind: "interieure",
       equipmentNotes: "",
       recommendation: null,
+      typeId: intervention.typeId || "",
+      targetId: intervention.targetId || "",
       ...intervention,
       recommendation: normalizeRecommendation(intervention.recommendation)
     }));
@@ -1571,7 +1578,7 @@
   function equipmentContext(equipmentId) {
     const equipment = state.equipment.find((item) => item.id === equipmentId);
     const apartment = state.apartments.find((item) => item.id === equipment?.apartmentId);
-    const building = state.buildings.find((item) => item.id === apartment?.buildingId);
+    const building = state.buildings.find((item) => item.id === apartment?.buildingId) || state.buildings.find((item) => item.id === equipment?.homeBuildingId);
     const storage = state.storageLocations.find((item) => item.id === equipment?.storageLocationId);
     const clientId = building?.clientId || equipment?.clientId || storage?.clientId;
     const client = state.clients.find((item) => item.id === clientId);
@@ -1590,6 +1597,8 @@
 
   function workOrderApartments(order) {
     if (!order) return [];
+    const targetApartmentIds = state.workOrderTargets.filter((item) => item.workOrderId === order.id && item.apartmentId).map((item) => item.apartmentId);
+    if (targetApartmentIds.length) return state.apartments.filter((item) => targetApartmentIds.includes(item.id));
     if (order.buildingId) return apartmentsForBuilding(order.buildingId);
     const { apartment } = equipmentContext(order.equipmentId);
     return apartment ? [apartment] : [];
@@ -1602,21 +1611,31 @@
   function workOrderProgress(order) {
     const apartments = workOrderApartments(order);
     const interventions = interventionsForOrder(order.id);
-    const completedApartmentIds = new Set(interventions.map((item) => item.apartmentId || state.equipment.find((eq) => eq.id === item.equipmentId)?.apartmentId).filter(Boolean));
-    const done = apartments.filter((apartment) => completedApartmentIds.has(apartment.id)).length;
+    const targets = state.workOrderTargets.filter((item) => item.workOrderId === order.id);
+    const done = apartments.filter((apartment) => {
+      const apartmentTargets = targets.filter((item) => item.apartmentId === apartment.id);
+      return apartmentTargets.length > 0 && apartmentTargets.every((item) => ["termine", "annule"].includes(item.status));
+    }).length;
     return {
       totalApartments: apartments.length,
       doneApartments: done,
-      machines: interventions.length,
+      machines: new Set(interventions.map((item) => item.equipmentId).filter(Boolean)).size,
+      activities: interventions.length,
       percent: apartments.length ? Math.round((done / apartments.length) * 100) : 0
     };
   }
 
   function formTemplateForOrder(order) {
-    const activityType = state.interventionTypes.find((item) => item.id === order?.typeId);
+    const activityType = state.interventionTypes.find((item) => item.id === (order?.defaultActivityTypeId || order?.typeId));
     return state.formTemplates.find((item) => item.id === order?.formTemplateId)
       || state.formTemplates.find((item) => item.id === activityType?.defaultFormTemplateId)
       || state.formTemplates[0];
+  }
+
+  function formTemplateForActivity(typeId, order) {
+    const activityType = state.interventionTypes.find((item) => item.id === typeId);
+    return state.formTemplates.find((item) => item.id === activityType?.defaultFormTemplateId)
+      || formTemplateForOrder(order);
   }
 
   function statusBadge(status) {
@@ -2394,12 +2413,14 @@
   }
 
   function internalRecommendationActions(interventionId, recommendation) {
+    const target = state.workOrderTargets.find((item) => item.sourceRecommendationId === interventionId);
+    const linkedOrder = state.workOrders.find((item) => item.id === target?.workOrderId || item.id === recommendation.workOrderId);
     return `
       <button class="ghost-button" data-action="open-modal" data-modal="recommendationReview" data-id="${escapeHtml(interventionId)}">Réviser</button>
       ${recommendation.status === "information_demandee" ? `<button class="primary-button" data-action="open-modal" data-modal="recommendationReply" data-id="${escapeHtml(interventionId)}">Répondre au client</button>` : ""}
       ${["a_valider", "information_demandee"].includes(recommendation.status) ? `<button class="primary-button" data-action="send-recommendation" data-id="${escapeHtml(interventionId)}">Envoyer au client</button>` : ""}
-      ${recommendation.status === "approuvee" && !recommendation.workOrderId ? `<button class="ghost-button" data-action="create-bt-from-recommendation" data-id="${escapeHtml(interventionId)}">Créer un BT</button>` : ""}
-      ${recommendation.workOrderId ? `<span class="meta">BT créé</span>` : ""}
+      ${!target ? `<button class="ghost-button" data-action="route-recommendation" data-mode="new" data-id="${escapeHtml(interventionId)}">Créer un BT</button><button class="ghost-button" data-action="open-modal" data-modal="recommendationRoute" data-id="${escapeHtml(interventionId)}">Ajouter à un BT existant</button>` : ""}
+      ${linkedOrder ? `<button class="text-button" data-action="dashboard-workorder" data-id="${escapeHtml(linkedOrder.id)}">${escapeHtml(linkedOrder.number || "Consulter le BT")}</button><span class="badge ${target?.approvalStatus === "pending" ? "warning" : target?.approvalStatus === "refused" ? "danger" : "success"}">${target?.approvalStatus === "pending" ? "Approbation en attente" : target?.approvalStatus === "refused" ? "Refusée" : "Exécutable"}</span>` : ""}
     `;
   }
 
@@ -2614,6 +2635,7 @@
     if (modal.type === "checklist") return checklistModal(modal.orderId);
     if (modal.type === "fieldIntervention") return fieldInterventionModal(modal);
     if (modal.type === "recommendationReview") return recommendationReviewModal(modal.id);
+    if (modal.type === "recommendationRoute") return recommendationRouteModal(modal.id);
     if (modal.type === "recommendationReply") return recommendationReplyModal(modal.id);
     if (modal.type === "clientRecommendationMessage") return clientRecommendationMessageModal(modal.id, modal.decisionStatus);
     if (modal.type === "buildingDocuments") return buildingDocumentsModal(modal.buildingId);
@@ -2929,8 +2951,8 @@
         <div class="field"><label>Resume de l'intervention</label><textarea name="summary" required>${escapeHtml(existing?.summary || "")}</textarea></div>
         <div class="actions field-intervention-actions">
           <button class="primary-button" type="submit">Enregistrer</button>
-          <button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter unité intérieure</button>
-          <button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter unité extérieure</button>
+          <button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter une unité intérieure</button>
+          <button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter une unité extérieure</button>
         </div>
       </form>
     `);
@@ -2944,8 +2966,8 @@
     return fallbacks[value] || "";
   }
 
-  function isReplacementWorkOrder(order) {
-    const type = state.interventionTypes.find((item) => item.id === order?.typeId);
+  function isReplacementActivityType(typeId) {
+    const type = state.interventionTypes.find((item) => item.id === typeId);
     return type?.behavior === "replacement" || type?.id === "remplacement_unite";
   }
 
@@ -2961,14 +2983,15 @@
     const machinesForApartment = selectedApartmentId === "__new" ? [] : equipmentForApartment(selectedApartmentId);
     const selectedActivityEquipmentId = selectedEquipment?.id || "__new";
     const equipmentOptions = machinesForApartment.map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityEquipmentId === item.id ? "selected" : ""}>${escapeHtml(item.type)} - ${escapeHtml(item.brand || "-")} ${escapeHtml(item.model || "")} ${item.serial ? `(${escapeHtml(item.serial)})` : ""}</option>`).join("");
-    const template = formTemplateForOrder(order);
+    const existing = modal.interventionId ? state.interventions.find((item) => item.id === modal.interventionId) : null;
+    const selectedActivityTypeId = modal.activityTypeId || existing?.typeId || order?.defaultActivityTypeId || order?.typeId || state.interventionTypes[0]?.id || "";
+    const template = formTemplateForActivity(selectedActivityTypeId, order);
     const activityFields = normalizeActivityFields(template?.activityFields);
     const statusOptions = dataFieldOptionsForSelect(activityFields.status);
     const activityStatuses = activityStatusOptions();
     const recommendationTypes = recommendationTypeOptions();
-    const existing = state.interventions.find((item) => item.workOrderId === order?.id && item.equipmentId === equipment.id);
     const recommendation = existing?.recommendation || {};
-    const replacementActivity = isReplacementWorkOrder(order);
+    const replacementActivity = isReplacementActivityType(selectedActivityTypeId);
     const existingReplacement = state.equipmentReplacements.find((item) => item.workOrderId === order?.id && item.oldEquipmentId === equipment.id);
     const installedReplacement = state.equipment.find((item) => item.id === existingReplacement?.newEquipmentId);
     const replacementCandidates = scopedEquipment().filter((item) => item.id !== equipment.id && item.lifecycleStatus !== "disposed");
@@ -2987,8 +3010,15 @@
     const identityLocked = Boolean(selectedEquipment && currentUser()?.role === "technicien" && !canEditEquipment());
     const readOnly = identityLocked ? "readonly" : "";
     const hasRecommendation = Boolean(recommendation.type);
+    const assignedIds = new Set([order?.technicianId, ...(order?.assignedTechnicianIds || [])].filter(Boolean));
+    const canEditActivity = ["administrateur", "equipe_interne"].includes(currentUser()?.role) || (currentUser()?.role === "technicien" && assignedIds.has(currentUser()?.id) && order?.status !== "termine");
+    const readOnlyActivity = Boolean(modal.readOnly) || !canEditActivity;
+    const systems = state.hvacSystems.filter((item) => item.apartmentId === selectedApartmentId && item.active !== false);
+    const selectedSystemId = modal.systemId || equipment.systemId || systems[0]?.id || "";
+    const systemOptions = systems.map((item) => `<option value="${escapeHtml(item.id)}" ${selectedSystemId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
+    const activityTypeOptions = state.interventionTypes.filter((item) => item.active !== false).map((item) => `<option value="${escapeHtml(item.id)}" ${selectedActivityTypeId === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
     return modalShell(`Activité${apartment ? ` - Apt ${escapeHtml(apartment.number)}` : ""}`, `
-      <form class="form-grid technician-field-form" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}" data-replacement-activity="${replacementActivity ? "true" : "false"}">
+      <form class="form-grid technician-field-form" data-form="fieldIntervention" data-order-id="${escapeHtml(order?.id || "")}" data-equipment-id="${escapeHtml(selectedEquipment?.id || "")}" data-intervention-id="${escapeHtml(existing?.id || "")}" data-activity-type-id="${escapeHtml(selectedActivityTypeId)}" data-form-template-id="${escapeHtml(template?.id || "")}" data-replacement-activity="${replacementActivity ? "true" : "false"}" data-read-only="${readOnlyActivity ? "true" : "false"}">
         <details class="technician-form-section" open>
           <summary><span>1</span><strong>Informations de l'appartement</strong><small>${escapeHtml(building?.name || "")} ${apartment ? `| Apt ${escapeHtml(apartment.number)}` : ""}</small></summary>
           <div class="technician-form-section-body">
@@ -3000,6 +3030,7 @@
           <summary><span>2</span><strong>Informations de l'unité</strong><small>${escapeHtml(equipment.type || "Nouvelle machine")}</small></summary>
           <div class="technician-form-section-body">
             <div class="split"><div class="field"><label>Machine</label><select name="activityEquipmentId" data-activity-equipment-select><option value="__new">Créer une nouvelle machine</option>${equipmentOptions}</select></div><div class="field"><label>Position de l'unité</label><select name="unitKind" ${identityLocked ? "aria-disabled=\"true\" class=\"select-readonly\"" : ""}><option value="interieure" ${equipment.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${equipment.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div></div>
+            <div class="field"><label>Système HVAC</label><select name="systemId"><option value="">Non groupé</option>${systemOptions}</select></div>
             <div class="split">${activityTextInput("type", activityFields.type, equipment.type)}${activityTextInput("location", activityFields.location, equipment.location)}</div>
             <div class="split">${activityTextInput("brand", activityFields.brand, equipment.brand)}${activityTextInput("model", activityFields.model, equipment.model)}</div>
             <div class="split"><div class="field"><label>${activityFields.serial.label}${activityFields.serial.required ? " *" : ""}</label><input name="serial" value="${escapeHtml(equipment.serial || "")}" ${readOnly} ${activityFields.serial.required ? "required" : ""}></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="manufactureAgeInfo" value="${escapeHtml(equipment.manufactureAgeInfo || "")}" ${readOnly} placeholder="Ex.: 2018, environ 8 ans"></div></div>
@@ -3007,9 +3038,10 @@
           </div>
         </details>
         <details class="technician-form-section" open>
-          <summary><span>3</span><strong>Inspection et conclusion</strong><small>${escapeHtml(template?.name || "Formulaire terrain")}</small></summary>
+          <summary><span>3</span><strong>Activité et conclusion</strong><small data-activity-template-name>${escapeHtml(template?.name || "Formulaire terrain")}</small></summary>
           <div class="technician-form-section-body">
-            <div class="form-builder dynamic-form-grid">${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}</div>
+            <div class="field"><label>Type d'activité</label><select name="activityTypeId" data-field-activity-type required>${activityTypeOptions}</select></div>
+            <div class="form-builder dynamic-form-grid" data-activity-form-fields>${(template?.fields || []).map((field) => renderDynamicField(field, existing?.formResponses?.[field.label] ?? field.defaultValue)).join("")}</div>
             <div class="form-subsection-title">Conclusion</div>
             <div class="split"><div class="field"><label>Résultat de l'activité</label><select name="activityStatus" data-activity-result>${activityStatuses.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.activityStatus || "completee") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div><div class="field"><label>État constaté de la machine${activityFields.status.required ? " *" : ""}</label><select name="machineStatus" ${activityFields.status.required ? "required" : ""}><option value="">Sélectionner</option>${statusOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${(existing?.machineStatus || equipment.conditionStatus || equipment.status) === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div></div>
             <div class="field"><label>Recommandation</label><select name="recommendationType" data-recommendation-select><option value="">Aucune recommandation</option>${recommendationTypes.map((option) => `<option value="${escapeHtml(option.value)}" ${recommendation.type === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></div>
@@ -3019,8 +3051,8 @@
             <div class="field"><label>Photos et documents</label><input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"><p class="meta">Maximum 3 fichiers, 10 MB par fichier.</p></div>
           </div>
         </details>
-        ${replacementActivity ? `<details class="technician-form-section replacement-section" open data-replacement-section><summary><span>4</span><strong>Remplacement de l'unité</strong><small>Nouvelle unité et destination de l'ancienne</small></summary><div class="technician-form-section-body">${existingReplacement ? `<div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div>` : `<div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div><div class="split"><div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div><div class="field"><label>Type</label><input name="replacementType" value="${escapeHtml(replacementUnit.type || "")}"></div></div><div class="split"><div class="field"><label>Localisation</label><input name="replacementLocation" value="${escapeHtml(replacementUnit.location || equipment.location || "")}"></div><div class="field"><label>Marque</label><input name="replacementBrand" value="${escapeHtml(replacementUnit.brand || "")}"></div></div><div class="split"><div class="field"><label>Modèle</label><input name="replacementModel" value="${escapeHtml(replacementUnit.model || "")}"></div><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div><div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div><div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div><div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div><div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div><div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement après cet enregistrement.</span></div>`}</div></details>` : ""}
-        <div class="actions field-intervention-actions sticky-form-actions"><button class="primary-button" type="submit">Enregistrer</button>${replacementActivity ? "" : `<button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter unité intérieure</button><button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter unité extérieure</button>`}</div>
+        <details class="technician-form-section replacement-section ${replacementActivity ? "" : "hidden"}" open data-replacement-section><summary><span>4</span><strong>Remplacement de l'unité</strong><small>Nouvelle unité et destination de l'ancienne</small></summary><div class="technician-form-section-body">${existingReplacement ? `<div class="success-summary"><strong>Remplacement déjà enregistré</strong><span>Nouvelle unité: ${escapeHtml(installedReplacement?.type || installedReplacement?.serial || "-")}</span></div>` : `<div class="field"><label>Nouvelle unité</label><select name="replacementEquipmentId" data-replacement-equipment-select><option value="__new">Créer une nouvelle machine</option>${replacementOptions}</select></div><div class="split"><div class="field"><label>Position de la nouvelle unité</label><select name="replacementUnitKind"><option value="interieure" ${replacementUnit.unitKind !== "exterieure" ? "selected" : ""}>Unité intérieure</option><option value="exterieure" ${replacementUnit.unitKind === "exterieure" ? "selected" : ""}>Unité extérieure</option></select></div><div class="field"><label>Type</label><input name="replacementType" value="${escapeHtml(replacementUnit.type || "")}"></div></div><div class="split"><div class="field"><label>Localisation</label><input name="replacementLocation" value="${escapeHtml(replacementUnit.location || equipment.location || "")}"></div><div class="field"><label>Marque</label><input name="replacementBrand" value="${escapeHtml(replacementUnit.brand || "")}"></div></div><div class="split"><div class="field"><label>Modèle</label><input name="replacementModel" value="${escapeHtml(replacementUnit.model || "")}"></div><div class="field"><label>Numéro de série</label><input name="replacementSerial" value="${escapeHtml(replacementUnit.serial || "")}"></div></div><div class="field"><label>Année de fabrication ou âge estimé</label><input name="replacementManufactureAgeInfo" value="${escapeHtml(replacementUnit.manufactureAgeInfo || "")}" placeholder="Ex.: 2024"></div><div class="field"><label>Destination de l'ancienne unité</label><select name="oldEquipmentDisposition" data-disposition-select><option value="">Sélectionner</option><option value="transfer_apartment">Transférer vers un autre appartement</option><option value="storage">Transférer vers un dépôt</option><option value="dispose">Mettre au rebut</option></select></div><div class="field disposition-destination hidden" data-disposition-apartment><label>Appartement de destination</label><select name="destinationApartmentId"><option value="">Sélectionner</option>${destinationApartments}</select></div><div class="field disposition-destination hidden" data-disposition-storage><label>Dépôt de destination</label><select name="destinationStorageLocationId"><option value="">Sélectionner</option>${storageOptions}</select></div><div class="field"><label>Motif ou précision</label><textarea name="replacementReason">Remplacement de l'unité</textarea></div><div class="confirmation-box"><strong>Confirmation requise</strong><span>La localisation de l'ancienne unité sera mise à jour seulement après cet enregistrement.</span></div>`}</div></details>
+        ${readOnlyActivity ? `<div class="meta">Consultation en lecture seule.</div>` : `<div class="actions field-intervention-actions sticky-form-actions"><button class="primary-button" type="submit">Enregistrer</button><button class="ghost-button" type="submit" data-after-save="interieure">Enregistrer et ajouter une unité intérieure</button><button class="ghost-button" type="submit" data-after-save="exterieure">Enregistrer et ajouter une unité extérieure</button></div>`}
       </form>
     `, "modal-card-field");
   }
@@ -3052,6 +3084,7 @@
         <div class="field"><label>Temps prévu pour la réparation</label><input name="time" value="${escapeHtml(recommendation.time || "")}" placeholder="Ex.: 2 h"></div>
         <div class="field"><label>Message visible par le client / réponse</label><textarea name="clientMessage" placeholder="Réponse ou texte commercial clair pour le client">${escapeHtml(recommendation.clientMessage || recommendation.description || "")}</textarea></div>
         <div class="field"><label>Note interne</label><textarea name="internalNote">${escapeHtml(recommendation.internalNote || "")}</textarea></div>
+        <label class="check-row"><input type="checkbox" name="requiresClientApproval" ${recommendation.requiresClientApproval !== false ? "checked" : ""}> Exiger l'approbation du client avant l'exécution</label>
         <div class="field"><label>Statut</label><select name="status"><option value="a_valider" ${recommendation.status === "a_valider" ? "selected" : ""}>À valider</option><option value="envoyee" ${recommendation.status === "envoyee" ? "selected" : ""}>Envoyée au client</option><option value="information_demandee" ${recommendation.status === "information_demandee" ? "selected" : ""}>Information demandée</option><option value="approuvee" ${recommendation.status === "approuvee" ? "selected" : ""}>Approuvée</option><option value="refusee" ${recommendation.status === "refusee" ? "selected" : ""}>Refusée</option></select></div>
         <button class="primary-button" type="submit">Enregistrer la recommandation</button>
       </form>
@@ -3141,6 +3174,24 @@
     return interventionsViewModule.activityTextInput(name, config, value);
   }
 
+  function recommendationRouteModal(interventionId) {
+    const intervention = state.interventions.find((item) => item.id === interventionId);
+    if (!intervention?.recommendation) return modalShell("Ajouter à un BT", `<div class="empty">Recommandation introuvable.</div>`);
+    const { building } = equipmentContext(intervention.equipmentId);
+    const orders = state.workOrders.filter((item) => {
+      const context = workOrderContext(item);
+      return context.building?.id === building?.id && !["termine", "annule"].includes(item.status);
+    });
+    return modalShell("Ajouter la recommandation à un BT", `
+      <form class="form-grid" data-form="recommendationRoute">
+        <input type="hidden" name="interventionId" value="${escapeHtml(interventionId)}">
+        <p class="meta">Seuls les bons de travail du même lieu sont proposés.</p>
+        <div class="field"><label>Bon de travail</label><select name="workOrderId" required><option value="">Sélectionner</option>${orders.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.number)} - ${escapeHtml(item.object || item.notes || "")}</option>`).join("")}</select></div>
+        ${orders.length ? `<button class="primary-button" type="submit">Ajouter au BT</button>` : `<div class="empty">Aucun BT ouvert pour ce lieu.</div>`}
+      </form>
+    `);
+  }
+
   function activityOptions(name, config = {}) {
     return interventionsViewModule.activityOptions(name, config);
   }
@@ -3189,6 +3240,7 @@
     if (formType === "checklist") await saveChecklist(form, values);
     if (formType === "fieldIntervention") await saveFieldIntervention(form, values);
     if (formType === "recommendationReview") await saveRecommendationReview(values);
+    if (formType === "recommendationRoute") await routeRecommendation(values.interventionId, "existing", values.workOrderId);
     if (formType === "recommendationReply") await saveRecommendationReply(values);
     if (formType === "clientRecommendationMessage") await saveClientRecommendationMessage(values);
     if (formType === "clientDocument") await saveClientDocument(form, values);
@@ -3533,11 +3585,14 @@
   async function saveFieldIntervention(form, values) {
     const orderId = form.dataset.orderId;
     const order = state.workOrders.find((item) => item.id === orderId);
-    const template = formTemplateForOrder(order);
+    const activityTypeId = values.activityTypeId || form.dataset.activityTypeId || order.defaultActivityTypeId || order.typeId;
+    const template = formTemplateForActivity(activityTypeId, order);
     updateDynamicVisibility(form);
     if (!validateRequiredResponses(form, template)) return;
     const apartmentId = resolveActivityApartment(order, values);
     if (!apartmentId) return;
+    const activityApartment = state.apartments.find((item) => item.id === apartmentId);
+    const building = state.buildings.find((item) => item.id === activityApartment?.buildingId);
     const newApartmentPayload = values.apartmentId === "__new" ? state.apartments.find((item) => item.id === apartmentId) : null;
     const requestedEquipmentId = values.activityEquipmentId && values.activityEquipmentId !== "__new" ? values.activityEquipmentId : form.dataset.equipmentId;
     let equipment = state.equipment.find((item) => item.id === requestedEquipmentId);
@@ -3545,6 +3600,9 @@
       equipment = {
         id: uid("eq"),
         apartmentId,
+        clientId: building?.clientId || "",
+        homeBuildingId: building?.id || "",
+        systemId: values.systemId || "",
         unitKind: values.unitKind || "interieure",
         type: values.type,
         brand: values.brand || "",
@@ -3562,6 +3620,9 @@
     } else {
       Object.assign(equipment, {
         apartmentId,
+        clientId: equipment.clientId || building?.clientId || "",
+        homeBuildingId: equipment.homeBuildingId || building?.id || "",
+        systemId: values.systemId || equipment.systemId || "",
         unitKind: values.unitKind || equipment.unitKind || "interieure",
         type: values.type,
         brand: values.brand || "",
@@ -3572,13 +3633,13 @@
       });
     }
     const responses = collectFormResponses(form, template);
-    const existing = state.interventions.find((item) => item.workOrderId === orderId && item.equipmentId === equipment.id);
+    const existing = form.dataset.interventionId ? state.interventions.find((item) => item.id === form.dataset.interventionId) : null;
     const intervention = existing || {
       id: uid("int"),
       equipmentId: equipment.id,
       apartmentId,
       workOrderId: order.id,
-      typeId: order.typeId,
+      typeId: activityTypeId,
       date: today(),
       technicianId: currentUser().role === "technicien" ? currentUser().id : order.technicianId,
       status: "terminee",
@@ -3586,6 +3647,8 @@
       checklistDone: []
     };
     intervention.apartmentId = apartmentId;
+    intervention.typeId = activityTypeId;
+    intervention.targetId = state.workOrderTargets.find((item) => item.workOrderId === order.id && item.apartmentId === apartmentId)?.id || "";
     intervention.formTemplateId = template?.id || "";
     intervention.formResponses = responses;
     intervention.activityStatus = values.activityStatus || "completee";
@@ -3652,8 +3715,6 @@
       equipment.nextService = next.toISOString().slice(0, 10);
     }
     if (["planifie", "brouillon"].includes(order.status)) order.status = "en_cours";
-    const progress = workOrderProgress(order);
-    if (progress.totalApartments && progress.doneApartments === progress.totalApartments) order.status = "termine";
     const replacement = collectReplacementBundle(form, values, equipment, intervention, order);
     if (replacement === false) return;
     if (["interieure", "exterieure"].includes(values.afterSave)) {
@@ -3661,7 +3722,7 @@
         activeView: "execution",
         selectedWorkOrderId: order.id,
         selectedExecutionApartmentId: apartmentId,
-        modal: { type: "fieldIntervention", orderId: order.id, apartmentId, unitKind: values.afterSave }
+        modal: { type: "fieldIntervention", orderId: order.id, apartmentId, unitKind: values.afterSave, systemId: equipment.systemId || "", activityTypeId }
       }, values.afterSave === "exterieure" ? "Activité enregistrée. Nouvelle unité extérieure prête." : "Activité enregistrée. Nouvelle unité intérieure prête.");
       return;
     }
@@ -3673,8 +3734,62 @@
     }, "Formulaire terrain enregistre.");
   }
 
+  function applyOperationalResponse(response, patch, message) {
+    if (!response?.state) return;
+    acceptServerState(response.state, { ...patch, modal: null, toast: message });
+  }
+
+  async function createHvacSystemForApartment(workOrderId, apartmentId) {
+    const apartment = state.apartments.find((item) => item.id === apartmentId);
+    if (!apartment) return showToast("Appartement introuvable.");
+    const existingCount = state.hvacSystems.filter((item) => item.apartmentId === apartmentId).length;
+    const system = { id: uid("system"), apartmentId, name: `Système ${existingCount + 1}`, active: true };
+    updateUiState({ toast: "Création du système HVAC..." });
+    try {
+      const response = await api.createHvacSystem(system, workOrderId);
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId, modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id } }, "Système HVAC créé.");
+      updateUiState({ modal: { type: "fieldIntervention", orderId: workOrderId, apartmentId, systemId: system.id, activityTypeId: state.workOrders.find((item) => item.id === workOrderId)?.defaultActivityTypeId || "" } });
+    } catch (error) {
+      showToast(error.message || "Système HVAC non créé.");
+    }
+  }
+
+  async function completeWorkOrderApartment(workOrderId, apartmentId) {
+    updateUiState({ toast: "Validation de l'appartement..." });
+    try {
+      const response = await api.completeWorkOrderApartment(workOrderId, apartmentId);
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId, selectedExecutionApartmentId: apartmentId }, "Appartement terminé.");
+    } catch (error) {
+      showToast(error.message || "Appartement non terminé.");
+    }
+  }
+
+  async function closeWorkOrderNow(workOrderId) {
+    const order = state.workOrders.find((item) => item.id === workOrderId);
+    const progress = order ? workOrderProgress(order) : { doneApartments: 0, totalApartments: 0 };
+    const reason = progress.doneApartments < progress.totalApartments ? prompt("Motif obligatoire pour clôturer un BT incomplet:") : "";
+    if (progress.doneApartments < progress.totalApartments && !reason?.trim()) return;
+    try {
+      const response = await api.closeWorkOrder(workOrderId, reason || "");
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId }, "Bon de travail clôturé.");
+    } catch (error) {
+      showToast(error.message || "Bon de travail non clôturé.");
+    }
+  }
+
+  async function reopenWorkOrderNow(workOrderId) {
+    const reason = prompt("Motif de réouverture:");
+    if (!reason?.trim()) return;
+    try {
+      const response = await api.reopenWorkOrder(workOrderId, reason);
+      applyOperationalResponse(response, { activeView: "execution", selectedWorkOrderId: workOrderId }, "Bon de travail réouvert.");
+    } catch (error) {
+      showToast(error.message || "Bon de travail non réouvert.");
+    }
+  }
+
   function collectReplacementBundle(form, values, oldEquipment, intervention, order) {
-    if (!isReplacementWorkOrder(order) || dataFieldOptionBehavior("activity_status", values.activityStatus || "completee") !== "completed") return null;
+    if (!isReplacementActivityType(intervention.typeId) || dataFieldOptionBehavior("activity_status", values.activityStatus || "completee") !== "completed") return null;
     if (state.equipmentReplacements.some((item) => item.workOrderId === order.id && item.oldEquipmentId === oldEquipment.id)) return null;
     const selectedId = values.replacementEquipmentId;
     let newEquipment = state.equipment.find((item) => item.id === selectedId);
@@ -3687,6 +3802,8 @@
         id: uid("eq"),
         apartmentId: oldEquipment.apartmentId,
         unitKind: values.replacementUnitKind || "interieure",
+        systemId: oldEquipment.systemId || "",
+        homeBuildingId: oldEquipment.homeBuildingId || "",
         type: values.replacementType.trim(),
         location: values.replacementLocation || oldEquipment.location || "",
         brand: values.replacementBrand || "",
@@ -3758,6 +3875,7 @@
       delay: values.delay || "",
       clientMessage: values.clientMessage || "",
       internalNote: values.internalNote || "",
+      requiresClientApproval: Boolean(values.requiresClientApproval),
       status: values.status || "a_valider",
       reviewedBy: currentUser()?.id || intervention.recommendation.reviewedBy || ""
     });
@@ -3767,7 +3885,12 @@
     if (values.clientMessage && (values.clientMessage !== previousMessage || intervention.recommendation.status === "envoyee")) {
       addRecommendationMessage(intervention.recommendation, "interne", values.clientMessage);
     }
-    await saveInterventionChange(intervention, { activeView: "recommandations" }, "Recommandation enregistrée.");
+    try {
+      const response = await api.reviewRecommendation(intervention.id, intervention.recommendation);
+      applyOperationalResponse(response, { activeView: "recommandations" }, "Recommandation enregistrée.");
+    } catch (error) {
+      showToast(error.message || "Recommandation non enregistrée.");
+    }
   }
 
   async function sendRecommendationToClient(interventionId) {
@@ -3782,8 +3905,14 @@
     recommendation.status = "envoyee";
     recommendation.sentAt = today();
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
+    if (recommendation.requiresClientApproval === undefined) recommendation.requiresClientApproval = true;
     addRecommendationMessage(recommendation, "interne", recommendation.clientMessage || recommendation.description);
-    await saveInterventionChange(intervention, { activeView: "recommandations" }, "Recommandation envoyée au client.");
+    try {
+      const response = await api.reviewRecommendation(intervention.id, recommendation);
+      applyOperationalResponse(response, { activeView: "recommandations" }, "Recommandation envoyée au client.");
+    } catch (error) {
+      showToast(error.message || "Recommandation non envoyée.");
+    }
   }
 
   async function saveRecommendationReply(values) {
@@ -3795,7 +3924,12 @@
     recommendation.sentAt = today();
     recommendation.reviewedBy = currentUser()?.id || recommendation.reviewedBy || "";
     addRecommendationMessage(recommendation, "interne", values.reply);
-    await saveInterventionChange(intervention, { activeView: "recommandations" }, "Réponse envoyée au client.");
+    try {
+      const response = await api.reviewRecommendation(intervention.id, recommendation);
+      applyOperationalResponse(response, { activeView: "recommandations" }, "Réponse envoyée au client.");
+    } catch (error) {
+      showToast(error.message || "Réponse non envoyée.");
+    }
   }
 
   async function clientRecommendationDecision(interventionId, status) {
@@ -3807,7 +3941,12 @@
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     if (status === "approuvee") addRecommendationMessage(recommendation, "client", "Recommandation approuvée.");
-    await saveInterventionChange(intervention, { activeView: "recommandations" }, status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
+    try {
+      const response = await api.respondRecommendation(intervention.id, recommendation);
+      applyOperationalResponse(response, { activeView: "recommandations" }, status === "approuvee" ? "Recommandation approuvée." : status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
+    } catch (error) {
+      showToast(error.message || "Réponse non enregistrée.");
+    }
   }
 
   async function saveClientRecommendationMessage(values) {
@@ -3819,7 +3958,12 @@
     recommendation.decisionAt = today();
     recommendation.decidedBy = currentUser()?.id || "";
     addRecommendationMessage(recommendation, "client", values.clientComment);
-    await saveInterventionChange(intervention, { activeView: "recommandations" }, recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
+    try {
+      const response = await api.respondRecommendation(intervention.id, recommendation);
+      applyOperationalResponse(response, { activeView: "recommandations" }, recommendation.status === "refusee" ? "Recommandation refusée." : "Demande d'information envoyée.");
+    } catch (error) {
+      showToast(error.message || "Message non envoyé.");
+    }
   }
 
   async function saveClientDocument(form, values) {
@@ -3905,54 +4049,13 @@
     });
   }
 
-  async function createWorkOrderFromRecommendation(interventionId) {
-    const intervention = state.interventions.find((item) => item.id === interventionId);
-    const recommendation = intervention?.recommendation;
-    if (!intervention || recommendation?.status !== "approuvee") return;
-    const previousWorkOrders = JSON.parse(JSON.stringify(state.workOrders));
-    const previousInterventions = JSON.parse(JSON.stringify(state.interventions));
-    const repairType = state.interventionTypes.find((item) => /réparation|reparation|diagnostic/i.test(item.name)) || state.interventionTypes[0];
-    const technician = state.users.find((user) => user.role === "technicien");
-    const number = `BT-${new Date().getFullYear()}-${String(state.workOrders.length + 1).padStart(3, "0")}`;
-    const order = {
-      id: uid("wo"),
-      number,
-      ticketId: null,
-      scope: "equipment",
-      buildingId: "",
-      equipmentId: intervention.equipmentId,
-      typeId: repairType?.id || "",
-      formTemplateId: state.formTemplates[0]?.id || "",
-      technicianId: technician?.id || "",
-      scheduledDate: today(),
-      status: "planifie",
-      notes: `Recommandation approuvée: ${dataFieldLabelByValue("recommendation_type", recommendation.type)}. ${recommendation.clientMessage || recommendation.description || ""}`
-    };
-    state.workOrders.unshift(order);
-    recommendation.workOrderId = order.id;
-    const uiPatch = { activeView: "bons" };
-    updateUiState({ ...uiPatch, toast: "Création du BT..." });
+  async function routeRecommendation(interventionId, mode, workOrderId = "") {
+    updateUiState({ toast: mode === "new" ? "Création du BT..." : "Ajout au BT..." });
     try {
-      await saveDomainItemNow(api.saveWorkOrder, order, uiPatch, `BT créé: ${order.number}`);
-      const interventionPayload = await api.saveIntervention(intervention);
-      if (interventionPayload.state) {
-        rememberServerState(interventionPayload.state);
-        const uiState = currentUiState();
-        state = {
-          ...normalizeState(interventionPayload.state),
-          ...uiState,
-          ...uiPatch,
-          sessionUserId: uiState.sessionUserId,
-          modal: null,
-          toast: `BT créé: ${order.number}`
-        };
-        render();
-        scheduleToastClear();
-      }
+      const response = await api.routeRecommendation(interventionId, mode, workOrderId);
+      applyOperationalResponse(response, { activeView: "recommandations" }, mode === "new" ? `BT créé: ${response.workOrder?.number || ""}` : "Recommandation ajoutée au BT.");
     } catch (error) {
-      state.workOrders = previousWorkOrders;
-      state.interventions = previousInterventions;
-      updateUiState({ ...uiPatch, toast: error.message || "BT non créé." });
+      showToast(error.message || "Recommandation non ajoutée au BT.");
     }
   }
 
@@ -4274,6 +4377,10 @@
           clientId: target.dataset.client || null,
           apartmentId: target.dataset.apartment || null,
           unitKind: target.dataset.unitKind || null,
+          systemId: target.dataset.system || null,
+          activityTypeId: target.dataset.activityType || null,
+          interventionId: target.dataset.intervention || null,
+          readOnly: target.dataset.readOnly === "true",
           decisionStatus: target.dataset.status || null,
           orderId: target.dataset.order || null,
           reminderId: target.dataset.reminder || null
@@ -4299,6 +4406,22 @@
       }
       if (action === "select-execution-apartment") {
         updateUiState({ selectedExecutionApartmentId: target.dataset.id });
+      }
+      if (action === "new-hvac-system") {
+        await createHvacSystemForApartment(target.dataset.order, target.dataset.apartment);
+        return;
+      }
+      if (action === "complete-workorder-apartment") {
+        await completeWorkOrderApartment(target.dataset.order, target.dataset.apartment);
+        return;
+      }
+      if (action === "close-workorder") {
+        await closeWorkOrderNow(target.dataset.id);
+        return;
+      }
+      if (action === "reopen-workorder") {
+        await reopenWorkOrderNow(target.dataset.id);
+        return;
       }
       if (action === "preview-attachment") {
         openAttachmentPreview(target.dataset.id, target.dataset.hideDownload !== "true");
@@ -4482,8 +4605,8 @@
         clientRecommendationDecision(target.dataset.id, target.dataset.status);
         return;
       }
-      if (action === "create-bt-from-recommendation") {
-        createWorkOrderFromRecommendation(target.dataset.id);
+      if (action === "route-recommendation") {
+        routeRecommendation(target.dataset.id, target.dataset.mode || "new", target.dataset.workOrder || "");
         return;
       }
       if (action === "export") exportReport(target.dataset.report);
@@ -4500,6 +4623,7 @@
       updateTechnicianPermissionsVisibility(event.target.closest("form"));
       updateUserAccessEditor(event.target.closest("form"), event.target.name === "clientId");
       if (event.target.matches("[data-activity-equipment-select]")) populateActivityEquipment(event.target);
+      if (event.target.matches("[data-field-activity-type]")) updateFieldActivityType(event.target);
       if (event.target.matches("[data-replacement-equipment-select]")) populateReplacementEquipment(event.target);
       if (event.target.matches("[data-disposition-select]")) updateDispositionVisibility(event.target.closest("form"));
       if (event.target.matches("[data-activity-result]")) updateReplacementSectionVisibility(event.target.closest("form"));
@@ -4567,6 +4691,8 @@
     });
     const unitKind = form.querySelector('[name="unitKind"]');
     if (unitKind && equipment?.unitKind) unitKind.value = equipment.unitKind;
+    const systemId = form.querySelector('[name="systemId"]');
+    if (systemId && equipment?.systemId) systemId.value = equipment.systemId;
     const machineStatus = form.querySelector('[name="machineStatus"]');
     if (machineStatus) machineStatus.value = "";
     const notes = form.querySelector('[name="equipmentNotes"]');
@@ -4632,12 +4758,25 @@
     const section = form.querySelector("[data-replacement-section]");
     if (!section) return;
     const result = form.querySelector("[data-activity-result]")?.value || "";
-    const visible = dataFieldOptionBehavior("activity_status", result) === "completed";
+    const visible = form.dataset.replacementActivity === "true" && dataFieldOptionBehavior("activity_status", result) === "completed";
     section.classList.toggle("hidden", !visible);
     section.querySelectorAll("input, select, textarea").forEach((input) => {
       input.disabled = !visible;
     });
     if (visible) updateDispositionVisibility(form);
+  }
+
+  function updateFieldActivityType(select) {
+    const form = select.closest("form[data-form='fieldIntervention']");
+    if (!form) return;
+    const order = state.workOrders.find((item) => item.id === form.dataset.orderId);
+    const template = formTemplateForActivity(select.value, order);
+    const fields = form.querySelector("[data-activity-form-fields]");
+    if (fields) fields.innerHTML = (template?.fields || []).map((field) => renderDynamicField(field, field.defaultValue)).join("");
+    form.dataset.activityTypeId = select.value;
+    form.dataset.replacementActivity = isReplacementActivityType(select.value) ? "true" : "false";
+    updateDynamicVisibility(form);
+    updateReplacementSectionVisibility(form);
   }
 
   function addFormQuestion(form) {
@@ -4942,6 +5081,7 @@
     updateNewApartmentVisibility(app.querySelector("form[data-form='fieldIntervention']"));
     updateRecommendationVisibility(app.querySelector("form[data-form='fieldIntervention']"));
     const fieldForm = app.querySelector("form[data-form='fieldIntervention']");
+    if (fieldForm?.dataset.readOnly === "true") fieldForm.querySelectorAll("input, select, textarea, button[type='submit']").forEach((control) => { control.disabled = true; });
     updateEquipmentIdentityAccess(fieldForm, state.equipment.find((item) => item.id === fieldForm?.dataset.equipmentId));
     updateReplacementSectionVisibility(fieldForm);
   }

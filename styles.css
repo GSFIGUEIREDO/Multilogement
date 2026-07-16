@@ -2003,6 +2003,32 @@ td button.link-button {
   border-left: 4px solid #15803d;
 }
 
+.hvac-system-group {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf9;
+}
+
+.system-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.activity-card {
+  border-left: 4px solid var(--brand);
+}
+
+.apartment-completion-action {
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .form-subsection-title {
   margin-top: 4px;
   padding-top: 14px;
@@ -2810,6 +2836,17 @@ td button.link-button {
 
   .technician-field-form {
     padding-bottom: calc(74px + env(safe-area-inset-bottom));
+  }
+
+  .system-group-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .system-group-header .actions,
+  .system-group-header .actions button,
+  .apartment-completion-action button {
+    width: 100%;
   }
 
   .sticky-form-actions {

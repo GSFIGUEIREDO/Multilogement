@@ -31,7 +31,8 @@
         updateUiState,
         saveUserNow,
         showToast,
-        acceptServerState
+        acceptServerState,
+        captureMutationUiContext
       } = context;
 
       function clientAccessLabel(level) {
@@ -282,6 +283,7 @@
         const previousUsers = JSON.parse(JSON.stringify(state.users));
         state.users = state.users.filter((item) => item.id !== userId);
         updateUiState({ modal: null, activeView: "utilisateurs", toast: "Suppression de l'utilisateur..." });
+        const requestUiContext = captureMutationUiContext();
         try {
           const payload = await api.deleteUser(userId);
           if (payload.state) {
@@ -289,7 +291,7 @@
               activeView: "utilisateurs",
               modal: null,
               toast: "Utilisateur supprimé."
-            });
+            }, requestUiContext);
           }
         } catch (error) {
           state.users = previousUsers;

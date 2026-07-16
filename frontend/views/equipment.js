@@ -21,7 +21,8 @@
         statusBadge, interventionItem, ticketItem, workOrderItem, reminderItem,
         attachmentItem, modalShell, normalizeActivityFields, dataFieldOptionsForSelect,
         buildingForApartment, comboInput, activityOptions, today, uid,
-        updateUiState, saveEquipmentNow, documentsModule, acceptServerState, showToast
+        updateUiState, saveEquipmentNow, documentsModule, acceptServerState,
+        captureMutationUiContext, showToast
       } = context;
 
       function filteredEquipment() {
@@ -181,6 +182,7 @@
         if (files.length > 3) return showToast("Maximum 3 fichiers par envoi.");
         const oversized = files.find((file) => file.size > documentsModule.limits.attachmentMaxBytes);
         if (oversized) return showToast(`${oversized.name} dépasse 15 MB.`);
+        const requestUiContext = captureMutationUiContext();
         try {
           let response = null;
           for (const file of files) {
@@ -201,7 +203,7 @@
               selectedEquipmentId: equipment.id,
               modal: null,
               toast: files.length > 1 ? "Fichiers ajoutés au dossier." : "Fichier ajouté au dossier."
-            });
+            }, requestUiContext);
           }
         } catch (error) {
           showToast(error.message || "Fichier non envoyé.");

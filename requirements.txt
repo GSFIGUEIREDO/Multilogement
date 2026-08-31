@@ -1,4 +1,0 @@
-psycopg[binary]==3.3.4
-fastapi
-uvicorn
-httpx

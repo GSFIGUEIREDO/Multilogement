@@ -1,1 +1,0 @@
-"""ClimaParc application package."""
